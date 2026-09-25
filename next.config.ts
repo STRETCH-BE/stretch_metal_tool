@@ -13,6 +13,11 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["pdfjs-dist", "@react-pdf/renderer"],
+  // The quote PDF route registers the static Archivo TTFs from disk; make
+  // sure Vercel's output file tracing ships them with the function.
+  outputFileTracingIncludes: {
+    "/api/quotes/[id]/pdf": ["./public/fonts/pdf/*.ttf"],
+  },
   experimental: {
     serverActions: {
       // Server actions carry only JSON (ids, annotations, rate rows) — files
