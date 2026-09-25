@@ -144,6 +144,8 @@ export type GeneralRate = {
   /** Handling surcharge suggestion above this mass (kg). */
   handlingMassLimitKg: number;
   handlingSurchargeEur: number;
+  /** Welding-only quotes: handling cost per customer-supplied part. */
+  weldHandlingPerPart: number;
   placeholder: boolean;
 };
 

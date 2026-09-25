@@ -85,6 +85,7 @@ export type RateGeneralRow = {
   default_stitch_pitch_mm: number;
   handling_mass_limit_kg: number;
   handling_surcharge_eur: number;
+  weld_handling_per_part: number;
   placeholder: boolean;
 };
 

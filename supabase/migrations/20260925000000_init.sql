@@ -138,6 +138,8 @@ create table public.rate_general (
   default_stitch_pitch_mm numeric(8,2) not null default 60,
   handling_mass_limit_kg numeric(8,2) not null default 25,
   handling_surcharge_eur numeric(12,4) not null default 0,
+  -- Welding-only quotes: handling per customer-supplied part (EUR).
+  weld_handling_per_part numeric(12,4) not null default 0,
   placeholder boolean not null default true
 );
 
@@ -455,7 +457,7 @@ begin
 
   insert into public.rate_general select v_new, machine_rate_eur_h, labour_rate_eur_h, machining_rate_eur_h,
     default_margin_pct, margin_by_class, blank_margin_mm, slow_contour_factor, default_stitch_bead_mm,
-    default_stitch_pitch_mm, handling_mass_limit_kg, handling_surcharge_eur, placeholder
+    default_stitch_pitch_mm, handling_mass_limit_kg, handling_surcharge_eur, weld_handling_per_part, placeholder
     from public.rate_general where rate_version_id = p_source;
   insert into public.materials (rate_version_id, code, name, family, density_kg_m3, rm_n_mm2, price_per_kg, sheet_formats, scrap_pct_default, placeholder)
     select v_new, code, name, family, density_kg_m3, rm_n_mm2, price_per_kg, sheet_formats, scrap_pct_default, placeholder
