@@ -1,0 +1,982 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   STRETCHMETAL — Design system
+   File path: /app/globals.css
+
+   Tokens inherited from the STRETCH group design system (stretch_website
+   repo). Locked palette: red / black / white. Hard edges — no radius,
+   anywhere, ever. No gradients except dark photo scrims. One variable
+   font (Archivo); the industrial display look is the wdth axis at 125.
+
+   Tailwind v4 @theme tokens generate utilities automatically:
+     --color-red        → bg-red / text-red / border-red
+     --color-line-dark  → border-line-dark / bg-line-dark
+     --font-display     → font-display
+   No component may hardcode a hex value — tokens only.
+   ========================================================================== */
+@theme {
+  /* --- Brand colours --- */
+  /* Signal red, tuned for WCAG AA: #e00000 keeps ≥4.5:1 with white text on
+     red AND as red text on white/surface. On dark surfaces small red text
+     needs the brighter variant (red darkens against black). */
+  --color-red: #e00000;
+  --color-red-bright: #ff1a1a; /* small red text on dark only */
+  --color-black: #0a0a0a; /* near-black brand black */
+  --color-white: #ffffff;
+  --color-surface: #f4f3f1; /* off-white section tone */
+
+  /* --- Text on light --- */
+  --color-text-body: #3a3833;
+  --color-text-muted: #54514b;
+  --color-text-faint: #6e6b66;
+
+  /* --- Text on dark --- */
+  --color-on-dark-muted: #a8a49d;
+  --color-on-dark-soft: #c9c6c0;
+
+  /* --- Borders / hairlines --- */
+  --color-border: #eceae6;
+  --color-border-2: #e6e3de;
+  --color-border-input: #dad7d2;
+  --color-line-dark: #262626; /* hairlines on dark sections */
+
+  /* --- Fonts (variables populated by next/font in layout.tsx) --- */
+  --font-display: var(--font-archivo), system-ui, sans-serif;
+  --font-body: var(--font-archivo), system-ui, sans-serif;
+}
+
+/* --------------------------------------------------------------------------
+   Non-Tailwind layout / type custom properties (used by the utility classes
+   below — kept out of @theme so they don't generate meaningless utilities).
+   -------------------------------------------------------------------------- */
+:root {
+  --container: 1320px;
+  --gutter: clamp(20px, 5vw, 64px);
+  --section-y: clamp(60px, 8vw, 120px);
+  --section-y-sm: clamp(48px, 6vw, 90px);
+  --header-h: 72px;
+
+  --fs-display: clamp(52px, 10.5vw, 164px);
+  --fs-h1: clamp(44px, 8.5vw, 142px);
+  --fs-h2: clamp(36px, 5.5vw, 76px);
+  --fs-h2-sm: clamp(30px, 4.4vw, 58px);
+  --fs-h3: clamp(22px, 2.6vw, 26px);
+  --fs-lead: clamp(16px, 1.3vw, 19px);
+  --fs-body: 15px;
+  --fs-sm: 13.5px;
+  --fs-eyebrow: 12.5px;
+}
+
+/* --- Display "expanded" width ---------------------------------------------
+   Archivo is a single variable font; the distinctive expanded industrial
+   look is the width (wdth) axis pushed to 125. Applied to every display
+   context globally, exactly as the STRETCH group site does. */
+.h-display,
+.h1,
+.h2,
+.h2-sm,
+.eyebrow,
+h1,
+h2,
+h3 {
+  font-variation-settings: "wdth" 125;
+}
+
+/* --- Base ------------------------------------------------------------------ */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--color-white);
+  color: var(--color-black);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--color-red);
+  color: var(--color-white);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-red);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  margin: 0;
+}
+
+/* --- Accessibility helpers ------------------------------------------------ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -64px;
+  z-index: 200;
+  background: var(--color-black);
+  color: var(--color-white);
+  padding: 12px 18px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 12px;
+}
+
+/* --- Layout primitives ---------------------------------------------------- */
+.container-sm {
+  max-width: var(--container);
+  margin: 0 auto;
+  padding-left: var(--gutter);
+  padding-right: var(--gutter);
+  width: 100%;
+}
+
+.section {
+  padding-top: var(--section-y);
+  padding-bottom: var(--section-y);
+}
+.section-sm {
+  padding-top: var(--section-y-sm);
+  padding-bottom: var(--section-y-sm);
+}
+.section-dark {
+  background: var(--color-black);
+  color: var(--color-white);
+}
+.section-surface {
+  background: var(--color-surface);
+}
+.section-red {
+  background: var(--color-red);
+  color: var(--color-white);
+}
+
+/* --- Eyebrow: red bold number + tracked uppercase label -------------------- */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 18px;
+}
+.eyebrow-num {
+  color: var(--color-red);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.16em;
+}
+.eyebrow-label {
+  font-size: var(--fs-eyebrow);
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.eyebrow-rule {
+  width: 34px;
+  height: 2px;
+  background: var(--color-red);
+  display: inline-block;
+}
+/* AA per surface: brighter red for 13px text on black; all-white on red. */
+.section-dark .eyebrow-num {
+  color: var(--color-red-bright);
+}
+.section-dark .eyebrow-label {
+  color: var(--color-on-dark-muted);
+}
+.section-red .eyebrow-num,
+.section-red .eyebrow-label {
+  color: var(--color-white);
+}
+.section-red .eyebrow-rule {
+  background: var(--color-white);
+}
+
+/* --- Headings ------------------------------------------------------------- */
+.h-display {
+  font-weight: 900;
+  font-size: var(--fs-display);
+  line-height: 0.86;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+.h1 {
+  font-weight: 900;
+  font-size: var(--fs-h1);
+  line-height: 0.86;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+.h2 {
+  font-weight: 900;
+  font-size: var(--fs-h2);
+  line-height: 0.92;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+.h2-sm {
+  font-weight: 900;
+  font-size: var(--fs-h2-sm);
+  line-height: 0.94;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+.h3 {
+  font-weight: 700;
+  font-size: var(--fs-h3);
+  line-height: 1.15;
+}
+
+.lead {
+  font-size: var(--fs-lead);
+  line-height: 1.55;
+  color: var(--color-text-body);
+}
+.section-dark .lead {
+  color: var(--color-on-dark-soft);
+}
+
+/* --- Underline-slide link ------------------------------------------------- */
+.lnk {
+  position: relative;
+  text-decoration: none;
+}
+.lnk::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 0;
+  height: 2px;
+  background: var(--color-red);
+  transition: width 0.25s ease;
+}
+.lnk:hover::after,
+.lnk:focus-visible::after {
+  width: 100%;
+}
+
+/* --- Buttons: uppercase, hard-edged, 2px border, red arrow glyph ----------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 14px 26px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+  text-decoration: none;
+  line-height: 1;
+  min-height: 44px;
+}
+.btn-sm {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  gap: 8px;
+  padding: 13px 18px;
+  min-height: 44px; /* 44px touch-target minimum — matches .btn */
+}
+.btn-lg {
+  font-size: 14px;
+  padding: 17px 32px;
+}
+.btn-primary {
+  background: var(--color-red);
+  color: var(--color-white);
+  border-color: var(--color-red);
+}
+.btn-primary:hover {
+  background: var(--color-black);
+  border-color: var(--color-black);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--color-black);
+  border-color: var(--color-black);
+}
+.btn-ghost:hover {
+  background: var(--color-black);
+  color: var(--color-white);
+}
+.btn-ghost:hover .btn-arrow {
+  color: var(--color-white);
+}
+.btn-ghost-light {
+  background: transparent;
+  color: var(--color-white);
+  border-color: var(--color-white);
+}
+.btn-ghost-light:hover {
+  background: var(--color-white);
+  color: var(--color-black);
+}
+.btn-ghost-light:hover .btn-arrow {
+  color: var(--color-black);
+}
+.btn-arrow {
+  color: var(--color-red);
+  font-size: 16px;
+  transition: color 0.2s ease;
+}
+/* On the red fill the arrow must stay white in both states. */
+.btn-primary .btn-arrow {
+  color: var(--color-white);
+}
+
+/* --- Hairline grids (1px gap reveals border colour) ------------------------
+   The signature STRETCH texture: cards as grid cells over a 1px-gap grid
+   whose background is the hairline colour. Use for services, machine park,
+   stats, footer columns. */
+.grid-lines {
+  display: grid;
+  gap: 1px;
+  background: var(--color-border);
+  border: 1px solid var(--color-border);
+}
+.grid-lines-dark {
+  background: var(--color-line-dark);
+  border-color: var(--color-line-dark);
+}
+
+/* --- Bullet (red square) --------------------------------------------------- */
+.tick {
+  width: 9px;
+  height: 9px;
+  background: var(--color-red);
+  flex: 0 0 auto;
+}
+.tick-sm {
+  width: 7px;
+  height: 7px;
+}
+
+/* --- Ticker ---------------------------------------------------------------- */
+@keyframes ticker {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* --- Form fields ----------------------------------------------------------- */
+.field-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+.field {
+  width: 100%;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 15px;
+  color: var(--color-black);
+  padding: 13px 15px;
+  border: 1.5px solid var(--color-border-input);
+  background: var(--color-white);
+  transition: border-color 0.15s ease;
+  border-radius: 0;
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-red);
+}
+.field::placeholder {
+  color: var(--color-text-faint);
+}
+.field[aria-invalid="true"] {
+  border-color: var(--color-red);
+}
+.field-error {
+  font-size: 12px;
+  color: var(--color-red);
+  margin-top: 6px;
+}
+
+/* --- Prose (legal pages) --------------------------------------------------- */
+.prose-legal {
+  max-width: 760px;
+}
+.prose-legal h2 {
+  font-size: clamp(22px, 2.6vw, 30px);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  margin: 40px 0 14px;
+}
+.prose-legal h3 {
+  font-size: 19px;
+  margin: 28px 0 10px;
+}
+.prose-legal p {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+  margin: 0 0 16px;
+}
+.prose-legal ul {
+  padding-left: 20px;
+  margin: 0 0 16px;
+}
+.prose-legal li {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--color-text-muted);
+  margin-bottom: 8px;
+}
+.prose-legal a {
+  color: var(--color-red);
+  text-decoration: underline;
+}
+
+/* --- Reduced motion: kills the ticker and every CSS reveal ------------------
+   The FadeIn hook additionally handles this in JS. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ==========================================================================
+   QUOTING TOOL — application additions
+   File path: /app/globals.css (continued)
+
+   Everything above is the STRETCH identity copied verbatim from the
+   stretch_metal website. Everything below is specific to the internal
+   quoting application: dense table-first layouts, square status chips,
+   the dark drawing-viewer canvas and its layer colours. Rules that still
+   hold: zero border radius, no gradients, red is a signal only, tokens
+   only — no hex values in components.
+   ========================================================================== */
+@theme {
+  /* --- Status signals (feasibility / triage chips) --- */
+  --color-flag-green: #1f8a3b;
+  --color-flag-amber: #d98a00;
+  --color-flag-red: #e00000;
+  --color-flag-green-soft: #e4f3e8;
+  --color-flag-amber-soft: #fbefd6;
+  --color-flag-red-soft: #fbe0e0;
+  --color-placeholder: #f5c400; /* yellow "placeholder / [CONFIRM]" badge */
+  --color-placeholder-soft: #fff7cc;
+
+  /* --- Drawing viewer (dark canvas) --- */
+  --color-canvas: #0a0a0a;
+  --color-canvas-grid: #1c1c1c;
+  --color-canvas-grid-major: #2a2a2a;
+  --color-geo-cut: #ffffff;
+  --color-geo-hole: #c9c6c0;
+  --color-geo-bend-up: #e00000;
+  --color-geo-bend-down: #ff1a1a;
+  --color-geo-weld: #ffd400;
+  --color-geo-engrave: #8a8a8a;
+  --color-geo-ignore: #ffffff; /* rendered at 25 % opacity */
+  --color-geo-select: #ffd400;
+  --color-geo-snap: #ff1a1a;
+  --color-geo-candidate: #d98a00;
+}
+
+:root {
+  --fs-table: 13.5px;
+  --fs-table-dense: 13px;
+  --app-sidebar-w: 224px;
+  --app-topbar-h: 56px;
+}
+
+/* --- App shell -------------------------------------------------------------- */
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--app-sidebar-w) minmax(0, 1fr);
+  min-height: 100dvh;
+}
+.app-sidebar {
+  background: var(--color-black);
+  color: var(--color-white);
+  border-right: 1px solid var(--color-line-dark);
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.app-main {
+  background: var(--color-surface);
+  min-width: 0;
+}
+.app-topbar {
+  height: var(--app-topbar-h);
+  background: var(--color-white);
+  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.app-content {
+  padding: 24px;
+}
+@media (max-width: 1023px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+  .app-sidebar {
+    position: static;
+    height: auto;
+  }
+}
+
+/* Sidebar nav links: uppercase tracked labels, red left bar when active. */
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-on-dark-soft);
+  border-left: 3px solid transparent;
+  text-decoration: none;
+}
+.nav-link:hover {
+  color: var(--color-white);
+  background: var(--color-line-dark);
+}
+.nav-link[aria-current="page"] {
+  color: var(--color-white);
+  border-left-color: var(--color-red);
+}
+.nav-group-label {
+  padding: 18px 20px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-on-dark-muted);
+}
+
+/* --- Page header -------------------------------------------------------------- */
+.page-title {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 125;
+  font-weight: 900;
+  font-size: clamp(22px, 2.2vw, 30px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+}
+.page-sub {
+  font-size: var(--fs-sm);
+  color: var(--color-text-muted);
+  margin-top: 6px;
+}
+
+/* --- Panels and cards ----------------------------------------------------------- */
+.panel {
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+}
+.panel-dark {
+  background: var(--color-black);
+  color: var(--color-white);
+  border: 1px solid var(--color-line-dark);
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+.panel-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.panel-body {
+  padding: 16px;
+}
+
+/* --- Data tables: dense, hairline rows, tabular numbers ---------------------- */
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-table);
+  font-variant-numeric: tabular-nums;
+}
+.tbl th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 9px 10px;
+  border-bottom: 2px solid var(--color-black);
+  white-space: nowrap;
+  background: var(--color-white);
+}
+.tbl td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+.tbl tbody tr:hover {
+  background: var(--color-surface);
+}
+.tbl .num,
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tbl-dense {
+  font-size: var(--fs-table-dense);
+}
+.tbl-dense td {
+  padding: 5px 8px;
+}
+.tbl-dense th {
+  padding: 6px 8px;
+}
+.tbl tfoot td {
+  font-weight: 700;
+  border-top: 2px solid var(--color-black);
+  border-bottom: 0;
+}
+.tbl-sticky-head th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.row-muted td {
+  color: var(--color-text-faint);
+}
+
+/* --- Square status chips: ▮ block + uppercase label, never a pill ---------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 8px 3px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  line-height: 1.4;
+  border: 1px solid var(--color-border-2);
+  color: var(--color-text-body);
+  white-space: nowrap;
+  border-radius: 0;
+}
+.chip::before {
+  content: "";
+  width: 8px;
+  height: 11px;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+.chip-green {
+  color: var(--color-flag-green);
+  background: var(--color-flag-green-soft);
+  border-color: var(--color-flag-green);
+}
+.chip-amber {
+  color: var(--color-flag-amber);
+  background: var(--color-flag-amber-soft);
+  border-color: var(--color-flag-amber);
+}
+.chip-red {
+  color: var(--color-flag-red);
+  background: var(--color-flag-red-soft);
+  border-color: var(--color-flag-red);
+}
+.chip-neutral {
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+.chip-dark {
+  color: var(--color-on-dark-soft);
+  background: transparent;
+  border-color: var(--color-line-dark);
+}
+.chip-placeholder {
+  color: var(--color-black);
+  background: var(--color-placeholder);
+  border-color: var(--color-placeholder);
+}
+.chip-placeholder::before {
+  background: var(--color-black);
+}
+.chip-plain::before {
+  display: none;
+}
+
+/* --- Form controls (dense variants of .field) ------------------------------ */
+.field-sm {
+  padding: 8px 10px;
+  font-size: 13.5px;
+}
+.field-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.field-inline {
+  width: auto;
+  min-width: 0;
+}
+select.field {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 50%,
+    calc(100% - 11px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 32px;
+}
+.field-help {
+  font-size: 12px;
+  color: var(--color-text-faint);
+  margin-top: 6px;
+}
+.checkbox {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-border-input);
+  accent-color: var(--color-red);
+  border-radius: 0;
+}
+
+/* --- Toolbar (viewer / table actions): hard-edged tool buttons ------------ */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1px;
+  background: var(--color-line-dark);
+  border: 1px solid var(--color-line-dark);
+}
+.tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  height: 36px;
+  background: var(--color-black);
+  color: var(--color-on-dark-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tool-btn:hover {
+  color: var(--color-white);
+  background: var(--color-line-dark);
+}
+.tool-btn[aria-pressed="true"] {
+  color: var(--color-white);
+  background: var(--color-red);
+}
+.tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.tool-key {
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--color-line-dark);
+  color: var(--color-on-dark-muted);
+}
+
+/* --- Drawing viewer ------------------------------------------------------------ */
+.viewer {
+  background: var(--color-canvas);
+  color: var(--color-white);
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+.viewer svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.viewer-readout {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-on-dark-muted);
+  pointer-events: none;
+}
+.geo-cut {
+  stroke: var(--color-geo-cut);
+}
+.geo-hole {
+  stroke: var(--color-geo-hole);
+}
+.geo-bend_up {
+  stroke: var(--color-geo-bend-up);
+}
+.geo-bend_down {
+  stroke: var(--color-geo-bend-down);
+  stroke-dasharray: 6 4;
+}
+.geo-weld {
+  stroke: var(--color-geo-weld);
+}
+.geo-engrave {
+  stroke: var(--color-geo-engrave);
+}
+.geo-ignore {
+  stroke: var(--color-geo-ignore);
+  opacity: 0.25;
+}
+.geo-unknown {
+  stroke: var(--color-geo-candidate);
+  stroke-dasharray: 3 3;
+}
+.geo-selected {
+  stroke: var(--color-geo-select) !important;
+  opacity: 1 !important;
+}
+
+/* --- Misc ------------------------------------------------------------------------ */
+.kbd {
+  font-size: 11px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border-input);
+  background: var(--color-white);
+}
+.divider {
+  height: 1px;
+  background: var(--color-border);
+}
+.divider-dark {
+  height: 1px;
+  background: var(--color-line-dark);
+}
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mono {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.dropzone {
+  border: 2px dashed var(--color-border-input);
+  background: var(--color-white);
+  padding: 40px 24px;
+  text-align: center;
+  cursor: pointer;
+}
+.dropzone[data-active="true"] {
+  border-color: var(--color-red);
+  background: var(--color-surface);
+}
+.progress {
+  height: 4px;
+  background: var(--color-border);
+}
+.progress > span {
+  display: block;
+  height: 100%;
+  background: var(--color-red);
+}
+.toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 100;
+  background: var(--color-black);
+  color: var(--color-white);
+  padding: 12px 16px;
+  font-size: 13px;
+  border-left: 3px solid var(--color-red);
+  max-width: 420px;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgb(10 10 10 / 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.modal {
+  background: var(--color-white);
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  border: 1px solid var(--color-border);
+}
+@media print {
+  .app-sidebar,
+  .app-topbar,
+  .toolbar {
+    display: none !important;
+  }
+}

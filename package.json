@@ -1,0 +1,51 @@
+{
+  "name": "stretch-metal-tool",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StretchMetal quoting tool — DXF/PDF to priced quote (laser, bending, rolling, welding, threads, machining, finishing)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example-dxf": "node --experimental-strip-types scripts/generate-example-dxf.ts",
+    "db:reset": "supabase db reset",
+    "db:push": "supabase db push"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@react-pdf/renderer": "^4.9.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "dxf-parser": "^1.1.2",
+    "next": "^15.5.26",
+    "pdfjs-dist": "^5.4.296",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.26",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5",
+    "vitest": "^3.2.7"
+  },
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "browserslist": [
+    "chrome >= 100",
+    "edge >= 100",
+    "firefox >= 100",
+    "safari >= 15.4"
+  ]
+}
