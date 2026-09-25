@@ -23,7 +23,20 @@
  * instruction in the prompt, and a missing tool call counts as a failure.
  * Thinking is adaptive (on by default on Opus 5) at effort "medium";
  * `output_config.format` is not used because the tool already carries
- * the schema. The answer is validated with zod (`suggestionsSchema`).
+ * the schema.
+ *
+ * Validation is two-step: zod for TYPES (`parseSuggestions`, a mismatch
+ * → heuristic fallback), then /lib/ai/bounds.ts for RANGES
+ * (`sanitiseSuggestions`: quantity 0, thickness −5, a 720° angle or a
+ * "banana" thread are nulled one by one and listed as "ai_value_dropped"
+ * notes, so the heuristic value shows instead of a nonsense chip). Strict
+ * tool schemas do not carry numeric bounds (the API rejects `minimum` /
+ * `maximum`), which is why the ranges are stated in the descriptions and
+ * enforced here.
+ *
+ * Copy: the model's free-text notes come back in the request locale and
+ * become `{ code: "text", params: { text } }`; finish and material family
+ * are reported as codes so the UI labels them from content/.
  *
  * Cost / latency expectation (Opus 5 list price $5 / $25 per MTok): a
  * 1–2 page drawing as a document block plus its text is ~3–8 k input
@@ -41,10 +54,16 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { env } from "@/lib/env";
+import { sanitiseSuggestions, SUGGESTION_BOUNDS } from "@/lib/ai/bounds";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import {
   AI_UNAVAILABLE_NOTE,
+  FINISH_CODES,
+  MATERIAL_FAMILIES,
+  PDF_TOO_LARGE_NOTE,
+  hasNote,
   parseSuggestions,
+  uniqueNotes,
   type Suggestions,
 } from "@/lib/ai/types";
 
@@ -94,27 +113,38 @@ export const suggestionTool: Anthropic.Tool = {
         type: "string",
         description: "Material grade exactly as written (S355, DC01, 1.4301, AlMg3).",
       }),
+      materialFamily: nullable({
+        type: "string",
+        enum: [...MATERIAL_FAMILIES],
+        description:
+          "Material family of the grade: mild_steel (S235, S355, DC01, 1.0xxx), stainless (1.4xxx, X5CrNi…), aluminium, brass, copper.",
+      }),
       thicknessMm: nullable({
         type: "number",
-        description: "Sheet thickness in millimetres.",
+        description: `Sheet thickness in millimetres (${SUGGESTION_BOUNDS.thicknessMm.min}–${SUGGESTION_BOUNDS.thicknessMm.max}).`,
       }),
       quantity: nullable({
         type: "integer",
-        description: "Ordered quantity ONLY when the drawing or order states it (QTY, pcs, szt., ks). Never derived from dimensions or hole counts.",
+        description:
+          "Ordered quantity (a positive whole number) ONLY when the drawing or order states it (QTY, pcs, szt., ks). Never derived from dimensions or hole counts; null, never 0, when not stated.",
       }),
       weightKg: nullable({
         type: "number",
-        description: "Part weight in kilograms from the title block.",
+        description: "Part weight in kilograms from the title block (positive).",
       }),
       bends: nullable({
         type: "object",
         description: "Bend information; null when the part is flat or the drawing does not show bends.",
         properties: {
-          count: nullable({ type: "integer" }),
+          count: nullable({
+            type: "integer",
+            description: `Number of bends (${SUGGESTION_BOUNDS.bendCount.min}–${SUGGESTION_BOUNDS.bendCount.max}) only when the drawing states or clearly shows it.`,
+          }),
           angles: {
             type: "array",
             items: { type: "number" },
-            description: "Bend angles in degrees as marked on bend views. Chamfers like 2x45° are not bend angles.",
+            description:
+              "Bend angles in degrees (more than 0, less than 180) as marked on bend views. Chamfers like 2x45° are not bend angles.",
           },
           directions: nullable({
             type: "array",
@@ -127,7 +157,8 @@ export const suggestionTool: Anthropic.Tool = {
       }),
       threads: {
         type: "array",
-        description: "Tapped holes. size is the metric size with fine pitch kept (M10x1) and coarse pitch dropped (M8).",
+        description:
+          "Tapped holes. size is the metric size with fine pitch kept (M10x1) and coarse pitch dropped (M8); count a positive whole number or null.",
         items: {
           type: "object",
           properties: {
@@ -139,8 +170,26 @@ export const suggestionTool: Anthropic.Tool = {
         },
       },
       finish: nullable({
-        type: "string",
-        description: "Surface finish as written (powder coating RAL 7016, galvanised, none).",
+        type: "object",
+        description: "Surface finish; null when the drawing states none.",
+        properties: {
+          code: nullable({
+            type: "string",
+            enum: [...FINISH_CODES],
+            description:
+              "Finish category: powder_coating, galvanised (any zinc coating), anodised, blasted, brushed, pickled_passivated, painted, deburred, none (explicitly raw); null when it fits no category.",
+          }),
+          ral: nullable({
+            type: "string",
+            description: "4-digit RAL colour number when stated (7016).",
+          }),
+          text: nullable({
+            type: "string",
+            description: "The finish exactly as written on the drawing.",
+          }),
+        },
+        required: ["code", "ral", "text"],
+        additionalProperties: false,
       }),
       tolerances: nullable({
         type: "string",
@@ -170,6 +219,7 @@ export const suggestionTool: Anthropic.Tool = {
     required: [
       "partNumber",
       "material",
+      "materialFamily",
       "thicknessMm",
       "quantity",
       "weightKg",
@@ -199,11 +249,12 @@ export function buildSystemPrompt(locale: PrefillInput["locale"]): string {
   const notesLanguage = locale === "pl" ? "Polish" : "English";
   return [
     "You read manufacturing drawings of sheet-metal parts (PDF title blocks, dimension callouts, bend views) for the quoting tool of a laser-cutting, bending and welding job shop.",
-    "Report only what the drawing states; a person confirms every value, so prefer null over a guess.",
+    "Report only what the drawing states; a person confirms every value, so prefer null over a guess. Never use 0 or a negative number to mean 'not stated' — use null.",
     "Thickness in mm, weight in kg. Decimal commas (11,69) are decimals.",
     "Threads: metric size, keep a fine pitch (M10x1), drop the coarse pitch (M8x1.25 → M8); '(8x)' after a callout is its count. A lone 'n' before a number is the Ø symbol of a plain hole, not a thread.",
     "Bend angles are the angles marked on bend views or bend lines; chamfers such as 2x45° are never bend angles. Give up/down directions only when the drawing marks them.",
     "Quantity only from an explicit order quantity (QTY, pcs, szt., ks, Stück) — never from dimensions, hole counts or sheet numbers.",
+    "Finish: classify into the given categories (code) and quote the wording (text); the RAL number separately.",
     `Notes in ${notesLanguage}, short, one hint each.`,
     `Answer by calling the ${SUGGESTION_TOOL_NAME} tool exactly once.`,
   ].join("\n");
@@ -248,7 +299,8 @@ export function buildUserContent(
 
 /**
  * AI fields override heuristic ones only when non-null / non-empty; notes
- * are the union (AI first). Source becomes "ai".
+ * are the union (AI first). Source becomes "ai". Call with a SANITISED
+ * AI object (sanitiseSuggestions) so out-of-range values are already null.
  */
 export function mergeSuggestions(
   heuristic: Suggestions,
@@ -262,6 +314,7 @@ export function mergeSuggestions(
     model,
     partNumber: pick(ai.partNumber, heuristic.partNumber),
     material: pick(ai.material, heuristic.material),
+    materialFamily: pick(ai.materialFamily, heuristic.materialFamily),
     thicknessMm: pick(ai.thicknessMm, heuristic.thicknessMm),
     quantity: pick(ai.quantity, heuristic.quantity),
     weightKg: pick(ai.weightKg, heuristic.weightKg),
@@ -269,7 +322,7 @@ export function mergeSuggestions(
     threads: ai.threads.length > 0 ? ai.threads : heuristic.threads,
     finish: pick(ai.finish, heuristic.finish),
     tolerances: pick(ai.tolerances, heuristic.tolerances),
-    notes: Array.from(new Set([...ai.notes, ...heuristic.notes])),
+    notes: uniqueNotes([...ai.notes, ...heuristic.notes]),
     confidence: ai.confidence,
     dimensionsMm: pick(ai.dimensionsMm ?? null, heuristic.dimensionsMm ?? null),
   };
@@ -286,9 +339,9 @@ function describeError(error: unknown): string {
 function withUnavailableNote(heuristic: Suggestions): Suggestions {
   return {
     ...heuristic,
-    notes: heuristic.notes.includes(AI_UNAVAILABLE_NOTE)
+    notes: hasNote(heuristic, AI_UNAVAILABLE_NOTE)
       ? heuristic.notes
-      : [...heuristic.notes, AI_UNAVAILABLE_NOTE],
+      : [...heuristic.notes, { code: AI_UNAVAILABLE_NOTE }],
   };
 }
 
@@ -337,11 +390,13 @@ export async function prefillFromPdf(input: PrefillInput): Promise<Suggestions |
       throw new Error(`no ${SUGGESTION_TOOL_NAME} tool call in the response`);
     }
 
-    const ai = parseSuggestions(toolUse.input);
+    const { suggestions: ai, dropped } = sanitiseSuggestions(parseSuggestions(toolUse.input));
     const merged = mergeSuggestions(heuristic, ai, model);
-    if (documentSkipped) {
-      merged.notes = [...merged.notes, "pdf_too_large_for_ai_document"];
-    }
+    merged.notes = uniqueNotes([
+      ...merged.notes,
+      ...dropped,
+      ...(documentSkipped ? [{ code: PDF_TOO_LARGE_NOTE }] : []),
+    ]);
     return merged;
   } catch (error) {
     console.error(

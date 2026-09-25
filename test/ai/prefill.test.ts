@@ -1,9 +1,9 @@
 /**
  * prefillFromPdf with @anthropic-ai/sdk mocked: no key → null, a tool_use
- * answer → merged Suggestions, anything else → heuristic fallback with the
- * "ai_unavailable" note. Also pins the request shape (document block,
- * forced tool choice, timeout) and keeps the tool schema in sync with
- * the zod schema.
+ * answer → sanitised + merged Suggestions, anything else → heuristic
+ * fallback with the "ai_unavailable" note. Also pins the request shape
+ * (document block, forced tool choice, timeout) and keeps the tool schema
+ * in sync with the zod schema.
  * File path: /test/ai/prefill.test.ts
  */
 import fs from "node:fs";
@@ -36,6 +36,7 @@ vi.mock("@anthropic-ai/sdk", () => {
 import {
   AI_TIMEOUT_MS,
   DEFAULT_AI_MODEL,
+  MAX_DOCUMENT_BYTES,
   SUGGESTION_TOOL_NAME,
   buildUserContent,
   mergeSuggestions,
@@ -45,7 +46,13 @@ import {
   supportsForcedToolChoice,
 } from "@/lib/ai/prefill";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
-import { AI_UNAVAILABLE_NOTE, suggestionsSchema } from "@/lib/ai/types";
+import {
+  AI_UNAVAILABLE_NOTE,
+  PDF_TOO_LARGE_NOTE,
+  hasNote,
+  suggestionsSchema,
+  textNote,
+} from "@/lib/ai/types";
 
 const TEXT = fs.readFileSync("test/fixtures/200005.pdf.txt", "utf8");
 const PDF_BYTES = new Uint8Array(Buffer.from("%PDF-1.4 fake bytes"));
@@ -53,6 +60,7 @@ const PDF_BYTES = new Uint8Array(Buffer.from("%PDF-1.4 fake bytes"));
 const AI_INPUT = {
   partNumber: "200005",
   material: "S355J2",
+  materialFamily: "mild_steel",
   thicknessMm: 15,
   quantity: 25,
   weightKg: null,
@@ -61,7 +69,7 @@ const AI_INPUT = {
     { size: "M8", count: 8 },
     { size: "M10x1", count: 6 },
   ],
-  finish: "galvanised",
+  finish: { code: "galvanised", ral: null, text: "ocynk ogniowy" },
   tolerances: null,
   notes: ["gwint M8 ×8"],
   confidence: "high",
@@ -114,12 +122,52 @@ describe("prefillFromPdf", () => {
     expect(result?.quantity).toBe(25); // AI only
     expect(result?.weightKg).toBe(11.69); // heuristic kept (AI null)
     expect(result?.tolerances).toContain("2768-mK"); // heuristic kept
-    expect(result?.finish).toBe("galvanised");
+    expect(result?.materialFamily).toBe("mild_steel");
+    expect(result?.finish).toEqual({ code: "galvanised", ral: null, text: "ocynk ogniowy" });
     expect(result?.threads).toEqual(AI_INPUT.threads);
     expect(result?.confidence).toBe("high");
-    expect(result?.notes[0]).toBe("gwint M8 ×8");
-    expect(result?.notes).toContain("Ø13 (6×)");
-    expect(result?.notes).not.toContain(AI_UNAVAILABLE_NOTE);
+    // The model's free text becomes a "text" note in the request locale.
+    expect(result?.notes[0]).toEqual(textNote("gwint M8 ×8"));
+    expect(result?.notes).toContainEqual({ code: "hole", params: { callout: "Ø13 (6×)" } });
+    expect(result && hasNote(result, AI_UNAVAILABLE_NOTE)).toBe(false);
+    expect(result?.notes.some((n) => n.code === "ai_value_dropped")).toBe(false);
+  });
+
+  it("nulls out-of-range AI values, keeps the heuristic ones and says so (review finding)", async () => {
+    createMock.mockResolvedValue(
+      toolUseResponse({ ...AI_INPUT, quantity: 0, thicknessMm: -5, threads: [{ size: "banana", count: 2 }] })
+    );
+    const result = await prefillFromPdf({ text: TEXT, partName: "200005.pdf", locale: "pl" });
+    expect(result?.source).toBe("ai");
+    expect(result?.thicknessMm).toBe(15); // heuristic kept, AI -5 dropped
+    expect(result?.quantity).toBeNull(); // AI 0 dropped, heuristic has none
+    expect(result?.threads).toEqual([
+      { size: "M8", count: 8 },
+      { size: "M10x1", count: 6 },
+    ]); // heuristic threads, "banana" dropped
+    expect(result?.notes).toContainEqual({
+      code: "ai_value_dropped",
+      params: { field: "quantity", value: "0" },
+    });
+    expect(result?.notes).toContainEqual({
+      code: "ai_value_dropped",
+      params: { field: "thicknessMm", value: "-5" },
+    });
+    expect(result?.notes).toContainEqual({
+      code: "ai_value_dropped",
+      params: { field: "threads", value: "banana" },
+    });
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it("adds the pdf_too_large note when the document block is skipped", async () => {
+    createMock.mockResolvedValue(toolUseResponse(AI_INPUT));
+    const big = new Uint8Array(MAX_DOCUMENT_BYTES + 1);
+    big.set(PDF_BYTES);
+    const result = await prefillFromPdf({ pdfBytes: big, text: TEXT, partName: "200005.pdf", locale: "pl" });
+    expect(result && hasNote(result, PDF_TOO_LARGE_NOTE)).toBe(true);
+    const [params] = createMock.mock.calls[0];
+    expect(params.messages[0].content.map((b: { type: string }) => b.type)).toEqual(["text"]);
   });
 
   it("sends the PDF as a document block, the text, one strict tool and a 30 s timeout", async () => {
@@ -176,7 +224,7 @@ describe("prefillFromPdf", () => {
     expect(result?.model).toBeNull();
     expect(result?.material).toBe("S355");
     expect(result?.thicknessMm).toBe(15);
-    expect(result?.notes).toEqual([...heuristic.notes, AI_UNAVAILABLE_NOTE]);
+    expect(result?.notes).toEqual([...heuristic.notes, { code: AI_UNAVAILABLE_NOTE }]);
     expect(errorSpy).toHaveBeenCalledTimes(1);
   });
 
@@ -188,7 +236,7 @@ describe("prefillFromPdf", () => {
     });
     const result = await prefillFromPdf({ text: TEXT, partName: "200005.pdf", locale: "pl" });
     expect(result?.source).toBe("heuristic");
-    expect(result?.notes).toContain(AI_UNAVAILABLE_NOTE);
+    expect(result && hasNote(result, AI_UNAVAILABLE_NOTE)).toBe(true);
   });
 
   it("falls back on a refusal", async () => {
@@ -198,7 +246,7 @@ describe("prefillFromPdf", () => {
       content: [],
     });
     const result = await prefillFromPdf({ text: TEXT, partName: "200005.pdf", locale: "pl" });
-    expect(result?.notes).toContain(AI_UNAVAILABLE_NOTE);
+    expect(result && hasNote(result, AI_UNAVAILABLE_NOTE)).toBe(true);
     expect(errorSpy.mock.calls[0][0]).toContain("refusal");
   });
 
@@ -206,7 +254,7 @@ describe("prefillFromPdf", () => {
     createMock.mockRejectedValue(new Error("Request timed out."));
     const result = await prefillFromPdf({ text: TEXT, partName: "200005.pdf", locale: "pl" });
     expect(result?.source).toBe("heuristic");
-    expect(result?.notes).toContain(AI_UNAVAILABLE_NOTE);
+    expect(result && hasNote(result, AI_UNAVAILABLE_NOTE)).toBe(true);
     expect(errorSpy.mock.calls[0][0]).toContain("Request timed out.");
   });
 
@@ -238,17 +286,27 @@ describe("suggestionTool schema", () => {
     expect(required).toEqual(zodKeys);
     expect(schema.additionalProperties).toBe(false);
   });
+
+  it("carries the finish object and the material family enum (codes, not words)", () => {
+    const props = suggestionTool.input_schema.properties as Record<string, unknown>;
+    expect(JSON.stringify(props.finish)).toContain('"powder_coating"');
+    expect(JSON.stringify(props.finish)).toContain('"ral"');
+    expect(JSON.stringify(props.materialFamily)).toContain('"stainless"');
+    // Strict tool schemas may not carry numeric bounds; the ranges live in bounds.ts.
+    expect(JSON.stringify(suggestionTool.input_schema)).not.toMatch(/"(?:minimum|maximum)"/);
+  });
 });
 
 describe("mergeSuggestions", () => {
   it("keeps heuristic threads and notes when the AI gives none", () => {
     const heuristic = heuristicSuggestions(TEXT, "200005.pdf");
-    const ai = suggestionsSchema.parse({ ...AI_INPUT, threads: [], notes: [], material: null });
+    const ai = suggestionsSchema.parse({ ...AI_INPUT, threads: [], notes: [], material: null, finish: null });
     const merged = mergeSuggestions(heuristic, ai, "claude-opus-5");
     expect(merged.source).toBe("ai");
     expect(merged.model).toBe("claude-opus-5");
     expect(merged.threads).toEqual(heuristic.threads);
     expect(merged.material).toBe("S355");
+    expect(merged.finish).toBeNull();
     expect(merged.notes).toEqual(heuristic.notes);
     expect(merged.dimensionsMm).toEqual({ length: 500, width: 220 });
   });

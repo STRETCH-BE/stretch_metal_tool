@@ -11,12 +11,23 @@
  *   (route handler / server action) and never lands in a client bundle.
  *   `next.config.ts` lists pdfjs-dist under `serverExternalPackages`, so
  *   Next leaves the import to Node.
- * - No worker: in Node pdfjs detects the platform, disables the web worker
- *   and loads `./pdf.worker.mjs` beside `pdf.mjs` itself, so no
- *   `GlobalWorkerOptions.workerSrc` is needed. `useSystemFonts: true`
- *   avoids the standard-font fetch that Node cannot do. The former
- *   `isEvalSupported: false` option is gone in pdfjs-dist 5.7 (the build
- *   contains no `eval` / `new Function` at all), so it is not passed.
+ * - Worker on the main thread, imported STATICALLY. In Node pdfjs disables
+ *   the web worker and runs a "fake worker": it first looks for
+ *   `globalThis.pdfjsWorker.WorkerMessageHandler` and only otherwise does
+ *   `import(GlobalWorkerOptions.workerSrc)` with the runtime default
+ *   "./pdf.worker.mjs" — a VARIABLE specifier that Vercel's output file
+ *   tracing (@vercel/nft) cannot follow, so on a deployed function the
+ *   worker file would be missing and every getDocument() would reject
+ *   with "Setting up fake worker failed". `extractPdfText` therefore
+ *   imports "pdfjs-dist/legacy/build/pdf.worker.mjs" with a string
+ *   literal before getDocument: nft traces the literal (the file ships
+ *   with the function) and the module sets `globalThis.pdfjsWorker`, so
+ *   pdfjs takes the main-thread path and never dereferences `workerSrc`.
+ *   /test/ai/pdf-worker.test.ts proves both halves (nft trace + a bogus
+ *   workerSrc). `useSystemFonts: true` avoids the standard-font fetch
+ *   that Node cannot do. The former `isEvalSupported: false` option is
+ *   gone in pdfjs-dist 5.7 (the build contains no `eval` / `new Function`
+ *   at all), so it is not passed.
  * - The bytes are copied before handing them to pdfjs because pdfjs may
  *   transfer (detach) the ArrayBuffer it receives; callers keep their
  *   buffer usable (e.g. to base64 the same bytes for the AI pre-fill).
@@ -70,8 +81,13 @@ export async function extractPdfText(
     throw new Error("extractPdfText: the bytes are not a PDF (missing %PDF- header).");
   }
 
-  // Dynamic import keeps pdfjs on the server; the copy protects the caller's buffer.
+  // Dynamic imports keep pdfjs on the server; the string literals keep both
+  // files in Vercel's file trace. The worker module registers
+  // globalThis.pdfjsWorker, which pdfjs's Node fake worker uses directly.
+  // @ts-expect-error -- pdfjs-dist ships no typings for the worker build
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // The copy protects the caller's buffer.
   const data = new Uint8Array(buffer);
 
   const loadingTask = pdfjs.getDocument({

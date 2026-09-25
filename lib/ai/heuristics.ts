@@ -4,21 +4,25 @@
  *
  *   heuristicSuggestions(text, partName?) → Suggestions (source "heuristic",
  *                                            confidence always "low")
- *   normalizeThreadSize("M8x1.25")        → "M8"   (coarse pitch dropped)
- *   normalizeThreadSize("M10x1")          → "M10x1" (fine pitch kept)
+ *   normalizeThreadSize("M8x1.25")        → "M8"   (re-exported from
+ *                                            /lib/ai/threads.ts)
  *
  * Tuned on the real pdfjs output of the customer drawings in
  * /test/fixtures/200005.pdf.txt and 200164.pdf.txt (Inventor title blocks,
  * Slovak/English labels). What the extractor gives us:
  * - "PLECH 15x500x220"  → thickness 15 (the smallest of the three),
- *                         blank 500 × 220
+ *                         blank 500 × 220 (`dimensionsMm`)
  * - "WEIGHT: 11,69 kg"  → 11.69 (decimal comma)
  * - "M8x1.25 (8x)"      → thread M8 × 8;  "M10x1 (6x)" → M10x1 × 6
  * - "n 13 (6x)"         → a Ø13 hole, 6× ("n" is how CAD fonts render Ø)
- *                         → goes to notes, never to threads
- * - "2x45 °"            → chamfer, never a bend angle
+ *                         → a "hole" note, never a thread
+ * - "2x45 °"            → a "chamfer" note, never a bend angle
  * - "45 °" / "13 °"     → bend angles ONLY when a bend context word exists
- *                         (bend, ohyb, gięcie, Abkant, …); otherwise a note
+ *                         (bend, ohyb, gięcie, Abkant, …); otherwise the
+ *                         "angles_no_context" note
+ * - "BEND 90 °"         → an angle, NOT a bend count: the count comes only
+ *                         from "2x bends" / "bends: 2" style labels, never
+ *                         from a number that is followed by °
  * - part number from the file name ("200005.pdf") or the title block
  *   ("200005.ipt")
  *
@@ -26,23 +30,27 @@
  * label (QTY / szt. / ks / Stk …), never from dimension numbers or "(8x)"
  * counts; confidence is always "low"; nothing here is auto-applied.
  *
- * Notes are language-neutral where possible (symbols: Ø, ×, °) with short
- * English keywords; the UI labels around them are localised.
+ * No visible copy here (CLAUDE.md): notes are `{ code, params }` with
+ * language-neutral params (symbols Ø × °, numbers, grade tokens), the
+ * finish is a FinishCode, the material family a MaterialFamily code — the
+ * labels live in content/upload.ts + content/en/upload.ts.
  */
 
+import { SUGGESTION_BOUNDS } from "@/lib/ai/bounds";
+import { normalizeThreadSize, toNumber } from "@/lib/ai/threads";
 import {
   emptySuggestions,
+  uniqueNotes,
   type BendDirection,
+  type FinishCode,
+  type FinishSuggestion,
+  type MaterialFamily,
+  type SuggestionNote,
   type Suggestions,
   type ThreadSuggestion,
 } from "@/lib/ai/types";
 
-/* ---------- number helpers ---------- */
-
-function toNumber(token: string): number | null {
-  const n = Number(token.replace(",", "."));
-  return Number.isFinite(n) ? n : null;
-}
+export { normalizeThreadSize } from "@/lib/ai/threads";
 
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values));
@@ -50,65 +58,10 @@ function unique<T>(values: T[]): T[] {
 
 /* ---------- threads ---------- */
 
-/** ISO 261 coarse pitches; a callout carrying exactly this pitch is plain "M<size>". */
-const COARSE_PITCH: Record<string, number> = {
-  "1.6": 0.35,
-  "2": 0.4,
-  "2.5": 0.45,
-  "3": 0.5,
-  "4": 0.7,
-  "5": 0.8,
-  "6": 1,
-  "8": 1.25,
-  "10": 1.5,
-  "12": 1.75,
-  "14": 2,
-  "16": 2,
-  "18": 2.5,
-  "20": 2.5,
-  "22": 2.5,
-  "24": 3,
-  "27": 3,
-  "30": 3.5,
-  "33": 3.5,
-  "36": 4,
-  "39": 4,
-  "42": 4.5,
-  "45": 4.5,
-  "48": 5,
-  "52": 5,
-  "56": 5.5,
-  "60": 5.5,
-  "64": 6,
-};
-
-function formatSize(n: number): string {
-  return String(Number(n.toFixed(2)));
-}
-
-/**
- * Canonical metric thread label: "M8", "M10x1", "M2.5". Returns null when the
- * input is not a metric thread callout.
- */
-export function normalizeThreadSize(raw: string): string | null {
-  const m = raw
-    .trim()
-    .match(/^M\s*(\d{1,2}(?:[.,]\d)?)(?:\s*[x×X]\s*(\d(?:[.,]\d{1,2})?))?/i);
-  if (!m) return null;
-  const size = toNumber(m[1]);
-  if (size === null || size < 1 || size > 64) return null;
-  const sizeKey = formatSize(size);
-  const pitch = m[2] ? toNumber(m[2]) : null;
-  if (pitch !== null && COARSE_PITCH[sizeKey] !== pitch) {
-    return `M${sizeKey}x${formatSize(pitch)}`;
-  }
-  return `M${sizeKey}`;
-}
-
 const THREAD_RE =
   /(?:\b(\d{1,3})\s*[x×]\s*)?\bM(\d{1,2}(?:[.,]\d)?)(?:\s*[x×]\s*(\d(?:[.,]\d{1,2})?)(?!\d))?(?:\s*-\s*(?:6H|6g|LH))?(?:\s*\(\s*(\d{1,3})\s*[x×]\s*\))?/g;
 
-function readThreads(text: string): { threads: ThreadSuggestion[]; notes: string[] } {
+function readThreads(text: string): { threads: ThreadSuggestion[]; notes: SuggestionNote[] } {
   const bySize = new Map<string, { count: number | null; seen: number }>();
   for (const m of text.matchAll(THREAD_RE)) {
     const size = normalizeThreadSize(`M${m[2]}${m[3] ? `x${m[3]}` : ""}`);
@@ -127,9 +80,9 @@ function readThreads(text: string): { threads: ThreadSuggestion[]; notes: string
       }
     }
   }
-  const notes: string[] = [];
+  const notes: SuggestionNote[] = [];
   const threads = Array.from(bySize, ([size, { count, seen }]) => {
-    if (seen > 1) notes.push(`${size}: callout seen ${seen}× — count not summed`);
+    if (seen > 1) notes.push({ code: "thread_repeated", params: { size, seen } });
     return { size, count };
   });
   return { threads, notes };
@@ -143,6 +96,12 @@ const SHEET_RE =
 const THICKNESS_LABEL_RE =
   /\b(?:THICKNESS|THK|GRUBOŚĆ|GRUBOSC|GR\.|HRÚBKA|HRUBKA|TLOUŠŤKA|TLOUSTKA|DICKE|STÄRKE|STAERKE|t)\s*[:=]\s*(\d{1,3}(?:[.,]\d{1,2})?)\s*(?:mm)?\b/i;
 
+function plausibleThickness(n: number | null): n is number {
+  return (
+    n !== null && n >= SUGGESTION_BOUNDS.thicknessMm.min && n <= SUGGESTION_BOUNDS.thicknessMm.max
+  );
+}
+
 function readSheet(text: string): {
   thicknessMm: number | null;
   dimensionsMm: { length: number; width: number } | null;
@@ -155,7 +114,7 @@ function readSheet(text: string): {
     if (nums.length === 3) {
       const sorted = [...nums].sort((a, b) => a - b);
       const thicknessMm = sorted[0];
-      if (thicknessMm >= 0.3 && thicknessMm <= 150) {
+      if (plausibleThickness(thicknessMm)) {
         return {
           thicknessMm,
           dimensionsMm: { length: sorted[2], width: sorted[1] },
@@ -166,10 +125,7 @@ function readSheet(text: string): {
   const label = text.match(THICKNESS_LABEL_RE);
   const thicknessMm = label ? toNumber(label[1]) : null;
   return {
-    thicknessMm:
-      thicknessMm !== null && thicknessMm >= 0.3 && thicknessMm <= 150
-        ? thicknessMm
-        : null,
+    thicknessMm: plausibleThickness(thicknessMm) ? thicknessMm : null,
     dimensionsMm: null,
   };
 }
@@ -187,13 +143,36 @@ const MATERIAL_GRADE_RES: RegExp[] = [
   /\b(CuZn\d{2}(?:Pb\d)?|CW\d{3}[A-Z]|Cu-?ETP|Cu-?DHP|Ms\s?58|Ms\s?63)\b/,
 ];
 
-const MATERIAL_WORD_RES: [RegExp, string][] = [
-  [/\b(?:INOX|NIERDZ\w*|NEREZ\w*|STAINLESS|EDELSTAHL|ROSTFREI)\b/i, "stainless steel"],
-  [/\b(?:ALUMINIUM|ALUMINUM|ALU|HLINÍK|HLINIK|HLINÍKOV\w*)\b/i, "aluminium"],
-  [/\b(?:MOSIĄDZ|MOSADZ|BRASS|MESSING)\b/i, "brass"],
+/** Family from the grade token (EN 10027 numbers: 1.0/1.1 steels, 1.4 stainless). */
+const FAMILY_FROM_GRADE: [RegExp, MaterialFamily][] = [
+  [/^(?:S\d{3}|DC0|DD1|DX5|HX\d|HC\d|H\d{3}LA|C(?:22|45|60)\b|16MnCr5|42CrMo4|34CrMo4|St\s?(?:37|52)|11\s?(?:373|375|523)|1\.[01]\d{3}|HARDOX|STRENX|DOMEX|WELDOX|RAEX|COR-?TEN)/i, "mild_steel"],
+  [/^(?:1\.4\d{3}|X\d)/i, "stainless"],
+  [/^(?:Al|EN\s?AW|AW)/i, "aluminium"],
+  [/^(?:CuZn|Ms\s?\d|CW[5-7]\d{2})/i, "brass"],
+  [/^(?:Cu-?(?:ETP|DHP)|CW[01]\d{2})/i, "copper"],
 ];
 
-function readMaterial(text: string): { material: string | null; notes: string[] } {
+/** Family words when no grade is written; stainless before steel words. */
+const MATERIAL_FAMILY_WORD_RES: [RegExp, MaterialFamily][] = [
+  [/\b(?:INOX|NIERDZ\w*|NEREZ\w*|STAINLESS|EDELSTAHL|ROSTFREI)\b/i, "stainless"],
+  [/\b(?:ALUMINIUM|ALUMINUM|ALU|HLINÍK|HLINIK|HLINÍKOV\w*)\b/i, "aluminium"],
+  [/\b(?:MOSIĄDZ|MOSADZ|BRASS|MESSING)\b/i, "brass"],
+  [/\b(?:MIEDŹ|MIEDZ|COPPER|KUPFER|MEĎ)\b/i, "copper"],
+  [/\b(?:MILD\s+STEEL|CARBON\s+STEEL|STAL\s+CZARNA|STAL\s+KONSTRUKCYJNA|BAUSTAHL|OCEĽ|OCEL)\b/i, "mild_steel"],
+];
+
+function familyFromGrade(grade: string): MaterialFamily | null {
+  for (const [re, family] of FAMILY_FROM_GRADE) {
+    if (re.test(grade)) return family;
+  }
+  return null;
+}
+
+function readMaterial(text: string): {
+  material: string | null;
+  materialFamily: MaterialFamily | null;
+  notes: SuggestionNote[];
+} {
   const found: { grade: string; index: number }[] = [];
   for (const re of MATERIAL_GRADE_RES) {
     const global = new RegExp(re.source, re.flags.includes("g") ? re.flags : `${re.flags}g`);
@@ -204,14 +183,16 @@ function readMaterial(text: string): { material: string | null; notes: string[] 
   found.sort((a, b) => a.index - b.index);
   const grades = unique(found.map((f) => f.grade));
   if (grades.length > 0) {
-    const notes =
-      grades.length > 1 ? [`Other material tokens: ${grades.slice(1).join(", ")}`] : [];
-    return { material: grades[0], notes };
+    const notes: SuggestionNote[] =
+      grades.length > 1
+        ? [{ code: "other_materials", params: { list: grades.slice(1).join(", ") } }]
+        : [];
+    return { material: grades[0], materialFamily: familyFromGrade(grades[0]), notes };
   }
-  for (const [re, label] of MATERIAL_WORD_RES) {
-    if (re.test(text)) return { material: label, notes: [] };
+  for (const [re, family] of MATERIAL_FAMILY_WORD_RES) {
+    if (re.test(text)) return { material: null, materialFamily: family, notes: [] };
   }
-  return { material: null, notes: [] };
+  return { material: null, materialFamily: null, notes: [] };
 }
 
 /* ---------- weight ---------- */
@@ -269,23 +250,24 @@ function readTolerances(text: string): string | null {
 /* ---------- finish ---------- */
 
 const RAL_RE = /\bRAL\s?(\d{4})\b/i;
-const FINISH_RES: [RegExp, string][] = [
-  [/\b(?:POWDER[- ]?COAT\w*|MALOWAN\w*\s+PROSZKOW\w*|PROSZKOW\w*|PRÁŠKOV\w*|PRASKOV\w*|PULVERBESCHICHT\w*|KOMAXIT\w*)\b/i, "powder coating"],
-  [/\b(?:HOT[- ]DIP\w*|GALVANI[SZ]\w*|ZINC[- ]?PLAT\w*|VERZINK\w*|OCYNK\w*|CYNKOWAN\w*|POZINK\w*|ZINKOVAN\w*|ŽÁROV\w*|ZAROV\w*)\b/i, "galvanised / zinc plated"],
+const FINISH_RES: [RegExp, FinishCode][] = [
+  [/\b(?:POWDER[- ]?COAT\w*|MALOWAN\w*\s+PROSZKOW\w*|PROSZKOW\w*|PRÁŠKOV\w*|PRASKOV\w*|PULVERBESCHICHT\w*|KOMAXIT\w*)\b/i, "powder_coating"],
+  [/\b(?:HOT[- ]DIP\w*|GALVANI[SZ]\w*|ZINC[- ]?PLAT\w*|VERZINK\w*|OCYNK\w*|CYNKOWAN\w*|POZINK\w*|ZINKOVAN\w*|ŽÁROV\w*|ZAROV\w*)\b/i, "galvanised"],
   [/\b(?:ANODI[SZ]\w*|ANODOW\w*|ELOX\w*)\b/i, "anodised"],
   [/\b(?:BLAST\w*|ŚRUTOWAN\w*|SRUTOWAN\w*|PIASKOWAN\w*|TRYSKAN\w*|GESTRAHLT|SANDSTRAHL\w*)\b/i, "blasted"],
   [/\b(?:BRUSHED|SZCZOTKOWAN\w*|GEBÜRSTET|KARTÁČOVAN\w*|BROUŠEN\w*)\b/i, "brushed"],
-  [/\b(?:PASSIVAT\w*|PASYWAC\w*|PASYWOW\w*|PICKL\w*|GEBEIZT|BEIZ\w*|TRAWION\w*|MOŘEN\w*|MOREN\w*)\b/i, "pickled / passivated"],
+  [/\b(?:PASSIVAT\w*|PASYWAC\w*|PASYWOW\w*|PICKL\w*|GEBEIZT|BEIZ\w*|TRAWION\w*|MOŘEN\w*|MOREN\w*)\b/i, "pickled_passivated"],
   [/\b(?:PAINT\w*|LAKIER\w*|LACKIER\w*|NÁTĚR\w*|NATER\w*)\b/i, "painted"],
-  [/\b(?:UNTREATED|SUROW\w*|BEZ\s+OBRÓBKI|BEZ\s+POVRCH\w*|ROH|UNBEHANDELT)\b/i, "none (raw)"],
+  [/\b(?:DEBURR\w*|GRATOWAN\w*|ENTGRAT\w*|ODHROT\w*|ODJEHL\w*)\b/i, "deburred"],
+  [/\b(?:UNTREATED|SUROW\w*|BEZ\s+OBRÓBKI|BEZ\s+POVRCH\w*|ROH|UNBEHANDELT)\b/i, "none"],
 ];
 
-function readFinish(text: string): string | null {
+function readFinish(text: string): FinishSuggestion | null {
   const ral = text.match(RAL_RE);
-  for (const [re, label] of FINISH_RES) {
-    if (re.test(text)) return ral ? `${label}, RAL ${ral[1]}` : label;
+  for (const [re, code] of FINISH_RES) {
+    if (re.test(text)) return { code, ral: ral ? ral[1] : null, text: null };
   }
-  return ral ? `RAL ${ral[1]}` : null;
+  return ral ? { code: null, ral: ral[1], text: null } : null;
 }
 
 /* ---------- holes, chamfers, radii (notes) ---------- */
@@ -295,33 +277,38 @@ const HOLE_RE =
 const CHAMFER_RE = /\b(\d{1,2}(?:[.,]\d)?)\s*[x×]\s*(\d{1,3}(?:[.,]\d)?)\s*°/g;
 const RADIUS_RE = /\bR\s?(\d{1,3}(?:[.,]\d)?)\b/g;
 
-function readCallouts(text: string): string[] {
-  const notes: string[] = [];
+function readCallouts(text: string): SuggestionNote[] {
+  const notes: SuggestionNote[] = [];
   for (const m of text.matchAll(HOLE_RE)) {
     const size = toNumber(m[1]);
     if (size === null || size <= 0 || size > 500) continue;
     const fit = m[2] ? ` ${m[2].toUpperCase()}` : "";
     const count = m[3] ? ` (${m[3]}×)` : "";
-    const fitHint = m[2] ? " — fit, machining" : "";
-    notes.push(`Ø${m[1]}${fit}${count}${fitHint}`);
+    notes.push({ code: m[2] ? "hole_fit" : "hole", params: { callout: `Ø${m[1]}${fit}${count}` } });
   }
   for (const m of text.matchAll(CHAMFER_RE)) {
-    notes.push(`Chamfer ${m[1]}×${m[2]}°`);
+    notes.push({ code: "chamfer", params: { a: m[1], b: m[2] } });
   }
   const radii = unique(Array.from(text.matchAll(RADIUS_RE), (m) => `R${m[1]}`));
   if (radii.length > 0 && radii.length <= 6) {
-    notes.push(`Radius callouts: ${radii.join(", ")}`);
+    notes.push({ code: "radii", params: { list: radii.join(", ") } });
   }
-  return unique(notes);
+  return uniqueNotes(notes);
 }
 
 /* ---------- bends ---------- */
 
 const BEND_CONTEXT_RE =
   /\b(?:BEND\w*|BENT|OHYB\w*|OHÝB\w*|OHNUT\w*|GIĘC\w*|GIEC\w*|GIĘT\w*|GIET\w*|ZAGIĘ\w*|ZAGIE\w*|ZGIN\w*|FOLD\w*|ABKANT\w*|KANTUNG|GEKANTET|BIEG\w*|GEBOGEN|K-?FACTOR|BEND\s+LINE)\b/i;
+/**
+ * Explicit bend COUNT labels only: "2x bends" / "2 Abkantungen" (number
+ * first) or "bends: 2" (label first). A number followed by ° is an angle,
+ * never a count — "BEND 90 °" must not read as 90 bends — hence the
+ * lookahead; a decimal continuation ("BEND 12.5") is rejected the same way.
+ */
 const BEND_COUNT_RES: RegExp[] = [
   /\b(\d{1,2})\s*[x×]?\s*(?:BENDS?|OHYB\w*|OHÝB\w*|GIĘ\w*|GIE\w*|ZAGIĘ\w*|ZAGIE\w*|ABKANT\w*|KANTUNG\w*)\b/i,
-  /\b(?:BENDS?|OHYBY|OHYBOV|GIĘCIA|GIECIA|ZAGIĘCIA|ZAGIECIA|ABKANTUNGEN)\s*[:=]?\s*(\d{1,2})\b/i,
+  /\b(?:BENDS?|OHYBY|OHYBOV|GIĘCIA|GIECIA|ZAGIĘCIA|ZAGIECIA|ABKANTUNGEN)\s*[:=]?\s*(\d{1,2})\b(?![.,]\d)(?!\s*°)/i,
 ];
 const BEND_DIRECTION_RE =
   /\b(?:BEND|OHYB|GIĘCIE|GIECIE|ZAGIĘCIE|ZAGIECIE|ABKANT\w*)\s*(?:LINE\s*)?(UP|DOWN|GÓRA|GORA|DÓŁ|DOL|HORE|DOLE|OBEN|UNTEN)\b/gi;
@@ -337,14 +324,14 @@ function readAngles(text: string): number[] {
   return unique(angles);
 }
 
-function readBends(text: string): { bends: Suggestions["bends"]; notes: string[] } {
+function readBends(text: string): { bends: Suggestions["bends"]; notes: SuggestionNote[] } {
   const angles = readAngles(text);
   if (!BEND_CONTEXT_RE.test(text)) {
     return {
       bends: null,
       notes:
         angles.length > 0
-          ? [`Angles seen: ${angles.map((a) => `${a}°`).join(", ")} (no bend context)`]
+          ? [{ code: "angles_no_context", params: { list: angles.map((a) => `${a}°`).join(", ") } }]
           : [],
     };
   }
@@ -352,8 +339,11 @@ function readBends(text: string): { bends: Suggestions["bends"]; notes: string[]
   for (const re of BEND_COUNT_RES) {
     const m = text.match(re);
     if (m) {
-      count = Number(m[1]);
-      break;
+      const n = Number(m[1]);
+      if (n >= SUGGESTION_BOUNDS.bendCount.min && n <= SUGGESTION_BOUNDS.bendCount.max) {
+        count = n;
+        break;
+      }
     }
   }
   const directions: BendDirection[] = [];
@@ -411,6 +401,7 @@ export function heuristicSuggestions(text: string, partName?: string): Suggestio
 
   const material = readMaterial(flat);
   out.material = material.material;
+  out.materialFamily = material.materialFamily;
 
   const sheet = readSheet(flat);
   out.thicknessMm = sheet.thicknessMm;
@@ -428,10 +419,7 @@ export function heuristicSuggestions(text: string, partName?: string): Suggestio
   out.finish = readFinish(flat);
   out.tolerances = readTolerances(flat);
 
-  out.notes = unique([
-    ...(sheet.dimensionsMm
-      ? [`Blank ${sheet.dimensionsMm.length} × ${sheet.dimensionsMm.width} mm (title block)`]
-      : []),
+  out.notes = uniqueNotes([
     ...material.notes,
     ...readCallouts(flat),
     ...bends.notes,

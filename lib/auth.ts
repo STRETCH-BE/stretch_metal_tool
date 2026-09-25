@@ -13,6 +13,7 @@
  * decisions and the audit log are admin-only.
  */
 
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
@@ -21,7 +22,12 @@ import type { ProfileRow, UserRole } from "@/lib/db/types";
 
 export type Session = { user: User; profile: ProfileRow };
 
-export async function getCurrentUser(): Promise<Session | null> {
+/**
+ * Memoised per request (React cache): the layout, getLocale() and every
+ * page call this, so without the cache one navigation costs several Auth
+ * round-trips and profile selects.
+ */
+export const getCurrentUser = cache(async (): Promise<Session | null> => {
   try {
     const supabase = await createClient();
     const {
@@ -38,7 +44,7 @@ export async function getCurrentUser(): Promise<Session | null> {
   } catch {
     return null;
   }
-}
+});
 
 export async function requireUser(): Promise<Session> {
   const session = await getCurrentUser();
