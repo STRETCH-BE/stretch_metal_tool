@@ -241,6 +241,12 @@ export type ExtraOperation =
       cutLengthMm: number;
       metres: number;
       pricePerMTube: number | null;
+      /** Optional envelope for the tube-laser limit check: outer diameter (round) or larger side (square/rectangular/open), mm. */
+      envelopeMm?: number | null;
+      /** Optional circumscribed circle of a rectangular profile, mm. */
+      circumscribedMm?: number | null;
+      /** Optional linear mass of the raw profile, kg/m (raw weight = kgPerM × metres). */
+      kgPerM?: number | null;
     }
   | { type: "other"; label: string; unitCost: number }
   | { type: "handling"; unitCost: number };

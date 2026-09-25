@@ -1,0 +1,19 @@
+# Supabase CLI configuration — kept minimal on purpose.
+# File path: /supabase/config.toml
+#
+# Only the keys that differ from the CLI defaults are set here. The CLI fills
+# in every omitted key and section ([api], [db], [studio], [auth], [storage],
+# …) with the same defaults `supabase init` would have written, so
+# `supabase start`, `supabase db reset` and `supabase db push` work as-is:
+# API http://127.0.0.1:54321, Postgres 127.0.0.1:54322 (postgres/postgres),
+# Studio http://127.0.0.1:54323. See /supabase/README.md.
+
+project_id = "stretch-metal-tool"
+
+[db.seed]
+# Run after the migrations on `supabase db reset` (and on the first
+# `supabase start`). Paths are relative to this file. seed-local-admin.sql is
+# deliberately NOT listed — it creates a user with a public password and is
+# run by hand on local stacks only.
+enabled = true
+sql_paths = ["./seed.sql"]

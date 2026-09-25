@@ -221,6 +221,12 @@ export type PartMeasures = {
   slowContours: SlowContour[];
   /** Engraving/marking length from tagged entities. */
   engraveLengthMm: number;
+  /**
+   * Sum of `effectiveLengthMm` of the weld annotations applied to this
+   * geometry (0 when no annotations were applied). Optional so stored
+   * snapshots written before this field existed still type-check.
+   */
+  weldLengthMm?: number;
 };
 
 /* ─── Reports ─────────────────────────────────────────────── */
@@ -432,6 +438,11 @@ export type AnalyzeOptions = {
   pdfText?: string | null;
   /** Optional layer-convention override (admin-edited in a later phase). */
   layerConventions?: LayerConventions;
+  /**
+   * Multi-part files: which part group the measures are computed for
+   * (default 0 = largest outline). Loops keep their own `partIndex`.
+   */
+  partIndex?: number;
 };
 
 export type LayerConventions = {
