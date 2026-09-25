@@ -7,7 +7,8 @@
  *   /guide            — the public DXF export guide (linked from the website)
  *   /api/health       — uptime probe
  *   /auth/callback    — magic-link / password-reset landing
- * Static assets and Next internals are excluded by the matcher.
+ * Static assets, /downloads (the public example DXF) and Next internals are
+ * excluded by the matcher.
  *
  * Unauthenticated requests to pages redirect to /login?next=<path>;
  * unauthenticated API calls get a JSON 401. Role checks happen in the
@@ -62,6 +63,6 @@ export const config = {
      * Match all request paths except static files and Next internals:
      * _next/static, _next/image, favicon, icons, fonts, images.
      */
-    "/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|fonts/|images/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icon|apple-icon|fonts/|images/|downloads/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)",
   ],
 };

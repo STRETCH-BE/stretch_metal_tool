@@ -17,6 +17,11 @@ const nextConfig: NextConfig = {
   // sure Vercel's output file tracing ships them with the function.
   outputFileTracingIncludes: {
     "/api/quotes/[id]/pdf": ["./public/fonts/pdf/*.ttf"],
+    // pdfjs loads its fake worker through a dynamic import that file
+    // tracing cannot follow — ship it with every route that extracts PDF text.
+    "/api/files/complete": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
+    "/api/ai/prefill": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
+    "/api/parts/[id]/pdf-text": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
   },
   experimental: {
     serverActions: {

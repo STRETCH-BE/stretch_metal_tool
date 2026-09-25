@@ -12,7 +12,7 @@ export const routes = {
   login: "/login",
   forbidden: "/forbidden",
   guide: "/guide",
-  guideExampleDxf: "/api/guide/example-dxf",
+  guideExampleDxf: "/downloads/stretchmetal-example.dxf",
 
   quotes: "/quotes",
   quoteNew: "/quotes/new",
