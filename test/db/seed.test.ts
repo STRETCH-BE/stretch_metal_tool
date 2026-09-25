@@ -12,23 +12,36 @@
  * lib/pricing/types.ts (compile-time key check + runtime), machines.limits
  * validates against the zod schemas of lib/pricing/snapshot.ts when that
  * module exists (built in parallel — imported lazily, assertion skipped when
- * missing), a second run neither errors nor duplicates, the guard paths of
- * the seed (version referenced by a quote / another version active) hold,
- * and next_quote_number() yields SM-<year>-0001.
+ * missing), a second run neither errors nor duplicates, an EDITED seed lands
+ * on re-run but inserts nothing into a version quotes reference (row sets
+ * compared, not counts), a failure anywhere in the seed leaves the previous
+ * rate set intact (single-statement seed + the documented psql -1 command),
+ * every stock gauge within the flat-laser limit prices in-house through the
+ * real lookup (lib/pricing/lookup.ts findLaserRate), the seed never steals
+ * activation from a newer version, and next_quote_number() yields
+ * SM-<year>-0001.
+ *
+ * Seed variants (edited / broken copies) are made by regex edits of the file
+ * text; each anchor must match exactly once so a reworded seed fails loudly
+ * instead of making the test vacuous.
  */
 
+import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type {
   FlatLaserLimits,
+  LaserRate,
   MachineKind,
   MaterialFamily,
   PressBrakeLimits,
+  RateSnapshot,
   RollLimits,
   ThicknessBandPrice,
   TubeLaserLimits,
   WeldLimits,
 } from "@/lib/pricing/types";
 import type { WeldProcess } from "@/lib/geometry/types";
+import { familyThicknessLimitMm, findLaserRate } from "@/lib/pricing/lookup";
 import {
   PG_DATABASE,
   SEED_SQL,
@@ -36,8 +49,8 @@ import {
   queryJson,
   queryScalar,
   resetDatabase,
+  runSeed,
   runSql,
-  runSqlFile,
 } from "./pg";
 
 const ENABLED = process.env.SMTOOL_LOCAL_PG === "1";
@@ -48,15 +61,54 @@ const V2 = "00000000-0000-4000-8000-000000000002";
 /** Built in parallel by the pricing owner; may not exist yet. */
 const SNAPSHOT_MODULE = "../../lib/pricing/snapshot";
 
+/* ─── Expected laser ladder (build prompt Step 9 + stock gauges) ────────── */
+
+/**
+ * Sheet gauges the shop stocks per family. All are within the TruFiber
+ * 12001 limit of that family (12.7 / 12.7 / 6 / 6 / 6 mm) and the seed must
+ * price every one of them in-house: findLaserRate needs an exact in-house
+ * thickness row, otherwise it falls back to the nearest SUPPLIER row (a
+ * 2.5 mm bracket would be priced from the 15 mm subcontract tariff).
+ */
+const STOCK_GAUGES_MM: Record<MaterialFamily, readonly number[]> = {
+  mild_steel: [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 12.7],
+  stainless: [1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 12.7],
+  aluminium: [1, 1.5, 2, 2.5, 3, 4, 5, 6],
+  brass: [1, 1.5, 2, 2.5, 3, 4, 5, 6],
+  copper: [1, 1.5, 2, 2.5, 3, 4, 5, 6],
+};
+
+/** Mild-steel placeholder cutting data: Step 9 values plus interpolated stock gauges. */
+const MILD_STEEL_BASE: Record<number, { speed: number; pierce: number }> = {
+  1: { speed: 25, pierce: 0.2 },
+  1.5: { speed: 20.5, pierce: 0.25 },
+  2: { speed: 16, pierce: 0.3 },
+  2.5: { speed: 13.5, pierce: 0.35 },
+  3: { speed: 11, pierce: 0.4 },
+  4: { speed: 7, pierce: 0.6 },
+  5: { speed: 5.5, pierce: 0.8 },
+  6: { speed: 4.5, pierce: 1.0 },
+  8: { speed: 3.0, pierce: 1.3 },
+  10: { speed: 2.2, pierce: 1.6 },
+  12: { speed: 1.7, pierce: 2.0 },
+  12.7: { speed: 1.5, pierce: 2.2 },
+};
+
+const IN_HOUSE_LASER_ROWS =
+  3 * STOCK_GAUGES_MM.mild_steel.length +
+  STOCK_GAUGES_MM.stainless.length +
+  STOCK_GAUGES_MM.aluminium.length +
+  STOCK_GAUGES_MM.brass.length +
+  STOCK_GAUGES_MM.copper.length;
+const SUBCONTRACT_LASER_ROWS = 4;
+
 /* ─── Expected row counts (build prompt Step 9 / spec 7) ───────────────── */
 
 const EXPECTED_COUNTS: Record<string, number> = {
   rate_versions: 1,
   rate_general: 1,
   materials: 7,
-  // 3 mild-steel grades × 9 thicknesses + 4 subcontract rows
-  // + stainless 9 + aluminium 6 + brass 6 + copper 6
-  rate_laser: 27 + 4 + 9 + 6 + 6 + 6,
+  rate_laser: IN_HOUSE_LASER_ROWS + SUBCONTRACT_LASER_ROWS,
   rate_tube_laser: 3 * 6,
   rate_bend: 10 * 3,
   rate_roll: 6 * 4,
@@ -65,6 +117,21 @@ const EXPECTED_COUNTS: Record<string, number> = {
   rate_feature: 5,
   rate_finish: 4,
   machines: 5,
+};
+
+/** Every rate table with the ORDER BY that makes its row set comparable. */
+const RATE_TABLE_ORDER: Record<string, string> = {
+  rate_versions: "id",
+  rate_general: "rate_version_id",
+  materials: "rate_version_id, code",
+  rate_laser: "rate_version_id, material_code, thickness_mm, in_house",
+  rate_tube_laser: "rate_version_id, profile_family, wall_mm",
+  rate_bend: "rate_version_id, thickness_mm, length_class_mm",
+  rate_roll: "rate_version_id, thickness_mm, radius_class_mm",
+  rate_weld: "rate_version_id, process, bead_mm",
+  rate_thread: "rate_version_id, size",
+  rate_feature: "rate_version_id, code",
+  rate_finish: "rate_version_id, code",
 };
 
 /* ─── Key sets tied to lib/pricing/types.ts at compile time ─────────────── */
@@ -168,6 +235,11 @@ type GeneralRow = {
   placeholder: boolean;
 };
 
+const LASER_SELECT = `select material_code, thickness_mm, mode, speed_m_min, pierce_s, price_per_m, price_per_pierce, gas,
+                             min_contour_mm, in_house, supplier, placeholder
+                        from public.rate_laser where rate_version_id = '${V1}'
+                       order by material_code, in_house desc, thickness_mm`;
+
 function countRows(): Record<string, number> {
   const union = Object.keys(EXPECTED_COUNTS)
     .map((t) => `select '${t}'::text as table_name, count(*)::int as n from public.${t}`)
@@ -176,8 +248,117 @@ function countRows(): Record<string, number> {
   return Object.fromEntries(rows.map((r) => [r.table_name, r.n]));
 }
 
+/** Every row of every rate table (all columns, ids included), deterministically ordered. */
+function rateRowsSnapshot(): Record<string, unknown[]> {
+  return Object.fromEntries(
+    Object.entries(RATE_TABLE_ORDER).map(([table, order]) => [
+      table,
+      queryJson<unknown>(DB, `select * from public.${table} order by ${order}`),
+    ])
+  );
+}
+
 function keySet(o: Record<string, unknown>): string[] {
   return Object.keys(o).sort();
+}
+
+function threadPrices(): Record<string, number> {
+  const rows = queryJson<{ size: string; price_each: number }>(
+    DB,
+    `select size, price_each from public.rate_thread where rate_version_id = '${V1}' order by size`
+  );
+  return Object.fromEntries(rows.map((r) => [r.size, r.price_each]));
+}
+
+/* ─── Seed variants: regex edits of seed.sql, each anchor exactly once ──── */
+
+function seedText(): string {
+  return fs.readFileSync(SEED_SQL, "utf8");
+}
+
+function editOnce(sql: string, anchor: RegExp, replacement: string): string {
+  const matches = sql.match(new RegExp(anchor.source, anchor.flags.includes("g") ? anchor.flags : `${anchor.flags}g`));
+  if (!matches || matches.length !== 1) {
+    throw new Error(`seed variant: anchor ${anchor} matched ${matches?.length ?? 0} times in seed.sql (expected 1)`);
+  }
+  return sql.replace(anchor, replacement);
+}
+
+/** M3 re-priced and an M24 row added — what an admin re-running an edited seed does. */
+function editedSeed(): string {
+  let sql = seedText();
+  sql = editOnce(sql, /('M3',\s+)0\.60(, true\))/, "$19.99$2");
+  sql = editOnce(
+    sql,
+    /\(([^()]*?), 'M20',\s+1\.50, true\)/,
+    "($1, 'M20', 1.50, true),\n  ($1, 'M24', 1.80, true)"
+  );
+  return sql;
+}
+
+/** A value error deep inside the seed (after the version reset and most inserts). */
+function seedFailingInside(): string {
+  return editOnce(seedText(), /('M20',\s+)1\.50(, true\))/, "$1'boom'$2");
+}
+
+/** A statement appended after the seed body that fails. */
+function seedFailingAfter(): string {
+  return `${seedText()}\nselect 1/0;\n`;
+}
+
+/* ─── Rows → pricing-engine types (only what findLaserRate reads) ───────── */
+
+function gasOf(gas: string | null): LaserRate["gas"] {
+  if (gas === "O2" || gas === "N2" || gas === "air" || gas === null) return gas;
+  throw new Error(`rate_laser.gas holds "${gas}", not O2 / N2 / air / null`);
+}
+
+function toLaserRate(r: LaserRow): LaserRate {
+  return {
+    materialCode: r.material_code,
+    thicknessMm: r.thickness_mm,
+    mode: r.mode,
+    speedMMin: r.speed_m_min,
+    pierceS: r.pierce_s,
+    pricePerM: r.price_per_m,
+    pricePerPierce: r.price_per_pierce,
+    gas: gasOf(r.gas),
+    minContourMm: r.min_contour_mm,
+    inHouse: r.in_house,
+    supplier: r.supplier,
+    placeholder: r.placeholder,
+  };
+}
+
+/** A RateSnapshot carrying only the laser rows — findLaserRate reads nothing else. */
+function laserOnlySnapshot(laser: LaserRate[]): RateSnapshot {
+  return {
+    versionId: V1,
+    label: "seed test",
+    materials: [],
+    laser,
+    tubeLaser: [],
+    bend: [],
+    roll: [],
+    weld: [],
+    thread: [],
+    feature: [],
+    finish: [],
+    general: {
+      machineRateEurH: 0,
+      labourRateEurH: 0,
+      machiningRateEurH: 0,
+      defaultMarginPct: 0,
+      marginByClass: {},
+      blankMarginMm: 0,
+      slowContourFactor: 1,
+      defaultStitch: { beadLengthMm: 0, pitchMm: 0 },
+      handlingMassLimitKg: 0,
+      handlingSurchargeEur: 0,
+      weldHandlingPerPart: 0,
+      placeholder: true,
+    },
+  };
 }
 
 /* ─── zod schemas from lib/pricing/snapshot.ts (optional) ───────────────── */
@@ -324,33 +505,17 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
     expect(byCode["Cu-ETP"]).toMatchObject({ family: "copper", density_kg_m3: 8940, rm_n_mm2: 250 });
   });
 
-  it("rate_laser: mild-steel base table, 70 % families, gas rule, min contour and subcontract rows", () => {
-    const rows = queryJson<LaserRow>(
-      DB,
-      `select material_code, thickness_mm, mode, speed_m_min, pierce_s, price_per_m, price_per_pierce, gas,
-              min_contour_mm, in_house, supplier, placeholder
-         from public.rate_laser where rate_version_id = '${V1}' order by material_code, in_house desc, thickness_mm`
-    );
-    const base: Record<number, { speed: number; pierce: number }> = {
-      1: { speed: 25, pierce: 0.2 },
-      2: { speed: 16, pierce: 0.3 },
-      3: { speed: 11, pierce: 0.4 },
-      4: { speed: 7, pierce: 0.6 },
-      5: { speed: 5.5, pierce: 0.8 },
-      6: { speed: 4.5, pierce: 1.0 },
-      8: { speed: 3.0, pierce: 1.3 },
-      10: { speed: 2.2, pierce: 1.6 },
-      12: { speed: 1.7, pierce: 2.0 },
-    };
+  it("rate_laser: mild-steel base table incl. stock gauges, 70 % families, gas rule, min contour and subcontract rows", () => {
+    const rows = queryJson<LaserRow>(DB, LASER_SELECT);
     const inHouse = rows.filter((r) => r.in_house);
     const subcontract = rows.filter((r) => !r.in_house);
-    expect(inHouse).toHaveLength(54);
-    expect(subcontract).toHaveLength(4);
+    expect(inHouse).toHaveLength(IN_HOUSE_LASER_ROWS);
+    expect(subcontract).toHaveLength(SUBCONTRACT_LASER_ROWS);
 
     for (const r of rows) expect(r.placeholder).toBe(true);
 
     for (const r of inHouse) {
-      const b = base[r.thickness_mm];
+      const b = MILD_STEEL_BASE[r.thickness_mm];
       expect(b, `base row for ${r.thickness_mm} mm`).toBeDefined();
       expect(r.mode).toBe("time");
       expect(r.price_per_m).toBeNull();
@@ -369,12 +534,13 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
     }
     const thicknessesOf = (code: string) =>
       inHouse.filter((r) => r.material_code === code).map((r) => r.thickness_mm);
-    for (const code of ["S235", "S355", "DC01", "1.4301"]) {
-      expect(thicknessesOf(code)).toEqual([1, 2, 3, 4, 5, 6, 8, 10, 12]);
+    for (const code of ["S235", "S355", "DC01"]) {
+      expect(thicknessesOf(code), code).toEqual([...STOCK_GAUGES_MM.mild_steel]);
     }
-    for (const code of ["AlMg3", "CuZn37", "Cu-ETP"]) {
-      expect(thicknessesOf(code)).toEqual([1, 2, 3, 4, 5, 6]);
-    }
+    expect(thicknessesOf("1.4301")).toEqual([...STOCK_GAUGES_MM.stainless]);
+    expect(thicknessesOf("AlMg3")).toEqual([...STOCK_GAUGES_MM.aluminium]);
+    expect(thicknessesOf("CuZn37")).toEqual([...STOCK_GAUGES_MM.brass]);
+    expect(thicknessesOf("Cu-ETP")).toEqual([...STOCK_GAUGES_MM.copper]);
 
     expect(
       subcontract.map((r) => [r.material_code, r.thickness_mm, r.price_per_m, r.price_per_pierce])
@@ -390,6 +556,50 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
       expect(r.pierce_s).toBeNull();
       expect(r.supplier).toContain("[CONFIRM]");
     }
+  });
+
+  it("every stock gauge within the flat-laser limit prices in-house through findLaserRate; above it → the supplier row", () => {
+    const rates = laserOnlySnapshot(queryJson<LaserRow>(DB, LASER_SELECT).map(toLaserRate));
+    const materials = queryJson<{ code: string; family: MaterialFamily }>(
+      DB,
+      `select code, family from public.materials where rate_version_id = '${V1}' order by code`
+    );
+    const [flat] = queryJson<{ limits: FlatLaserLimits }>(
+      DB,
+      "select limits from public.machines where kind = 'flat_laser'"
+    );
+    expect(flat).toBeDefined();
+    expect(materials).toHaveLength(7);
+
+    for (const { code, family } of materials) {
+      const limit = familyThicknessLimitMm(flat.limits, family);
+      expect(limit, `${family} limit`).not.toBeNull();
+      const gauges = STOCK_GAUGES_MM[family];
+      expect(gauges.every((t) => t <= (limit ?? 0)), `${family} gauges within ${limit} mm`).toBe(true);
+      for (const t of gauges) {
+        const r = findLaserRate(rates, code, t, limit);
+        expect(r.reason, `${code} ${t} mm`).toBe("in_house");
+        expect(r.subcontract, `${code} ${t} mm`).toBe(false);
+        expect(r.exactThickness, `${code} ${t} mm`).toBe(true);
+        expect(r.row?.inHouse, `${code} ${t} mm`).toBe(true);
+        expect(r.row?.mode, `${code} ${t} mm`).toBe("time");
+      }
+    }
+
+    // Above the mild-steel limit: exact supplier row, then the nearest one.
+    const mildLimit = familyThicknessLimitMm(flat.limits, "mild_steel");
+    const s235at15 = findLaserRate(rates, "S235", 15, mildLimit);
+    expect(s235at15).toMatchObject({ subcontract: true, reason: "over_limit", exactThickness: true });
+    expect(s235at15.row).toMatchObject({ inHouse: false, mode: "per_m", pricePerM: 6, pricePerPierce: 0.5 });
+    const s355at20 = findLaserRate(rates, "S355", 20, mildLimit);
+    expect(s355at20).toMatchObject({ subcontract: true, reason: "over_limit", exactThickness: true });
+    expect(s355at20.row).toMatchObject({ inHouse: false, pricePerM: 8 });
+    const s235at13 = findLaserRate(rates, "S235", 13, mildLimit);
+    expect(s235at13).toMatchObject({ subcontract: true, reason: "over_limit", exactThickness: false });
+    expect(s235at13.row).toMatchObject({ inHouse: false, thicknessMm: 15 });
+    // No supplier tariff is seeded for stainless above 12.7 mm: red laser.no_rate_row until the admin adds one.
+    const stainlessAt15 = findLaserRate(rates, "1.4301", 15, familyThicknessLimitMm(flat.limits, "stainless"));
+    expect(stainlessAt15).toMatchObject({ row: null, subcontract: true, reason: "over_limit" });
   });
 
   it("tube laser, bend, roll, weld, thread, feature and finish rows carry the Step 9 placeholders", () => {
@@ -450,12 +660,7 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
       expect(r.min_order).toBe(60);
     }
 
-    type ThreadRow = { size: string; price_each: number };
-    const thread = queryJson<ThreadRow>(
-      DB,
-      `select size, price_each from public.rate_thread where rate_version_id = '${V1}' order by size`
-    );
-    expect(Object.fromEntries(thread.map((r) => [r.size, r.price_each]))).toEqual({
+    expect(threadPrices()).toEqual({
       M3: 0.6, M4: 0.65, M5: 0.7, M6: 0.8, M8: 0.9, M10: 1, "M10x1": 1.05, M12: 1.2, "M12x1.5": 1.25, M16: 1.4, M20: 1.5,
     });
 
@@ -570,21 +775,54 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
 
   it("running seed.sql a second time neither errors nor duplicates", () => {
     const before = countRows();
-    const result = runSqlFile(DB, SEED_SQL);
-    expect(result.stdout).toContain("INSERT");
+    const result = runSeed(DB);
+    expect(result.stderr).not.toMatch(/referenced by quotes/);
     expect(countRows()).toEqual(before);
     const active = queryScalar<number>(DB, "select count(*)::int as n from public.rate_versions where active");
     expect(active).toBe(1);
   });
 
-  it("leaves a version referenced by quotes untouched (NOTICE, no error, no duplicates)", () => {
+  it("an edited seed lands on re-run while nothing references the version, and the original restores it", () => {
+    expect(() => runSql(DB, editedSeed(), "seed-edited", { singleTransaction: true })).not.toThrow();
+    expect(countRows()).toEqual({ ...EXPECTED_COUNTS, rate_thread: 12 });
+    expect(threadPrices()).toMatchObject({ M3: 9.99, M24: 1.8 });
+
+    runSeed(DB);
+    expect(countRows()).toEqual(EXPECTED_COUNTS);
+    const prices = threadPrices();
+    expect(prices.M3).toBe(0.6);
+    expect(prices).not.toHaveProperty("M24");
+  });
+
+  it("inserts nothing into a version referenced by quotes — even from an edited seed (row sets identical, NOTICE)", () => {
     runSql(DB, `insert into public.quotes (number, rate_version_id) values ('SM-TEST-0001', '${V1}');`);
-    const before = countRows();
-    expect(() => runSqlFile(DB, SEED_SQL)).not.toThrow();
-    expect(countRows()).toEqual(before);
-    const label = queryScalar<string>(DB, `select label from public.rate_versions where id = '${V1}'`);
-    expect(label).toContain("placeholder");
-    runSql(DB, "delete from public.quotes where number = 'SM-TEST-0001';");
+    try {
+      const before = rateRowsSnapshot();
+      const result = runSql(DB, editedSeed(), "seed-edited-referenced", { singleTransaction: true });
+      expect(result.stderr).toMatch(/NOTICE.*referenced by quotes/);
+      expect(rateRowsSnapshot()).toEqual(before);
+      expect(threadPrices()).not.toHaveProperty("M24");
+      expect(threadPrices().M3).toBe(0.6);
+      const label = queryScalar<string>(DB, `select label from public.rate_versions where id = '${V1}'`);
+      expect(label).toContain("placeholder");
+    } finally {
+      runSql(DB, "delete from public.quotes where number = 'SM-TEST-0001';");
+    }
+  });
+
+  it("a failure inside the seed leaves the previous rate set intact, even without psql -1 (single-statement seed)", () => {
+    const before = rateRowsSnapshot();
+    expect(before.rate_laser.length).toBe(EXPECTED_COUNTS.rate_laser);
+    expect(() => runSql(DB, seedFailingInside(), "seed-failing-inside")).toThrow(/boom/);
+    expect(rateRowsSnapshot()).toEqual(before);
+  });
+
+  it("a failure after the seed body is rolled back by the documented --single-transaction command", () => {
+    const before = rateRowsSnapshot();
+    expect(() => runSql(DB, seedFailingAfter(), "seed-failing-after", { singleTransaction: true })).toThrow(
+      /division by zero/
+    );
+    expect(rateRowsSnapshot()).toEqual(before);
   });
 
   it("never steals activation from a newer version the admin activated", () => {
@@ -593,7 +831,7 @@ describe.skipIf(!ENABLED)("supabase/seed.sql on a fresh local database", () => {
       `update public.rate_versions set active = false;
        insert into public.rate_versions (id, label, active) values ('${V2}', 'v2 test', true);`
     );
-    expect(() => runSqlFile(DB, SEED_SQL)).not.toThrow();
+    expect(() => runSeed(DB)).not.toThrow();
     const versions = queryJson<VersionRow>(DB, "select id, label, active, note from public.rate_versions order by id");
     expect(versions.map((v) => [v.id, v.active])).toEqual([
       [V1, false],

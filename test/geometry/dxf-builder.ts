@@ -22,6 +22,8 @@ export type EntitySpec =
       degree: number;
       controlPoints: P[];
       knots: number[];
+      /** Group 41 per control point (rational spline); omitted = non-rational. */
+      weights?: number[];
       closed?: boolean;
       periodic?: boolean;
     }
@@ -120,12 +122,14 @@ export function buildDxf(spec: DxfSpec): string {
         let flags = 8;
         if (e.closed) flags |= 1;
         if (e.periodic) flags |= 2;
+        if (e.weights) flags |= 4;
         g(70, String(flags));
         g(71, String(e.degree));
         g(72, String(e.knots.length));
         g(73, String(e.controlPoints.length));
         g(74, "0");
         for (const k of e.knots) g(40, k);
+        for (const wt of e.weights ?? []) g(41, wt);
         for (const c of e.controlPoints) pt(10, c);
         break;
       }

@@ -11,7 +11,7 @@ is what the Supabase CLI reads.
 |---|---|
 | `config.toml` | CLI configuration — minimal on purpose, see below. |
 | `migrations/20260925000000_init.sql` | The schema: enums, tables, RLS, helper functions, storage bucket. Never edit an applied migration; add a new timestamped file. |
-| `seed.sql` | Machine park + placeholder rate tables (rate version `v1`). Idempotent. Runs on `supabase db reset`; run once by hand in the cloud. |
+| `seed.sql` | Machine park + placeholder rate tables (rate version `v1`). One atomic `DO` block, idempotent. Runs on `supabase db reset`; run once by hand in the cloud. |
 | `seed-local-admin.sql` | Local-dev admin user `admin@stretchmetal.local` / `stretchmetal`. **Local stacks only, never run automatically.** |
 
 `config.toml` sets only `project_id` and `[db.seed]`. The CLI fills every key
@@ -60,14 +60,19 @@ SMTOOL_LOCAL_PG=1 npx vitest run test/db
 `test/db/pg.ts` drops and recreates a scratch database (`smtool_seed_test`
 by default, `SMTOOL_PG_DATABASE` to change it), applies the stub, every
 migration and `seed.sql`, then `test/db/seed.test.ts` asserts the row counts,
-the JSON shapes against `lib/pricing/types.ts`, idempotency and
-`next_quote_number()`. The same sequence by hand (files must be readable by
-the `postgres` OS user, so copy them to `/tmp` first):
+the JSON shapes against `lib/pricing/types.ts`, idempotency (edited seed on a
+referenced version, failure rollback), the laser ladder through the real
+`findLaserRate`, and `next_quote_number()`. The same sequence by hand (files
+must be readable by the `postgres` OS user, so copy them to `/tmp` first):
 
 ```bash
 cp supabase/seed.sql /tmp/seed.sql && chmod 644 /tmp/seed.sql
-su postgres -c "psql -p 5433 -h /tmp -d smtool -v ON_ERROR_STOP=1 -f /tmp/seed.sql"
+su postgres -c "psql -p 5433 -h /tmp -d smtool -v ON_ERROR_STOP=1 --single-transaction -f /tmp/seed.sql"
 ```
+
+`--single-transaction` (`-1`) is belt and braces: the seed is one `DO` block,
+so Postgres already applies it atomically, but the flag also covers anything
+someone later appends after the block.
 
 `seed-local-admin.sql` cannot run on the stub (no token columns, no
 `auth.identities`); it targets the real local stack only.
@@ -81,8 +86,10 @@ su postgres -c "psql -p 5433 -h /tmp -d smtool -v ON_ERROR_STOP=1 -f /tmp/seed.s
    project has not seen (tracked in `supabase_migrations.schema_migrations`).
    `npm run db:push` is the same command.
 3. Seed **once**: open Dashboard → SQL editor, paste `seed.sql`, run. It is
-   safe to run again later — see "Idempotency" — but the cloud project is
-   never seeded automatically (`[db.seed]` only applies to `db reset`).
+   safe to run again later — see "Idempotency": an edited seed replaces `v1`
+   only while no quote references it, and inserts nothing otherwise — but the
+   cloud project is never seeded automatically (`[db.seed]` only applies to
+   `db reset`).
 4. Create the first admin: Dashboard → Authentication → Users → Invite user.
    Accepting the invite creates the `profiles` row as `sales`; promote it in
    the SQL editor:
@@ -145,6 +152,17 @@ references are protected by the `*_immutable` triggers (update/delete raise),
 which is why edits always go through a clone. Pricing loads the active
 version for new quotes and the pinned version for existing ones.
 
+**Laser rows and sheet gauges.** `findLaserRate` (`lib/pricing/lookup.ts`)
+prices in-house only from an in-house `rate_laser` row at *exactly* the
+part's thickness; a gauge without one is priced from the nearest *supplier*
+row and flagged as subcontract. So every gauge the shop stocks needs its own
+in-house row. The seed covers 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12 and
+12.7 mm for mild steel and stainless and 1–6 mm (same steps) for aluminium,
+brass and copper; when a new gauge enters stock, add its row in the rate
+editor of the active version's clone. Above 12.7 mm only S235/S355 carry a
+supplier row (15 and 20 mm); other grades are red `laser.no_rate_row` until
+the admin enters a supplier tariff.
+
 From SQL (as an admin):
 
 ```sql
@@ -153,17 +171,25 @@ select public.clone_rate_version('00000000-0000-4000-8000-000000000001', 'v2 —
 select public.activate_rate_version('<new id>');
 ```
 
-### Idempotency of `seed.sql`
+### Idempotency and atomicity of `seed.sql`
 
+* The file is **one `DO` block = one statement**, so Postgres applies it
+  atomically even without a transaction: a typo, a bad value or a schema
+  drift rolls everything back and the previous rate set stays in place.
+  Add rows inside the block, never as statements after it.
 * If no quote references `v1`, the version row is deleted (cascading to every
-  rate row) and re-inserted, so an edited seed lands on re-run.
-* If a quote does reference it, the seed prints a NOTICE and leaves the rate
-  rows alone; every insert is `on conflict do nothing`.
+  rate row) and re-inserted, so an edited seed lands on re-run. The rate
+  inserts have no `on conflict` clause: after the delete a conflict can only
+  be a duplicate inside the file, which must fail loudly.
+* If a quote does reference `v1`, the seed prints a NOTICE and **inserts
+  nothing** into it — not even rows that were added to the file later. The
+  migration's `*_immutable` triggers guard update/delete only, so the seed
+  has to skip inserts itself. Change rates through clone → edit → activate.
 * `v1` is inserted active only when no other version is active — it never
   steals activation from a version the admin activated.
-* `machines` rows are `on conflict (code) do nothing`: edits made in the
-  admin machines editor survive a re-run. Change limits in the UI, not in the
-  seed.
+* `machines` rows are `on conflict (code) do nothing` and run on every seed,
+  independent of the version branch: edits made in the admin machines editor
+  survive a re-run. Change limits in the UI, not in the seed.
 
 ## `[CONFIRM]` — every placeholder in this folder
 
@@ -187,7 +213,8 @@ owner and are **not** placeholders except where listed.
 | `materials` | DC01, 1.4301, AlMg3 €/kg | 1.05, 3.60, 4.50 flat |
 | `materials` | CuZn37, Cu-ETP €/kg | 8.50, 9.50 flat — no benchmark yet |
 | `materials` | scrap default | 25 % (all grades) |
-| `rate_laser` | mild-steel speeds / pierce | 1–12 mm: 25, 16, 11, 7, 5.5, 4.5, 3.0, 2.2, 1.7 m/min; 0.2–2.0 s — replace with TRUMPF 12 kW data |
+| `rate_laser` | mild-steel speeds / pierce | 1, 2, 3, 4, 5, 6, 8, 10, 12 mm: 25, 16, 11, 7, 5.5, 4.5, 3.0, 2.2, 1.7 m/min; 0.2–2.0 s — replace with TRUMPF 12 kW data |
+| `rate_laser` | stock gauges 1.5 / 2.5 / 12.7 mm | 20.5 / 13.5 / 1.5 m/min, 0.25 / 0.35 / 2.2 s — interpolated between the neighbours (12.7 = machine limit, extrapolated) |
 | `rate_laser` | stainless / aluminium / brass / copper | 70 % of the mild-steel speed, same pierce, N2 |
 | `rate_laser` | gas rule | O2 from 3 mm, N2 below (mild steel) |
 | `rate_laser` | €/pierce in-house | 0.05 € |

@@ -19,9 +19,16 @@
  *     shared `smtool`. Override with SMTOOL_PG_DATABASE.
  *   - `drop database … with (force)` terminates stale connections to the
  *     scratch database so a crashed earlier run cannot wedge the suite.
+ *   - psql runs through spawnSync so stderr is captured on success too: the
+ *     seed reports its "version referenced by quotes" branch as a NOTICE,
+ *     which psql prints on stderr, and the tests assert on it.
+ *   - `singleTransaction` (psql -1) is opt-in: `runSeed` uses it because
+ *     that is the command supabase/README.md documents for seed.sql, but a
+ *     `drop database` / `create database` cannot run inside a transaction
+ *     block, so the reset and ad-hoc statements run without it.
  */
 
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +43,11 @@ export const MIGRATIONS_DIR = path.join(REPO_ROOT, "supabase/migrations");
 export const SEED_SQL = path.join(REPO_ROOT, "supabase/seed.sql");
 
 export type PsqlResult = { stdout: string; stderr: string };
+
+export type RunOptions = {
+  /** Wrap the whole file in one transaction (`psql -1`): any error rolls back everything. */
+  singleTransaction?: boolean;
+};
 
 let stagingDir: string | null = null;
 
@@ -77,14 +89,21 @@ function stageSql(source: { file: string } | { sql: string; name: string }): str
 
 /**
  * Run `psql -f file` against `database`. Throws (with stderr in the message)
- * when psql exits non-zero; ON_ERROR_STOP makes any SQL error fatal.
+ * when psql exits non-zero; ON_ERROR_STOP makes any SQL error fatal. On
+ * success the result carries stdout (command tags) and stderr (NOTICEs).
  */
-export function psqlFile(database: string, file: string, extraArgs: string[] = []): PsqlResult {
+export function psqlFile(
+  database: string,
+  file: string,
+  extraArgs: string[] = [],
+  options: RunOptions = {}
+): PsqlResult {
   const args = [
     "psql",
     "-X",
     "-v",
     "ON_ERROR_STOP=1",
+    ...(options.singleTransaction ? ["--single-transaction"] : []),
     "-h",
     PG_HOST,
     "-p",
@@ -96,34 +115,42 @@ export function psqlFile(database: string, file: string, extraArgs: string[] = [
     file,
   ];
   const command = args.map(shellQuote).join(" ");
-  const stderrChunks: string[] = [];
-  try {
-    const stdout = execFileSync(
-      RUN_AS_POSTGRES ? "su" : "sh",
-      RUN_AS_POSTGRES ? ["postgres", "-c", command] : ["-c", command],
-      {
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-        maxBuffer: 64 * 1024 * 1024,
-      }
-    );
-    return { stdout, stderr: stderrChunks.join("") };
-  } catch (err) {
-    const e = err as { stdout?: string; stderr?: string; message?: string };
+  const run = spawnSync(
+    RUN_AS_POSTGRES ? "su" : "sh",
+    RUN_AS_POSTGRES ? ["postgres", "-c", command] : ["-c", command],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 64 * 1024 * 1024,
+    }
+  );
+  const stdout = run.stdout ?? "";
+  const stderr = run.stderr ?? "";
+  if (run.error || run.status !== 0) {
     throw new Error(
-      `psql failed for ${path.basename(file)} on ${database}:\n${e.stderr ?? ""}${e.message ?? ""}`
+      `psql failed for ${path.basename(file)} on ${database} (exit ${String(run.status)}):\n${stderr}${run.error?.message ?? ""}`
     );
   }
+  return { stdout, stderr };
 }
 
 /** Run a SQL file from the repo (copied to /tmp first). Returns psql's output. */
-export function runSqlFile(database: string, file: string): PsqlResult {
-  return psqlFile(database, stageSql({ file }));
+export function runSqlFile(database: string, file: string, options: RunOptions = {}): PsqlResult {
+  return psqlFile(database, stageSql({ file }), [], options);
 }
 
 /** Run an ad-hoc SQL string (one psql session, so SET/SELECT sequences work). */
-export function runSql(database: string, sql: string, name = "adhoc"): PsqlResult {
-  return psqlFile(database, stageSql({ sql, name }));
+export function runSql(database: string, sql: string, name = "adhoc", options: RunOptions = {}): PsqlResult {
+  return psqlFile(database, stageSql({ sql, name }), [], options);
+}
+
+/**
+ * Apply a seed file the way supabase/README.md documents it:
+ * `psql -v ON_ERROR_STOP=1 --single-transaction -f seed.sql`. `file` defaults
+ * to supabase/seed.sql; the tests also pass edited or broken copies.
+ */
+export function runSeed(database: string, file = SEED_SQL): PsqlResult {
+  return runSqlFile(database, file, { singleTransaction: true });
 }
 
 /**
@@ -175,5 +202,5 @@ export function resetDatabase(database = PG_DATABASE, options: { seed?: boolean 
   );
   runSqlFile(database, STUB_SQL);
   for (const file of migrationFiles()) runSqlFile(database, file);
-  if (seed) runSqlFile(database, SEED_SQL);
+  if (seed) runSeed(database);
 }

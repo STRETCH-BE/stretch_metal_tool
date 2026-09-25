@@ -198,7 +198,7 @@ export type SlowContour = {
 };
 
 export type PartMeasures = {
-  /** Outer contour + every hole (mm). */
+  /** Outer contour + every hole + open cuts answered "cut" (mm). */
   cutLengthMm: number;
   outerLengthMm: number;
   holesLengthMm: number;
@@ -221,6 +221,14 @@ export type PartMeasures = {
   slowContours: SlowContour[];
   /** Engraving/marking length from tagged entities. */
   engraveLengthMm: number;
+  /**
+   * Open chains inside the part the user answered "cut" (slits, open
+   * cuts): their length is included in `cutLengthMm` and each chain adds
+   * one pierce. Optional so snapshots written before these fields
+   * existed still type-check (absent = 0).
+   */
+  openCutsLengthMm?: number;
+  openCuts?: number;
   /**
    * Sum of `effectiveLengthMm` of the weld annotations applied to this
    * geometry (0 when no annotations were applied). Optional so stored
