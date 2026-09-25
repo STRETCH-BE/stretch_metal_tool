@@ -16,15 +16,47 @@ function required(name: string): string {
   return value;
 }
 
+/**
+ * Supabase issues two kinds of client keys: the legacy JWT "anon" key and
+ * the newer "publishable" key (sb_publishable_…). Both work identically
+ * with @supabase/ssr, so either variable name is accepted. Same for the
+ * server key: legacy "service_role" JWT or the new secret key (sb_secret_…).
+ */
+export function publicSupabaseKey(): string | undefined {
+  return (
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+  );
+}
+
 export const env = {
   supabaseUrl: () => required("NEXT_PUBLIC_SUPABASE_URL"),
-  supabaseAnonKey: () => required("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
-  supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY"),
-  /** True when the three Supabase variables are present. */
+  supabaseAnonKey: () => {
+    const key = publicSupabaseKey();
+    if (!key) {
+      throw new Error(
+        "Missing environment variable NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) — see env.example."
+      );
+    }
+    return key;
+  },
+  supabaseServiceRoleKey: () => {
+    const key =
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
+    if (!key) {
+      throw new Error(
+        "Missing environment variable SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) — see env.example."
+      );
+    }
+    return key;
+  },
+  /** True when the Supabase URL and a public key are present. */
   hasSupabase: () =>
+    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && publicSupabaseKey()),
+  /** True when the server-side key is present (admin client usable). */
+  hasSupabaseAdmin: () =>
     Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL &&
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY
     ),
   anthropicApiKey: () => process.env.ANTHROPIC_API_KEY || null,
   hasAi: () => Boolean(process.env.ANTHROPIC_API_KEY),

@@ -17,9 +17,12 @@ let browserClient: ReturnType<typeof createBrowserClient<Database>> | null =
 
 export function createClient() {
   if (browserClient) return browserClient;
+  // Both variable names must be spelled out literally so Next.js inlines
+  // them into the browser bundle.
   browserClient = createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!
   );
   return browserClient;
 }

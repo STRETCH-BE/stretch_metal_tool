@@ -69,6 +69,7 @@ $$;
 
 -- New auth user → profile row. Role/locale can be passed in raw_user_meta_data
 -- by the admin invite ({"role":"sales","locale":"pl","full_name":"…"}).
+-- The first profile ever created is promoted to admin (bootstrap).
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
@@ -83,6 +84,11 @@ begin
     v_locale := coalesce((new.raw_user_meta_data ->> 'locale')::public.user_locale, 'pl');
   exception when others then v_locale := 'pl';
   end;
+  -- Bootstrap: the very first account becomes the admin (there is no other
+  -- way to promote a user before an admin exists).
+  if not exists (select 1 from public.profiles) then
+    v_role := 'admin';
+  end if;
   insert into public.profiles (id, email, full_name, role, locale)
   values (new.id, new.email, new.raw_user_meta_data ->> 'full_name', v_role, v_locale)
   on conflict (id) do nothing;
