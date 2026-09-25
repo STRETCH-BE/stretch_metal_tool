@@ -13,6 +13,10 @@
  *
  * create/update are useActionState reducers: (prevState, formData) →
  * CustomerFormState with error CODES (mapped to copy in the client form).
+ * Every error state carries `values` (the raw submitted strings): React 19
+ * resets the <form> after the action settles, so the form re-populates
+ * its defaultValues from them and a typo in one field never wipes the
+ * rest (test/ui/customer-actions.test.ts).
  */
 
 import { redirect } from "next/navigation";
@@ -24,13 +28,20 @@ import { routes } from "@/lib/routes";
 import type { CustomerRow, Json } from "@/lib/db/types";
 import {
   parseCustomerForm,
+  readCustomerFormValues,
+  type CustomerErrorCode,
   type CustomerFormState,
+  type CustomerFormValues,
 } from "@/lib/customers/schema";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function asJson(row: CustomerRow | null): Json | null {
   return row ? (JSON.parse(JSON.stringify(row)) as Json) : null;
+}
+
+function fail(values: CustomerFormValues, error: CustomerErrorCode): CustomerFormState {
+  return { status: "error", error, values };
 }
 
 function revalidateCustomer(id?: string) {
@@ -42,12 +53,13 @@ export async function createCustomer(
   _prev: CustomerFormState,
   formData: FormData
 ): Promise<CustomerFormState> {
+  const values = readCustomerFormValues(formData);
   const session = await getCurrentUser();
   if (!session) redirect(routes.login);
-  if (!hasRole(session, WRITE_ROLES)) return { status: "error", error: "forbidden" };
+  if (!hasRole(session, WRITE_ROLES)) return fail(values, "forbidden");
 
   const parsed = parseCustomerForm(formData);
-  if (!parsed.ok) return { status: "error", fieldErrors: parsed.fieldErrors };
+  if (!parsed.ok) return { status: "error", fieldErrors: parsed.fieldErrors, values };
 
   let created: CustomerRow | null = null;
   try {
@@ -59,12 +71,12 @@ export async function createCustomer(
       .single();
     if (error) {
       console.error("[customers] create failed", error);
-      return { status: "error", error: "generic" };
+      return fail(values, "generic");
     }
     created = data;
   } catch (error) {
     console.error("[customers] create failed", error);
-    return { status: "error", error: "generic" };
+    return fail(values, "generic");
   }
 
   await logAudit({
@@ -83,13 +95,14 @@ export async function updateCustomer(
   _prev: CustomerFormState,
   formData: FormData
 ): Promise<CustomerFormState> {
+  const values = readCustomerFormValues(formData);
   const session = await getCurrentUser();
   if (!session) redirect(routes.login);
-  if (!hasRole(session, WRITE_ROLES)) return { status: "error", error: "forbidden" };
-  if (!UUID.test(id)) return { status: "error", error: "notFound" };
+  if (!hasRole(session, WRITE_ROLES)) return fail(values, "forbidden");
+  if (!UUID.test(id)) return fail(values, "notFound");
 
   const parsed = parseCustomerForm(formData);
-  if (!parsed.ok) return { status: "error", fieldErrors: parsed.fieldErrors };
+  if (!parsed.ok) return { status: "error", fieldErrors: parsed.fieldErrors, values };
 
   let before: CustomerRow | null = null;
   let after: CustomerRow | null = null;
@@ -98,9 +111,9 @@ export async function updateCustomer(
     const existing = await supabase.from("customers").select("*").eq("id", id).maybeSingle();
     if (existing.error) {
       console.error("[customers] read before update failed", existing.error);
-      return { status: "error", error: "generic" };
+      return fail(values, "generic");
     }
-    if (!existing.data) return { status: "error", error: "notFound" };
+    if (!existing.data) return fail(values, "notFound");
     before = existing.data;
 
     const { data, error } = await supabase
@@ -111,12 +124,12 @@ export async function updateCustomer(
       .single();
     if (error) {
       console.error("[customers] update failed", error);
-      return { status: "error", error: "generic" };
+      return fail(values, "generic");
     }
     after = data;
   } catch (error) {
     console.error("[customers] update failed", error);
-    return { status: "error", error: "generic" };
+    return fail(values, "generic");
   }
 
   await logAudit({

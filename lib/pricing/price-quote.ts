@@ -22,7 +22,9 @@
  * subtotalCost exactly. Prices per bucket use the same margin.
  *
  * Invalid input throws PricingError: qty ≤ 0, margin ≥ 100 % or non-finite,
- * an item whose part is missing. No rounding anywhere.
+ * an item whose part is missing, and (validate.ts) any NaN / Infinity /
+ * negative user number in an extra, an annotation or a welding-only seam.
+ * No rounding anywhere.
  */
 
 import type { WeldProcess } from "../geometry/types";
@@ -32,6 +34,7 @@ import { setupShare as spreadSetup, weldCost, weldEffectiveLengthMm } from "./fo
 import { OPERATION_LABELS } from "./labels";
 import { findWeldRate } from "./lookup";
 import { buildItemOperations, weldRateRef } from "./operations";
+import { validateWeldingOnly } from "./validate";
 import {
   marginToMarkup,
   priceFromCost,
@@ -90,18 +93,13 @@ function priceWeldingOnly(
   rates: RateSnapshot,
   marginPct: number
 ): WeldingBlock {
+  validateWeldingOnly(block);
   const general = rates.general;
   const operations: OperationLine[] = [];
   const flags: Flag[] = [];
   const processRows = new Map<WeldProcess, WeldRate>();
 
   for (const seam of block.seams) {
-    if (!Number.isFinite(seam.qty) || seam.qty <= 0) {
-      throw new PricingError("invalid_qty", `seam ${seam.id}: qty must be > 0, got ${String(seam.qty)}`, {
-        seamId: seam.id,
-        qty: Number.isFinite(seam.qty) ? seam.qty : String(seam.qty),
-      });
-    }
     const row = findWeldRate(rates, seam.process, seam.beadMm);
     if (!row) {
       flags.push({

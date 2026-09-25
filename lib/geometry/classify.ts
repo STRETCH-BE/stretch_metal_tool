@@ -8,9 +8,18 @@
  * Geometry rules (closed loops sorted by area, largest first):
  * - containment tree: a loop's parent is the smallest larger loop that
  *   contains it (bbox test + majority of sampled points inside);
- * - frame: a top-level axis-aligned rectangle that encloses a loop which
- *   itself has children (a part with holes drawn inside a border). Its
- *   children are promoted to top level and the frame is ignored;
+ * - frame: a top-level axis-aligned rectangle (every vertex on its bbox,
+ *   so a rounded plate never qualifies) that is NOT on a named cut layer
+ *   (IV_OUTER_PROFILE, CUT, … — layer "0" does not count as named) and
+ *   either (a) holds a title block (a child rectangle touching two of
+ *   its edges), (b) directly encloses two or more loops that have
+ *   children (a nest of parts with holes inside a sheet border), or
+ *   (c) encloses a loop with children and shares no layer with its
+ *   children (a border on its own layer around a part with holes). A
+ *   plain rectangle on layer "0" with a window that holds an island is
+ *   therefore a plate, not a frame: cut geometry is never dropped
+ *   silently. Frame children are promoted to top level, the frame and
+ *   its title block are ignored;
  * - every remaining top-level loop starts a part group (partIndex by
  *   area, 0 = largest = `outerLoopId`); its descendants are holes;
  * - open chains inside a part are bend/engrave/weld candidates: role
@@ -24,7 +33,8 @@
  */
 
 import type { EntityRole, GeometryEntity, Loop, Point } from "./types";
-import { bboxArea, bboxContains, bboxMaxSide, pointInPolygon } from "./math";
+import type { Bbox } from "./types";
+import { bboxArea, bboxCenter, bboxContains, bboxMaxSide, pointInPolygon, polygonCentroid } from "./math";
 
 export type ClassifyOptions = {
   /** Per-entity role overrides from annotations (highest authority). */
@@ -40,6 +50,8 @@ export type ClassifyResult = {
 
 const MARKING_ROLES = new Set<EntityRole>(["bend_up", "bend_down", "weld", "engrave"]);
 const NOISE_MAX_SIDE_MM = 0.5;
+/** Vertex-on-bbox tolerance for the rectangle test (frames, title blocks). */
+const RECT_TOL_MM = 0.01;
 
 /** Up to `n` points spread along a point list. */
 export function samplePoints(points: Point[], n = 7): Point[] {
@@ -49,13 +61,22 @@ export function samplePoints(points: Point[], n = 7): Point[] {
   return out;
 }
 
-/** Majority of `inner` sample points inside `outer` polygon (plus bbox check). */
+/**
+ * Majority of `inner` sample points inside `outer` polygon (plus bbox
+ * check). The samples are the inner vertices nudged 0.1 % towards the
+ * inner centroid: a loop touching the outer boundary from inside (a
+ * title block in a sheet corner) then reads as inside, one touching from
+ * outside (a part nested in a notch) reads as outside.
+ */
 export function loopContains(outer: Loop, inner: Loop, tol = 1e-6): boolean {
   if (outer.id === inner.id) return false;
   if (!bboxContains(outer.bbox, inner.bbox, tol + 1e-6)) return false;
   if (outer.points.length < 3) return false;
-  const samples = samplePoints(inner.points);
-  if (samples.length === 0) return false;
+  const raw = samplePoints(inner.points);
+  if (raw.length === 0) return false;
+  let c = inner.points.length >= 3 ? polygonCentroid(inner.points) : bboxCenter(inner.bbox);
+  if (!Number.isFinite(c.x) || !Number.isFinite(c.y)) c = bboxCenter(inner.bbox);
+  const samples = raw.map((p) => ({ x: p.x + (c.x - p.x) * 1e-3, y: p.y + (c.y - p.y) * 1e-3 }));
   let inside = 0;
   for (const p of samples) if (pointInPolygon(p, outer.points)) inside += 1;
   return inside * 2 > samples.length;
@@ -85,11 +106,31 @@ function chainInside(outer: Loop, chain: Loop): boolean {
   return inside * 2 > samples.length;
 }
 
-function isAxisAlignedRectangle(loop: Loop): boolean {
-  if (loop.points.length < 4) return false;
+/** Closed loop whose area fills its bbox and whose every vertex lies on the bbox boundary. */
+export function isAxisAlignedRectangle(loop: Loop, tol = RECT_TOL_MM): boolean {
+  if (!loop.closed || loop.points.length < 4) return false;
   const a = bboxArea(loop.bbox);
   if (a <= 0) return false;
-  return Math.abs(loop.areaMm2 - a) / a < 0.005;
+  if (Math.abs(loop.areaMm2 - a) / a > 1e-3) return false;
+  const b = loop.bbox;
+  return loop.points.every(
+    (p) => Math.abs(p.x - b.minX) <= tol || Math.abs(p.x - b.maxX) <= tol || Math.abs(p.y - b.minY) <= tol || Math.abs(p.y - b.maxY) <= tol
+  );
+}
+
+/** How many edges of `outer` the box `inner` lies on (a title block touches ≥ 2). */
+function edgesTouched(inner: Bbox, outer: Bbox, tol = RECT_TOL_MM): number {
+  let n = 0;
+  if (Math.abs(inner.minX - outer.minX) <= tol) n += 1;
+  if (Math.abs(inner.maxX - outer.maxX) <= tol) n += 1;
+  if (Math.abs(inner.minY - outer.minY) <= tol) n += 1;
+  if (Math.abs(inner.maxY - outer.maxY) <= tol) n += 1;
+  return n;
+}
+
+/** Entity on an explicitly named cut layer (layer "0" is the default, not a name). */
+function onNamedCutLayer(e: GeometryEntity): boolean {
+  return e.roleFromLayer === "cut" && e.layer.trim() !== "0";
 }
 
 export function classify(
@@ -162,12 +203,23 @@ export function classify(
     return d;
   };
 
-  // Frames: top-level rectangles enclosing a part that has holes.
+  // Frames (see the header): never a loop on a named cut layer.
   const frames = new Set<string>();
+  const layersOf = (l: Loop) => new Set(loopEntities(l).map((e) => e.layer.trim().toUpperCase()));
   for (const l of closedGeo) {
     if (parent.get(l.id)) continue;
     if (!isAxisAlignedRectangle(l)) continue;
-    if (depthBelow(l.id) >= 2) frames.add(l.id);
+    const ents = loopEntities(l);
+    if (ents.some(onNamedCutLayer)) continue;
+    const kids = children.get(l.id) ?? [];
+    const titleBlocks = kids.filter((k) => isAxisAlignedRectangle(k) && edgesTouched(k.bbox, l.bbox) >= 2);
+    const kidsWithKids = kids.filter((k) => depthBelow(k.id) >= 1);
+    const own = layersOf(l);
+    const sharesLayer = kids.some((k) => [...layersOf(k)].some((x) => own.has(x)));
+    const isFrame = titleBlocks.length > 0 || kidsWithKids.length >= 2 || (kidsWithKids.length >= 1 && !sharesLayer);
+    if (!isFrame) continue;
+    frames.add(l.id);
+    for (const t of titleBlocks) frames.add(t.id);
   }
   for (const l of closedGeo) {
     const p = parent.get(l.id);

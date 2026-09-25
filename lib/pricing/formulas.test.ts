@@ -58,7 +58,7 @@ describe("laser formulas", () => {
     expect(t).toBeCloseTo(0.295125, 9);
   });
 
-  it("per-metre mode multiplies the adjusted length and adds pierces", () => {
+  it("per-metre mode multiplies the plain cut length (no slow-contour weighting, Step 9) and adds pierces", () => {
     expect(laserPerMCost(2.2245, 4.5, 26, 0.5)).toBeCloseTo(2.2245 * 4.5 + 13, 10);
     expect(laserPerMCost(2.2245, 4.5, 26, 0.5)).toBeCloseTo(23.01025, 9);
   });

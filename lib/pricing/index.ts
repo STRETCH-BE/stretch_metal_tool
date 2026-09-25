@@ -54,3 +54,10 @@ export {
   type RateRows,
 } from "./snapshot";
 export { OPERATION_LABELS, type OperationLabelKey } from "./labels";
+export {
+  validateExtraOperation,
+  validatePartAnnotations,
+  validatePricingItem,
+  validateWeldingOnly,
+  validateWeldingOnlySeam,
+} from "./validate";

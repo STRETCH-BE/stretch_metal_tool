@@ -26,7 +26,10 @@ import { Notice } from "@/components/ui/notice";
 import { SubmitButton } from "@/components/ui/submit-button";
 import { LocaleSwitcher } from "@/components/shell/locale-switcher";
 
-export const metadata: Metadata = { title: "Login" };
+export async function generateMetadata(): Promise<Metadata> {
+  const c = getContent(await getPublicLocale());
+  return { title: c.common.login.title };
+}
 
 type SearchParams = Promise<{
   error?: string | string[];

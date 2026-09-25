@@ -125,11 +125,42 @@ describe("flat laser", () => {
     expect(f?.params).toMatchObject({ materialCode: "DC01", thicknessMm: 15, limitMm: 12.7 });
   });
 
-  it("allowed thickness priced by a supplier row → amber subcontract", () => {
-    const part = rect(100, 100, 2.5, "S355");
-    const f = find(flagsFor(part), "laser.subcontract");
+  it("allowed thickness whose row is a supplier row (in_house = false) → amber subcontract", () => {
+    const snap = cloneSnapshot();
+    const row = snap.laser.find((r) => r.materialCode === "S355" && r.thicknessMm === 12);
+    if (row) Object.assign(row, { inHouse: false, mode: "per_m", speedMMin: null, pierceS: null, pricePerM: 3.5, supplier: "Plasma X" });
+    const flags = flagsFor(rect(100, 100, 12, "S355"), {}, snap);
+    const f = find(flags, "laser.subcontract");
     expect(f?.severity).toBe("amber");
-    expect(f?.params).toMatchObject({ thicknessMm: 2.5, rowThicknessMm: 15, reason: "supplier_row" });
+    expect(f?.overridable).toBe(true);
+    expect(f?.params).toMatchObject({ thicknessMm: 12, rowThicknessMm: 12, reason: "supplier_row", supplier: "Plasma X" });
+    expect(reds(flags)).toEqual([]);
+    expect(find(flags, "laser.blank_exceeds_bed")).toBeUndefined();
+  });
+
+  it("review: an allowed thickness with no row at that thickness is red no_rate_row — never priced from a plate tariff", () => {
+    // 2.5 mm S355 sits between the 2 and 3 mm in-house rows; the 15 mm plasma row must not price it (43× the sheet price)
+    const flags = flagsFor(rect(100, 100, 2.5, "S355"));
+    const f = find(flags, "laser.no_rate_row");
+    expect(f?.severity).toBe("red");
+    expect(f?.overridable).toBe(false);
+    expect(f?.params).toMatchObject({ materialCode: "S355", thicknessMm: 2.5, limitMm: 12.7, family: "mild_steel", reason: "none" });
+    expect(find(flags, "laser.subcontract")).toBeUndefined();
+    expect(find(flags, "laser.thickness_over_limit")).toBeUndefined();
+  });
+
+  it("review: a thickness above every supplier row is red no_rate_row — never priced from a thinner row", () => {
+    const flags = flagsFor(makePricingPart({ geometry: make200005Like({ thicknessMm: 25 }), materialCode: "S355", thicknessMm: 25 }));
+    expect(find(flags, "laser.no_rate_row")?.params).toMatchObject({ thicknessMm: 25, reason: "over_limit" });
+    expect(find(flags, "laser.thickness_over_limit")).toBeUndefined();
+  });
+
+  it("a thickness between supplier rows is priced from the next thicker one, amber with the row thickness shown", () => {
+    const flags = flagsFor(makePricingPart({ geometry: make200005Like({ thicknessMm: 18 }), materialCode: "S355", thicknessMm: 18 }));
+    const f = find(flags, "laser.thickness_over_limit");
+    expect(f?.severity).toBe("amber");
+    expect(f?.params).toMatchObject({ thicknessMm: 18, rowThicknessMm: 20, limitMm: 12.7 });
+    expect(find(flags, "laser.no_rate_row")).toBeUndefined();
   });
 
   it("blank larger than the usable bed in both orientations is red", () => {
@@ -161,6 +192,19 @@ describe("flat laser", () => {
     expect(f?.overridable).toBe(false);
     expect(f?.params).toMatchObject({ count: 32, factor: 1.5 });
     expect(f?.params.lengthMm).toBeCloseTo(30 * Math.PI * 5.5 + 2 * Math.PI * 8.5, 6);
+  });
+
+  it("the slow-contour info is only raised when the factor is applied (mode time), not for per-metre rows", () => {
+    // 15 mm S355: every hole < 150 mm is a slow contour, but the supplier per_m tariff does not use the factor
+    const sub = flagsFor(makePricingPart({ geometry: make200005Like(), materialCode: "S355", thicknessMm: 15 }));
+    expect(find(sub, "laser.slow_contours")).toBeUndefined();
+    // an in-house per_m row: same rule
+    const snap = cloneSnapshot();
+    const row = snap.laser.find((r) => r.materialCode === "DC01" && r.thicknessMm === 2);
+    if (row) Object.assign(row, { mode: "per_m", pricePerM: 1 });
+    const part = makePricingPart({ geometry: make200164Like(), materialCode: "DC01", thicknessMm: 2 });
+    expect(find(flagsFor(part, {}, snap), "laser.slow_contours")).toBeUndefined();
+    expect(find(flagsFor(part), "laser.slow_contours")?.params.count).toBe(32);
   });
 
   it("the laser row's minContourMm overrides the 10 × t threshold", () => {
@@ -343,12 +387,13 @@ describe("press brake", () => {
     expect(flags.some((f) => f.params.bendId === "bend-1")).toBe(false);
   });
 
-  it("no bend rate row for the thickness → amber no_rate_row", () => {
+  it("review: no bend rate row for the thickness → RED no_rate_row (the bend line is omitted, so it must block sending)", () => {
     const part = rect(100, 100, 25, "S355", {
       bendLines: [{ id: "b", x1: 50, y1: 0, x2: 50, y2: 100, direction: "up" }],
     });
     const f = find(flagsFor(part), "bend.no_rate_row");
-    expect(f?.severity).toBe("amber");
+    expect(f?.severity).toBe("red");
+    expect(f?.overridable).toBe(false);
     expect(f?.params).toMatchObject({ bendId: "b", thicknessMm: 25, lengthMm: 100 });
   });
 
@@ -406,12 +451,13 @@ describe("rolling", () => {
     expect(f?.params).toMatchObject({ axisLengthMm: 3500, maxWidthMm: 3200 });
   });
 
-  it("a feasible roll has no roll flags; a missing rate row is amber", () => {
+  it("review: a feasible roll has no roll flags; a missing rate row is RED (the roll line is omitted)", () => {
     expect(codes(flagsFor(rolled(4, 500))).filter((c) => c.startsWith("roll."))).toEqual([]);
     const snap = cloneSnapshot();
     snap.roll = [];
     const f = find(flagsFor(rolled(4, 500), {}, snap), "roll.no_rate_row");
-    expect(f?.severity).toBe("amber");
+    expect(f?.severity).toBe("red");
+    expect(f?.overridable).toBe(false);
     expect(f?.params).toMatchObject({ thicknessMm: 4, radiusMm: 500 });
   });
 });

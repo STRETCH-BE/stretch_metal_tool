@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "example-dxf": "node --experimental-strip-types scripts/generate-example-dxf.ts",
+    "example-dxf": "node scripts/generate-example-dxf.mjs",
     "db:reset": "supabase db reset",
     "db:push": "supabase db push"
   },

@@ -9,9 +9,14 @@
  *   degrees; ELLIPSE start/end are parameters in radians.
  * - LWPOLYLINE vertices carry `bulge` only when non-zero; POLYLINE
  *   vertices are VERTEX entities with the same fields.
- * - SPLINE weights (group 41) are NOT parsed, so rational splines are
- *   evaluated as non-rational (a circle exported as a rational spline
- *   deviates by < 0.1 % after flattening).
+ * - SPLINE weights (group 41) are NOT parsed by dxf-parser, so they are
+ *   read here from the raw text (`scanSplineWeights`) and matched to the
+ *   parsed SPLINE by handle (group 5), falling back to file order for
+ *   top-level splines without handles. Rational splines (the standard
+ *   9-point NURBS circle) are then evaluated exactly.
+ * - An ARC whose sweep is 360° (start = end, or 0→360) is a full circle
+ *   and becomes a CircleSegment (closed) — chaining a single open arc
+ *   whose ends coincide would leave it an open chain.
  * - Unknown entity types (HATCH, LEADER, …) are skipped silently, so the
  *   dropped report comes from an independent raw scan of the ENTITIES
  *   section, not from the parsed object.
@@ -172,6 +177,68 @@ export function scanEntitiesSection(text: string): RawScanEntity[] {
   return out;
 }
 
+/** Group 41 values of every SPLINE in the file, by handle and in ENTITIES order. */
+export type SplineWeightsScan = {
+  byHandle: Map<string, number[]>;
+  /** Weights of the top-level SPLINEs of the ENTITIES section, in file order. */
+  inOrder: number[][];
+};
+
+/**
+ * Raw scan for SPLINE weights (group 41), which dxf-parser 1.1.2 drops.
+ * Walks BLOCKS and ENTITIES; a spline's handle (group 5) keys the map,
+ * the ENTITIES-section splines are also listed in order for files that
+ * carry no handles.
+ */
+export function scanSplineWeights(text: string): SplineWeightsScan {
+  const lines = text.split(/\r\n|\r|\n/);
+  const byHandle = new Map<string, number[]>();
+  const inOrder: number[][] = [];
+  let pendingSection = false;
+  let section: string | null = null;
+  let current: { handle: string | null; weights: number[]; topLevel: boolean } | null = null;
+  const flush = () => {
+    if (!current) return;
+    if (current.handle) byHandle.set(current.handle, current.weights);
+    if (current.topLevel) inOrder.push(current.weights);
+    current = null;
+  };
+  for (let i = 0; i + 1 < lines.length; i += 2) {
+    const code = parseInt(lines[i].trim(), 10);
+    const value = lines[i + 1].trim();
+    if (Number.isNaN(code)) continue;
+    if (code === 0) {
+      flush();
+      if (value === "SECTION") {
+        pendingSection = true;
+        continue;
+      }
+      if (value === "ENDSEC") {
+        section = null;
+        continue;
+      }
+      if (value === "SPLINE" && (section === "ENTITIES" || section === "BLOCKS")) {
+        current = { handle: null, weights: [], topLevel: section === "ENTITIES" };
+      }
+      continue;
+    }
+    if (code === 2 && pendingSection) {
+      section = value;
+      pendingSection = false;
+      continue;
+    }
+    pendingSection = false;
+    if (!current) continue;
+    if (code === 5) current.handle = value.toUpperCase();
+    else if (code === 41) {
+      const w = parseFloat(value);
+      if (Number.isFinite(w)) current.weights.push(w);
+    }
+  }
+  flush();
+  return { byHandle, inOrder };
+}
+
 /* ─── Header ─────────────────────────────────────────────── */
 
 function headerNumber(header: Record<string, unknown> | undefined, key: string): number | null {
@@ -239,6 +306,9 @@ type ConvertContext = {
   ellipsesFlattened: number;
   blocksExploded: number;
   chordError: number;
+  splineWeights: SplineWeightsScan;
+  /** Ordinal of the next top-level SPLINE (fallback matching by file order). */
+  splineOrdinal: number;
 };
 
 function addDropped(map: Map<string, DroppedEntity>, type: string, layer: string, reason: DroppedEntity["reason"]) {
@@ -377,7 +447,11 @@ function linesFromPoints(points: Point[]): Segment[] {
   return segs;
 }
 
-function splineToSegments(e: ISplineEntity, chordError: number): { segments: Segment[]; closed: boolean } | null {
+function splineToSegments(
+  e: ISplineEntity,
+  chordError: number,
+  rawWeights: number[] | undefined
+): { segments: Segment[]; closed: boolean } | null {
   const ctrl = (e.controlPoints ?? []).map(p2).filter((p): p is Point => p !== null);
   const fit = (e.fitPoints ?? []).map(p2).filter((p): p is Point => p !== null);
   const degree = typeof e.degreeOfSplineCurve === "number" && e.degreeOfSplineCurve > 0 ? e.degreeOfSplineCurve : 3;
@@ -394,7 +468,9 @@ function splineToSegments(e: ISplineEntity, chordError: number): { segments: Seg
       for (let i = 0; i <= degree; i++) knots.push(1);
       if (inner < 1) return fit.length >= 2 ? { segments: linesFromPoints(fit), closed: closedFlag } : null;
     }
-    const weights = ctrl.map(() => 1);
+    // Group 41 per control point; anything that does not line up is treated as non-rational.
+    const rational = rawWeights !== undefined && rawWeights.length === ctrl.length && rawWeights.every((w) => Number.isFinite(w) && w > 0);
+    const weights = rational ? rawWeights : ctrl.map(() => 1);
     const u0 = knots[degree];
     const u1 = knots[knots.length - degree - 1];
     if (!(u1 > u0)) return null;
@@ -466,7 +542,10 @@ function convertEntity(e: IEntity, ctx: ConvertContext, transform: Affine | null
       if (!c || typeof ae.radius !== "number" || !(ae.radius > 0)) return drop(ctx, type, common.layer, "unsupported");
       const s = typeof ae.startAngle === "number" ? radToDeg(ae.startAngle) : 0;
       const en = typeof ae.endAngle === "number" ? radToDeg(ae.endAngle) : 360;
-      return emit("ARC", [makeArc(c, ae.radius, s, en)], false);
+      const arc = makeArc(c, ae.radius, s, en);
+      // 0→360 (or start = end) is a full circle: closed on its own, never chained.
+      if (arc.sweepDeg >= 360 - 1e-9) return emit("ARC", [makeCircle(c, ae.radius)], true);
+      return emit("ARC", [arc], false);
     }
     case "CIRCLE": {
       const ce = e as ICircleEntity;
@@ -488,7 +567,12 @@ function convertEntity(e: IEntity, ctx: ConvertContext, transform: Affine | null
       return emit("POLYLINE", segmentsFromVertices(verts, closed), closed);
     }
     case "SPLINE": {
-      const r = splineToSegments(e as ISplineEntity, ctx.chordError);
+      const ordinal = depth === 0 && !transform ? ctx.splineOrdinal++ : -1;
+      const handle = common.handle?.toUpperCase();
+      const weights =
+        (handle !== undefined ? ctx.splineWeights.byHandle.get(handle) : undefined) ??
+        (ordinal >= 0 ? ctx.splineWeights.inOrder[ordinal] : undefined);
+      const r = splineToSegments(e as ISplineEntity, ctx.chordError, weights);
       if (!r) return drop(ctx, type, common.layer, "unsupported");
       ctx.splinesFlattened += 1;
       return emit("SPLINE", r.segments, r.closed);
@@ -553,6 +637,8 @@ export function parseDxf(text: string, options: ParseOptions = {}): ParsedDxf {
     ellipsesFlattened: 0,
     blocksExploded: 0,
     chordError,
+    splineWeights: scanSplineWeights(text),
+    splineOrdinal: 0,
   };
 
   let dxf: IDxf | null = null;

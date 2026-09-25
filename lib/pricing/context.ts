@@ -25,6 +25,11 @@
  * - Deleted entities (annotations.deletedEntityIds) are assumed already
  *   applied to the geometry by the engine's applyAnnotations; they are
  *   filtered here again only for holes and slow contours as a safety net.
+ * - buildPartContext validates the user-typed numbers first (validate.ts:
+ *   qty, scrap, extras, weld/bend/roll annotations) and throws
+ *   PricingError before anything is priced or flagged, so neither the
+ *   operations builder nor the feasibility rules ever see NaN, Infinity or
+ *   a negative cost driver.
  */
 
 import type { HoleInfo, PartGeometry, PartAnnotations, Point, SlowContour } from "../geometry/types";
@@ -53,6 +58,7 @@ import type {
   RateSnapshot,
   ThicknessBandPrice,
 } from "./types";
+import { validatePartAnnotations, validatePricingItem } from "./validate";
 
 export type FlatLaserMachine = Extract<Machine, { kind: "flat_laser" }>;
 export type TubeLaserMachine = Extract<Machine, { kind: "tube_laser" }>;
@@ -230,6 +236,8 @@ export function buildPartContext(
   rates: RateSnapshot,
   machines: MachinePark
 ): PartContext {
+  validatePricingItem(item);
+  validatePartAnnotations(part.id, part.annotations);
   const geometry = part.geometry;
   const annotations = part.annotations;
   const thicknessMm = resolveThickness(part);

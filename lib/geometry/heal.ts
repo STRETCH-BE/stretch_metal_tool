@@ -92,6 +92,17 @@ export class PointGrid<T> {
     return best;
   }
 
+  /** Remove one stored entry (matched by value identity / equality). */
+  remove(p: Point, v: T): void {
+    const [ix, iy] = this.cellOf(p);
+    const k = this.key(ix, iy);
+    const list = this.cells.get(k);
+    if (!list) return;
+    const i = list.findIndex((it) => it.v === v);
+    if (i >= 0) list.splice(i, 1);
+    if (list.length === 0) this.cells.delete(k);
+  }
+
   /** Every stored point within tol. */
   findAll(p: Point): { p: Point; v: T }[] {
     const [ix, iy] = this.cellOf(p);

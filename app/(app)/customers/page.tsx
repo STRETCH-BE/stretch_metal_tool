@@ -22,7 +22,10 @@ import { Pagination } from "@/components/ui/pagination";
 import { Panel } from "@/components/ui/panel";
 import { CustomersTable } from "@/components/customers/customers-table";
 
-export const metadata: Metadata = { title: "Customers" };
+export async function generateMetadata(): Promise<Metadata> {
+  const c = getContent(await getLocale());
+  return { title: c.quote.customers.title };
+}
 
 type SearchParams = Promise<{
   q?: string | string[];

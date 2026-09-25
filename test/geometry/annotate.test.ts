@@ -39,12 +39,14 @@ describe("applyAnnotations", () => {
     expect(ignored.entities.find((e) => e.id === candidate)).toMatchObject({ role: "ignore", loopId: null });
     const bigHole = g.measures.holes.find((h) => h.diameterMm > 9)!;
     const deleted = applyAnnotationsSync(g, ann({ entities: { [candidate]: { role: "cut" } }, deletedEntityIds: [bigHole.loopId] }));
-    expect(deleted.measures.pierces).toBe(2);
     expect(deleted.measures.holes).toHaveLength(1);
-    expect(deleted.measures.cutLengthMm).toBeCloseTo(300 + 2 * Math.PI * 2.5, 6);
     expect(deleted.triage.state).toBe("green");
-    // a cut-tagged open line is no candidate and is not priced
+    // a cut-tagged open line is no candidate; it is priced as an open cut (its length + one pierce)
     expect(deleted.entities.find((e) => e.id === candidate)?.role).toBe("cut");
+    expect(deleted.measures.openCuts).toBe(1);
+    expect(deleted.measures.openCutsLengthMm).toBeCloseTo(50, 6);
+    expect(deleted.measures.cutLengthMm).toBeCloseTo(300 + 2 * Math.PI * 2.5 + 50, 6);
+    expect(deleted.measures.pierces).toBe(3);
   });
 
   it("applies a scale factor of 2 (lengths ×2, areas ×4, ids kept)", () => {

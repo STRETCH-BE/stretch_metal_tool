@@ -100,7 +100,8 @@ export function adjustedCutLengthM(
 
 /**
  * Laser cut time in minutes (mode "time"):
- * adjustedCutLengthM / speedMMin + pierces × pierceS / 60.
+ * adjustedCutLengthM / speedMMin + pierces × pierceS / 60. This is the
+ * only place the slow-contour factor enters a price (Step 9).
  */
 export function laserCutTimeMin(
   cutLengthM: number,
@@ -129,16 +130,22 @@ export function laserTimeCost(
   return (cutTimeMin / 60) * machineRateEurH + pierces * pricePerPierce;
 }
 
-/** Mode "per_m" (also supplier rows): adjustedCutLengthM × €/m + pierces × €/pierce. */
+/**
+ * Mode "per_m" (in-house per-metre rows and supplier rows):
+ * cutLengthM × €/m + pierces × €/pierce — the PLAIN cut length. Build
+ * prompt Step 9 attaches the slow-contour factor to mode "time" only: it
+ * models our machine's feed rate on small contours, and a per-metre tariff
+ * (a subcontractor's above all) does not vary with it.
+ */
 export function laserPerMCost(
-  adjustedCutLengthMValue: number,
+  cutLengthM: number,
   pricePerM: number,
   pierces: number,
   pricePerPierce: number
 ): number {
-  assertFinite("adjustedCutLengthM", adjustedCutLengthMValue);
+  assertFinite("cutLengthM", cutLengthM);
   assertFinite("pricePerM", pricePerM);
-  return adjustedCutLengthMValue * pricePerM + pierces * pricePerPierce;
+  return cutLengthM * pricePerM + pierces * pricePerPierce;
 }
 
 /* ─── Material ────────────────────────────────────────────── */

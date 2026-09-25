@@ -15,6 +15,8 @@ import { MACHINE_PARK, RATE_SNAPSHOT_V1, cloneSnapshot } from "@/test/helpers/ra
 
 const HOLES_200164_MM = 30 * Math.PI * 5.5 + 2 * Math.PI * 8.5; // 571.77
 const CUT_200164_MM = 2 * (554.3 + 60) + HOLES_200164_MM; // 1800.37
+const HOLES_200005_MM = Math.PI * (8 * 6.647 + 6 * 8.917 + 4 * 10 + 6 * 13 + 32); // 806.38
+const CUT_200005_MM = 2 * (500 + 220) + HOLES_200005_MM; // 2246.38
 const NET_AREA_200164 = 554.3 * 60 - (30 * Math.PI * 2.75 ** 2 + 2 * Math.PI * 4.25 ** 2);
 
 function build(part: PricingPart, itemOverrides: Partial<PricingItem> = {}, rates = RATE_SNAPSHOT_V1) {
@@ -68,10 +70,40 @@ describe("laser cutting line", () => {
     expect(sub.rateRef).toMatchObject({ table: "rate_laser", key: "S355/15/supplier" });
     expect(sub.rateRef.values).toMatchObject({ inHouse: false, mode: "per_m", pricePerM: 4.5, pricePerPierce: 0.5, machineRateEurH: null });
     expect(sub.details).toMatchObject({ subcontract: true, reason: "over_limit", exactThickness: true, pierces: 26 });
-    const adjustedM = Number(sub.details.adjustedCutLengthMm) / 1000;
-    expect(sub.unitCost).toBeCloseTo(adjustedM * 4.5 + 26 * 0.5, 9);
-    expect(sub.driverQty).toBeCloseTo(adjustedM, 12);
+    // Step 9 mode per_m: cost = cutLengthM × €/m + pierces × €/pierce — the PLAIN cut length.
+    // Every hole here is < 10 × t = 150 mm, so weighting them would add (1.5 − 1) × 0.806 m × 4.5 = 1.81 € (+7.9 %).
+    expect(sub.details.cutLengthMm).toBeCloseTo(CUT_200005_MM, 6);
+    expect(sub.details.slowCount).toBe(25);
+    expect(sub.details.slowFactorApplied).toBe(false);
+    expect(sub.details.adjustedCutLengthMm).toBeCloseTo(CUT_200005_MM, 6);
+    expect(sub.unitCost).toBeCloseTo((CUT_200005_MM / 1000) * 4.5 + 26 * 0.5, 9);
+    expect(sub.unitCost).toBeCloseTo(23.1087, 3);
+    expect(sub.driverQty).toBeCloseTo(CUT_200005_MM / 1000, 12);
+    expect(sub.rateRef.values.slowContourFactor).toBeNull();
     expect(flags.find((f) => f.code === "laser.thickness_over_limit")?.params.limitMm).toBe(12.7);
+    // the slow-contour info is not raised when the factor is not applied
+    expect(flags.some((f) => f.code === "laser.slow_contours")).toBe(false);
+  });
+
+  it("an in-house per_m row prices the plain cut length as well; only mode time applies the slow factor", () => {
+    const snap = cloneSnapshot();
+    const row = snap.laser.find((r) => r.materialCode === "DC01" && r.thicknessMm === 2);
+    if (row) Object.assign(row, { mode: "per_m", pricePerM: 1.0, pricePerPierce: 0.05 });
+    const { operations, flags } = build(part200164(), {}, snap);
+    const laser = one(operations, "laser_cut");
+    expect(laser.driverUnit).toBe("m");
+    expect(laser.driverQty).toBeCloseTo(CUT_200164_MM / 1000, 12);
+    // 1.80037 m × 1.0 + 33 × 0.05 = 3.45037
+    expect(laser.unitCost).toBeCloseTo((CUT_200164_MM / 1000) * 1.0 + 33 * 0.05, 9);
+    expect(laser.details).toMatchObject({ mode: "per_m", subcontract: false, slowCount: 32, slowFactorApplied: false, cutTimeMin: null });
+    expect(laser.rateRef.values).toMatchObject({ machineRateEurH: null, slowContourFactor: null });
+    expect(flags.some((f) => f.code === "laser.slow_contours")).toBe(false);
+
+    // the same part on the time row: factor applied, info flag raised
+    const timed = build(part200164());
+    expect(one(timed.operations, "laser_cut").details.slowFactorApplied).toBe(true);
+    expect(one(timed.operations, "laser_cut").rateRef.values.slowContourFactor).toBe(1.5);
+    expect(timed.flags.some((f) => f.code === "laser.slow_contours")).toBe(true);
   });
 
   it("no laser row → no cutting line, red flag instead", () => {
@@ -80,6 +112,36 @@ describe("laser cutting line", () => {
     expect(ofType(operations, "laser_cut")).toHaveLength(0);
     expect(ofType(operations, "subcontract_cutting")).toHaveLength(0);
     expect(flags.some((f) => f.code === "laser.no_rate_row" && f.severity === "red")).toBe(true);
+  });
+
+  it("review: 2.5 mm S355 (allowed, no in-house row) is not priced from the 15 mm plasma row — red, no line", () => {
+    const part = makePricingPart({
+      geometry: makeRectPartGeometry({ lengthMm: 100, widthMm: 100, thicknessMm: 2.5, densityKgM3: 7850, holes: [{ x: 50, y: 50, diameterMm: 10 }] }),
+      materialCode: "S355",
+      thicknessMm: 2.5,
+    });
+    const { operations, flags } = build(part);
+    expect(ofType(operations, "subcontract_cutting")).toHaveLength(0);
+    expect(ofType(operations, "laser_cut")).toHaveLength(0);
+    expect(flags.find((f) => f.code === "laser.no_rate_row")).toMatchObject({ severity: "red", params: { thicknessMm: 2.5, reason: "none" } });
+    expect(flags.some((f) => f.code === "laser.subcontract")).toBe(false);
+  });
+
+  it("review: 25 mm S355 (above every supplier row) is not priced from the thinner 20 mm row — red, no line", () => {
+    const part = makePricingPart({ geometry: make200005Like({ thicknessMm: 25 }), materialCode: "S355", thicknessMm: 25 });
+    const { operations, flags } = build(part);
+    expect(ofType(operations, "subcontract_cutting")).toHaveLength(0);
+    expect(flags.find((f) => f.code === "laser.no_rate_row")).toMatchObject({ severity: "red", params: { thicknessMm: 25, reason: "over_limit" } });
+  });
+
+  it("18 mm S355 is priced from the next thicker supplier row (20) and the amber flag shows the mismatch", () => {
+    const part = makePricingPart({ geometry: make200005Like({ thicknessMm: 18 }), materialCode: "S355", thicknessMm: 18 });
+    const { operations, flags } = build(part);
+    const sub = one(operations, "subcontract_cutting");
+    expect(sub.rateRef.key).toBe("S355/20/supplier");
+    expect(sub.details).toMatchObject({ exactThickness: false, partThicknessMm: 18, rowThicknessMm: 20 });
+    expect(sub.unitCost).toBeCloseTo((CUT_200005_MM / 1000) * 6.0 + 26 * 0.7, 9);
+    expect(flags.find((f) => f.code === "laser.thickness_over_limit")).toMatchObject({ severity: "amber", params: { thicknessMm: 18, rowThicknessMm: 20 } });
   });
 });
 
@@ -227,7 +289,41 @@ describe("bending lines", () => {
     const { operations, flags } = build(tooThick);
     expect(ofType(operations, "bend")).toHaveLength(0);
     expect(operations.some((o) => o.label === "bend_setup")).toBe(false);
-    expect(flags.some((f) => f.code === "bend.no_rate_row")).toBe(true);
+    expect(flags.some((f) => f.code === "bend.no_rate_row" && f.severity === "red")).toBe(true);
+  });
+
+  it("review: an omitted bend line is always backed by a RED flag, so an override can never ship a 0 € bend", () => {
+    // 8 mm S355 cuts in-house; only the bend rows for its thickness class are missing
+    const snap = cloneSnapshot();
+    snap.bend = snap.bend.filter((r) => r.thicknessMm <= 6);
+    const part = makePricingPart({
+      geometry: makeRectPartGeometry({ lengthMm: 1000, widthMm: 300, thicknessMm: 8, densityKgM3: 7850, bendLines: [{ id: "b", x1: 0, y1: 150, x2: 1000, y2: 150, direction: "up" }] }),
+      materialCode: "S355",
+      thicknessMm: 8,
+    });
+    const { operations, flags } = build(part, { qty: 5 }, snap);
+    expect(operations.map((o) => o.type)).toEqual(["laser_cut", "material"]);
+    const reds = flags.filter((f) => f.severity === "red");
+    expect(reds).toHaveLength(1);
+    expect(reds[0]).toMatchObject({ code: "bend.no_rate_row", overridable: false, params: { bendId: "b", thicknessMm: 8, lengthMm: 1000 } });
+  });
+
+  it("review: an omitted roll line is always backed by a RED flag", () => {
+    const snap = cloneSnapshot();
+    snap.roll = [];
+    const part = makePricingPart({
+      geometry: makeRectPartGeometry({ lengthMm: 1000, widthMm: 500, thicknessMm: 4, densityKgM3: 7850 }),
+      materialCode: "S235",
+      thicknessMm: 4,
+      annotations: makeAnnotations({
+        roll: { radiusMm: 500, axis: "x", arcAngleDeg: 90, axisLengthMm: 1000, developedWidthMm: 500, cone: null },
+      }),
+    });
+    const { operations, flags } = build(part, { qty: 10 }, snap);
+    expect(ofType(operations, "roll")).toHaveLength(0);
+    const reds = flags.filter((f) => f.severity === "red");
+    expect(reds).toHaveLength(1);
+    expect(reds[0]).toMatchObject({ code: "roll.no_rate_row", overridable: false, params: { thicknessMm: 4, radiusMm: 500 } });
   });
 });
 

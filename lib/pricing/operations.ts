@@ -17,18 +17,25 @@
  *   much).
  * - Every line's `rateRef` snapshots the row and numbers used (audit
  *   trail) and `details` carries what the UI shows (cut time, force …).
- * - A line whose rate row is missing is OMITTED — the matching red/amber
- *   `*.no_rate_row` flag from feasibility.ts says why, and red flags block
- *   sending, so a quote can never go out with a silently free operation.
+ * - A line whose rate row is missing is OMITTED — the matching `*.no_rate_row`
+ *   flag from feasibility.ts says why. Every one of those flags is RED
+ *   (bend and roll included): red blocks sending, so a quote can never go
+ *   out with a silently free operation, not even through an override.
+ * - Laser mode "per_m" (in-house per-metre rows and every supplier row)
+ *   prices the PLAIN cut length; the slow-contour factor is applied in
+ *   mode "time" only (Step 9). `details.slowFactorApplied` says which.
  * - Threads are priced only when confirmed (annotations.threads[loopId]
  *   = size); geometry suggestions alone are never priced.
  * - Tube parts (an item with a tube_cut extra) get no flat-laser / sheet
  *   material lines; their material is metres × pricePerMTube from the extra.
+ * - Every user-typed number (qty, scrap, extras, weld/bend/roll
+ *   annotations) is validated by lib/pricing/validate.ts inside
+ *   buildPartContext before any line is built: NaN, Infinity or a negative
+ *   value throws PricingError("invalid_input") instead of becoming a price.
  */
 
 import type { WeldProcess } from "../geometry/types";
 import { buildPartContext, type PartContext } from "./context";
-import { PricingError } from "./errors";
 import { evaluateContextFlags } from "./feasibility";
 import { computeFinish } from "./finish";
 import {
@@ -124,6 +131,8 @@ function laserLine(ctx: PartContext): OperationLine | null {
   let cutTimeMin: number | null = null;
   let driverQty: number;
   let driverUnit: DriverUnit;
+  // Mode "time" is the only branch that uses the machine rate AND the
+  // slow-contour factor (Step 9). Mode "per_m" prices the plain cut length.
   let usesMachineRate = false;
   if (row.mode === "time" && row.speedMMin !== null && row.speedMMin > 0 && row.pierceS !== null) {
     cutTimeMin = laserCutTimeMin(cutLengthM, row.speedMMin, pierces, row.pierceS, slowLengthM, factor);
@@ -132,12 +141,13 @@ function laserLine(ctx: PartContext): OperationLine | null {
     driverUnit = "min";
     usesMachineRate = true;
   } else if (row.pricePerM !== null) {
-    unitCost = laserPerMCost(adjustedM, row.pricePerM, pierces, row.pricePerPierce);
-    driverQty = adjustedM;
+    unitCost = laserPerMCost(cutLengthM, row.pricePerM, pierces, row.pricePerPierce);
+    driverQty = cutLengthM;
     driverUnit = "m";
   } else {
     return null;
   }
+  const slowFactorApplied = usesMachineRate;
 
   const subcontract = laser.subcontract;
   return makeLine(ctx, {
@@ -163,7 +173,7 @@ function laserLine(ctx: PartContext): OperationLine | null {
         inHouse: row.inHouse,
         supplier: row.supplier,
         machineRateEurH: usesMachineRate ? general.machineRateEurH : null,
-        slowContourFactor: factor,
+        slowContourFactor: slowFactorApplied ? factor : null,
         placeholder: row.placeholder || (usesMachineRate && general.placeholder),
       },
     },
@@ -171,7 +181,9 @@ function laserLine(ctx: PartContext): OperationLine | null {
       cutLengthMm: m.cutLengthMm,
       slowLengthMm: ctx.slowLengthMm,
       slowCount: ctx.slowContours.length,
-      adjustedCutLengthMm: adjustedM * 1000,
+      slowFactorApplied,
+      /** The length the price is based on: weighted in mode time, plain in mode per_m. */
+      adjustedCutLengthMm: slowFactorApplied ? adjustedM * 1000 : m.cutLengthMm,
       pierces,
       speedMMin: row.speedMMin,
       pierceS: row.pierceS,
@@ -684,18 +696,16 @@ export function buildContextOperations(ctx: PartContext): ItemOperations {
   return { operations, flags: evaluateContextFlags(ctx) };
 }
 
-/** Operation lines + feasibility flags for one part × item. Pure. */
+/**
+ * Operation lines + feasibility flags for one part × item. Pure. Throws
+ * PricingError ("invalid_qty" / "invalid_input") for a qty ≤ 0 or any
+ * non-finite / negative user number (validated in buildPartContext).
+ */
 export function buildItemOperations(
   part: PricingPart,
   item: PricingItem,
   rates: RateSnapshot,
   machines: MachinePark
 ): ItemOperations {
-  if (!Number.isFinite(item.qty) || item.qty <= 0) {
-    throw new PricingError("invalid_qty", `item ${item.id}: qty must be > 0, got ${String(item.qty)}`, {
-      itemId: item.id,
-      qty: Number.isFinite(item.qty) ? item.qty : String(item.qty),
-    });
-  }
   return buildContextOperations(buildPartContext(part, item, rates, machines));
 }

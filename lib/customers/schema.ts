@@ -7,6 +7,15 @@
  * Kept out of the "use server" file because such files may export only
  * async functions. Validation messages are CODES (keys of
  * quote.customers.errors), never copy — the form maps them per locale.
+ *
+ * Country: ANY ISO 3166-1 alpha-2 code is valid (lib/customers/countries.ts)
+ * because the only business rule is PL → PLN, everything else → EUR.
+ * PREFERRED_COUNTRY_CODES is just the curated top of the <select>, with
+ * hand-written names in content — it is not the validation set.
+ *
+ * `values`: React 19 resets a <form action> after the action settles, so
+ * every failed submit echoes the raw submitted strings back in the state
+ * and the form uses them as defaultValue (nothing typed is lost).
  */
 
 import { z } from "zod";
@@ -15,8 +24,10 @@ import type {
   CustomerClassCode,
   CustomerCountryCode,
 } from "@/content/quote";
+import { isCountryCode, normalizeCountryCode } from "@/lib/customers/countries";
 
-export const COUNTRY_CODES = [
+/** Curated countries shown first in the select (names in content.quote.customers.countries). */
+export const PREFERRED_COUNTRY_CODES = [
   "PL",
   "DE",
   "NL",
@@ -79,7 +90,10 @@ function optionalText(max: number) {
 export const customerSchema = z.object({
   name: z.string().trim().min(1, "required").max(200, "tooLong"),
   vat_id: optionalText(32),
-  country: z.enum(COUNTRY_CODES, "invalidCountry"),
+  country: z
+    .string()
+    .transform(normalizeCountryCode)
+    .refine(isCountryCode, "invalidCountry"),
   address: optionalText(500),
   email: z
     .string()
@@ -98,6 +112,20 @@ export const customerSchema = z.object({
 export type CustomerInput = z.output<typeof customerSchema>;
 export type CustomerField = keyof z.input<typeof customerSchema>;
 export type CustomerFieldErrors = Partial<Record<CustomerField, CustomerErrorCode>>;
+/** Raw submitted strings, one per field (what the user typed). */
+export type CustomerFormValues = Record<CustomerField, string>;
+
+export const CUSTOMER_FIELDS: readonly CustomerField[] = [
+  "name",
+  "vat_id",
+  "country",
+  "address",
+  "email",
+  "phone",
+  "customer_class",
+  "preferred_locale",
+  "notes",
+];
 
 export type CustomerFormState = {
   status: "idle" | "error" | "saved";
@@ -105,6 +133,11 @@ export type CustomerFormState = {
   fieldErrors?: CustomerFieldErrors;
   /** Form-level error code. */
   error?: CustomerErrorCode;
+  /**
+   * Submitted values echoed back on ANY error so the form can re-populate
+   * after React 19's automatic form reset (see file header).
+   */
+  values?: CustomerFormValues;
   /** Row after a successful save (edit form re-syncs its fields). */
   customer?: CustomerRow;
 };
@@ -116,23 +149,22 @@ function fieldString(formData: FormData, name: CustomerField): string {
   return typeof value === "string" ? value : "";
 }
 
-/** FormData → validated input or per-field error codes. */
+/** FormData → raw strings for every customer field (missing → ""). */
+export function readCustomerFormValues(formData: FormData): CustomerFormValues {
+  const values = {} as CustomerFormValues;
+  for (const field of CUSTOMER_FIELDS) values[field] = fieldString(formData, field);
+  return values;
+}
+
+/** FormData → validated input, or per-field error codes + the raw values. */
 export function parseCustomerForm(
   formData: FormData
-): { ok: true; data: CustomerInput } | { ok: false; fieldErrors: CustomerFieldErrors } {
-  const raw: Record<CustomerField, string> = {
-    name: fieldString(formData, "name"),
-    vat_id: fieldString(formData, "vat_id"),
-    country: fieldString(formData, "country").toUpperCase(),
-    address: fieldString(formData, "address"),
-    email: fieldString(formData, "email"),
-    phone: fieldString(formData, "phone"),
-    customer_class: fieldString(formData, "customer_class"),
-    preferred_locale: fieldString(formData, "preferred_locale"),
-    notes: fieldString(formData, "notes"),
-  };
-  const result = customerSchema.safeParse(raw);
-  if (result.success) return { ok: true, data: result.data };
+):
+  | { ok: true; data: CustomerInput; values: CustomerFormValues }
+  | { ok: false; fieldErrors: CustomerFieldErrors; values: CustomerFormValues } {
+  const values = readCustomerFormValues(formData);
+  const result = customerSchema.safeParse(values);
+  if (result.success) return { ok: true, data: result.data, values };
 
   const fieldErrors: CustomerFieldErrors = {};
   for (const issue of result.error.issues) {
@@ -140,7 +172,7 @@ export function parseCustomerForm(
     if (typeof field !== "string" || field in fieldErrors) continue;
     fieldErrors[field as CustomerField] = toErrorCode(issue.message);
   }
-  return { ok: false, fieldErrors };
+  return { ok: false, fieldErrors, values };
 }
 
 const KNOWN_CODES: readonly CustomerErrorCode[] = [

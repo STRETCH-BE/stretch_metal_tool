@@ -9,9 +9,10 @@
 
 import Link from "next/link";
 import type { Content } from "@/content";
-import type { CustomerClassCode, CustomerCountryCode } from "@/content/quote";
+import type { CustomerClassCode } from "@/content/quote";
 import type { Locale } from "@/lib/site-config";
 import { formatDate } from "@/lib/i18n";
+import { countryName } from "@/lib/customers/countries";
 import { routes } from "@/lib/routes";
 import type { CustomerListRow } from "@/lib/customers/queries";
 import { StatusChip } from "@/components/ui/status-chip";
@@ -25,9 +26,9 @@ export type CustomersTableProps = {
   emptyMessage: string;
 };
 
+/** Country name: the content dictionary first, then Intl.DisplayNames, then the code. */
 export function countryLabel(content: Content, code: string): string {
-  const countries = content.quote.customers.countries as Record<string, string>;
-  return countries[code] ?? code;
+  return countryName(code, content.locale, content.quote.customers.countries);
 }
 
 export function classLabel(content: Content, code: string): string {
@@ -75,7 +76,7 @@ export function CustomersTable({ rows, content, locale, emptyMessage }: Customer
                 </Td>
                 <Td>
                   <span className="mono mr-2 text-text-faint">{row.country}</span>
-                  {countryLabel(content, row.country as CustomerCountryCode)}
+                  {countryLabel(content, row.country)}
                 </Td>
                 <Td>
                   <StatusChip

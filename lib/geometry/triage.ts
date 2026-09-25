@@ -14,9 +14,11 @@
  *  4. amber_bend_candidates — open chains with role "unknown" inside the
  *     outline; `candidateEntityIds` lists them for the "these N lines"
  *     question.
- *  5. amber_forming_unknown — no interior open lines at all AND the part
+ *  5. amber_forming_unknown — no bend lines (layer or tagged) AND the part
  *     name or PDF text contains a forming hint (bend/fold/roll in EN, PL,
  *     CZ/SK, DE stems; "plech" = sheet is NOT a hint), until answered.
+ *     Weld/engrave/cut-tagged open lines do not answer the question —
+ *     only a bend line, an answered candidate (step 4) or the user does.
  *  6. green — bend_layers_found or no_interior_open_lines.
  * `multi_part` is added to the reasons of any state when partCount > 1.
  */
@@ -186,10 +188,10 @@ export function evaluateTriage(input: TriageInput): Triage {
     return withMulti("amber_bend_candidates", candidateIds);
   }
 
-  // 5. Forming unknown.
+  // 5. Forming unknown (every interior open line is answered by now, so only
+  //    a bend line or the user can settle the forming question).
   const bendEntities = entities.filter((e) => e.role === "bend_up" || e.role === "bend_down");
-  const interiorOpen = loops.some((l) => l.kind === "open_chain" && l.partIndex >= 0);
-  if (bendEntities.length === 0 && !interiorOpen && !input.formingAnswered) {
+  if (bendEntities.length === 0 && !input.formingAnswered) {
     if (hasFormingHint(input.name)) {
       reasons.push("forming_hint_in_name");
       details.hint = "name";

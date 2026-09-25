@@ -16,7 +16,10 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
 import { CustomerForm } from "@/components/customers/customer-form";
 
-export const metadata: Metadata = { title: "New customer" };
+export async function generateMetadata(): Promise<Metadata> {
+  const c = getContent(await getLocale());
+  return { title: c.quote.customers.newTitle };
+}
 
 export default async function NewCustomerPage() {
   await requireRole(WRITE_ROLES);

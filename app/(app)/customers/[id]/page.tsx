@@ -8,6 +8,7 @@
  * quote's own currency; rows link to the quote builder.
  */
 
+import { cache } from "react";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getCurrentUser, hasRole, WRITE_ROLES, ADMIN_ONLY } from "@/lib/auth";
@@ -27,12 +28,21 @@ import { CustomerForm } from "@/components/customers/customer-form";
 import { CustomerQuotesTable } from "@/components/customers/customer-quotes-table";
 import { classLabel, countryLabel } from "@/components/customers/customers-table";
 
-export const metadata: Metadata = { title: "Customer" };
-
 type Params = Promise<{ id: string }>;
 type SearchParams = Promise<{ created?: string | string[]; error?: string | string[] }>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Request-scoped dedupe: generateMetadata and the page share one read. */
+const loadCustomer = cache(getCustomer);
+
+/** Tab title = the customer's name (falls back to the localized "Customer"). */
+export async function generateMetadata({ params }: { params: Params }): Promise<Metadata> {
+  const { id } = await params;
+  const c = getContent(await getLocale());
+  const customer = UUID.test(id) ? await loadCustomer(id) : null;
+  return { title: customer?.name ?? c.quote.customers.editEyebrow };
+}
 
 function first(value: string | string[] | undefined): string {
   return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
@@ -56,7 +66,7 @@ export default async function CustomerPage({
   const canWrite = hasRole(session, WRITE_ROLES);
   const isAdmin = hasRole(session, ADMIN_ONLY);
 
-  const [customer, quotes] = await Promise.all([getCustomer(id), listCustomerQuotes(id)]);
+  const [customer, quotes] = await Promise.all([loadCustomer(id), listCustomerQuotes(id)]);
   if (!customer) notFound();
 
   const currency = defaultCurrencyForCountry(customer.country);

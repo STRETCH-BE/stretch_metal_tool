@@ -82,24 +82,47 @@ describe("findLaserRate", () => {
     expect(r.row?.pricePerM).toBe(4.5);
   });
 
-  it("18 mm S355 → nearest supplier thickness (20), flagged as inexact", () => {
-    const r = findLaserRate(rates, "S355", 18, limit);
-    expect(r.row?.thicknessMm).toBe(20);
-    expect(r.exactThickness).toBe(false);
+  it("over the limit without an exact supplier row → the next THICKER supplier row, flagged as inexact", () => {
+    // 13 → 15 (not the closer-looking in-house 12 row: that one is our machine, which cannot cut 13)
+    const r13 = findLaserRate(rates, "S355", 13, limit);
+    expect(r13.row?.thicknessMm).toBe(15);
+    expect(r13.exactThickness).toBe(false);
+    expect(r13.reason).toBe("over_limit");
+    // 18 → 20 and 17.5 → 20: the thicker row is the conservative price
+    expect(findLaserRate(rates, "S355", 18, limit).row?.thicknessMm).toBe(20);
+    expect(findLaserRate(rates, "S355", 17.5, limit).row?.thicknessMm).toBe(20);
+    // 16 is closer to 15 than to 20 but a thinner row is never used
+    expect(findLaserRate(rates, "S355", 16, limit).row?.thicknessMm).toBe(20);
+  });
+
+  it("review: above EVERY supplier row → no row (25 mm S355 is not priced from the thinner 20 mm plasma tariff)", () => {
+    const r = findLaserRate(rates, "S355", 25, limit);
+    expect(r.row).toBeNull();
+    expect(r.subcontract).toBe(true);
     expect(r.reason).toBe("over_limit");
+    expect(r.exactThickness).toBe(false);
   });
 
-  it("ties on distance go to the thicker (conservative) supplier row", () => {
-    const r = findLaserRate(rates, "S355", 17.5, limit);
-    expect(r.row?.thicknessMm).toBe(20);
-  });
-
-  it("allowed thickness without an in-house row → supplier row, reason supplier_row", () => {
+  it("review: an allowed thickness without an in-house row is NOT priced from a plate tariff (2.5 mm S355 → no row)", () => {
     const r = findLaserRate(rates, "S355", 2.5, limit);
+    expect(r.row).toBeNull();
+    expect(r.subcontract).toBe(false);
+    expect(r.reason).toBe("none");
+    expect(r.exactThickness).toBe(false);
+    expect(r.limitMm).toBe(12.7);
+  });
+
+  it("an allowed thickness whose only row is a supplier row at exactly t → supplier_row (in_house = false, Step 9)", () => {
+    const snap = cloneSnapshot();
+    const row = snap.laser.find((r) => r.materialCode === "S355" && r.thicknessMm === 12);
+    if (row) Object.assign(row, { inHouse: false, mode: "per_m", speedMMin: null, pierceS: null, pricePerM: 3.5, supplier: "X" });
+    const r = findLaserRate(snap, "S355", 12, limit);
     expect(r.subcontract).toBe(true);
     expect(r.reason).toBe("supplier_row");
-    expect(r.exactThickness).toBe(false);
-    expect(r.row?.thicknessMm).toBe(15);
+    expect(r.exactThickness).toBe(true);
+    expect(r.row?.pricePerM).toBe(3.5);
+    // …but a supplier row at 12 does not price 11.5 (allowed thickness, no exact row)
+    expect(findLaserRate(snap, "S355", 11.5, limit).row).toBeNull();
   });
 
   it("no row at all → null with reason over_limit / none", () => {
@@ -133,8 +156,16 @@ describe("findLaserRate", () => {
     const snap = cloneSnapshot();
     const row = snap.laser.find((r) => r.materialCode === "S355" && r.thicknessMm === 12);
     if (row) row.speedMMin = null;
+    // the unusable in-house row is skipped: nothing prices 12 mm any more
+    expect(findLaserRate(snap, "S355", 12, limit).row).toBeNull();
+    // …until a usable supplier row at 12 exists
+    snap.laser.push({ ...snap.laser[0], materialCode: "S355", thicknessMm: 12, mode: "per_m", speedMMin: null, pierceS: null, pricePerM: 3, inHouse: false, supplier: "X" });
     const r = findLaserRate(snap, "S355", 12, limit);
     expect(r.reason).toBe("supplier_row");
+    expect(r.row?.pricePerM).toBe(3);
+    // a per_m supplier row without a price is unusable too
+    snap.laser[snap.laser.length - 1].pricePerM = null;
+    expect(findLaserRate(snap, "S355", 12, limit).row).toBeNull();
   });
 });
 

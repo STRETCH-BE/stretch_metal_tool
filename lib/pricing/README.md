@@ -18,10 +18,10 @@ rowsToRateSnapshot(rows) / rowsToMachinePark(rows)         (DB rows → engine i
 ```
 
 Files: `types.ts` (contract), `formulas.ts`, `lookup.ts`, `context.ts`
-(per-part resolution shared by rules and lines), `bend-checks.ts`
-(vector math), `finish.ts`, `feasibility.ts`, `operations.ts`,
-`price-quote.ts`, `snapshot.ts` (zod), `labels.ts`, `errors.ts`,
-`index.ts`. Test fixtures for everyone: `test/helpers/rates.ts`
+(per-part resolution shared by rules and lines), `validate.ts` (user
+numbers), `bend-checks.ts` (vector math), `finish.ts`, `feasibility.ts`,
+`operations.ts`, `price-quote.ts`, `snapshot.ts` (zod), `labels.ts`,
+`errors.ts`, `index.ts`. Test fixtures for everyone: `test/helpers/rates.ts`
 (`RATE_SNAPSHOT_V1`, `MACHINE_PARK`, `rateSnapshotToRows`,
 `machineParkToRows`), `test/helpers/geometry.ts`
 (`makeRectPartGeometry`, `makeAnnotations`), `test/helpers/parts.ts`
@@ -32,8 +32,8 @@ Files: `types.ts` (contract), `formulas.ts`, `lookup.ts`, `context.ts`
 | Operation | Formula |
 |---|---|
 | Laser, mode `time` | `cutTimeMin = adjustedCutLengthM / speedMMin + pierces × pierceS / 60`; `cost = cutTimeMin / 60 × machineRateEurH + pierces × pricePerPierce` |
-| Laser, mode `per_m` (and supplier rows) | `cost = adjustedCutLengthM × pricePerM + pierces × pricePerPierce` |
-| Adjusted cut length | `cutLengthM + slowLengthM × (slowContourFactor − 1)` — slow contours are interior closed loops with bbox max side < `laser.minContourMm ?? 10 × t` (spec §8.1); their length is part of the cut length and is *weighted*, not added |
+| Laser, mode `per_m` (in-house per-metre rows and every supplier row) | `cost = cutLengthM × pricePerM + pierces × pricePerPierce` — the **plain** cut length: Step 9 attaches the slow-contour factor to mode `time` only (it models our machine's feed rate; a per-metre tariff does not vary with it). `details.slowFactorApplied` records which branch priced the line |
+| Adjusted cut length (mode `time` only) | `cutLengthM + slowLengthM × (slowContourFactor − 1)` — slow contours are interior closed loops with bbox max side < `laser.minContourMm ?? 10 × t` (spec §8.1); their length is part of the cut length and is *weighted*, not added |
 | Material (sheet) | `blankMassKg = (bboxW + 2·blankMarginMm) × (bboxH + 2·blankMarginMm) × t × density × 1e-9`; `cost = blankMassKg × (1 + scrapPct/100) × pricePerKg(band)` |
 | Material (tube) | `metres × pricePerMTube` from the tube extra |
 | Bending | per bend `pricePerBend(t class, length class)`; one `setup` line `setupPerPartType / qty` per part with bends. Force `F [N] = 1.42 × Rm [N/mm²] × t² × L / V`, `V = bend.dieVMm ?? dieFactor × t`; min flange `V/2 + r + 2 mm`; hole edge ≥ `2.5 × t` |
@@ -63,15 +63,21 @@ price live only in the tables.
   `maxThicknessMm ≥ t`, else the thickest band, else none (red).
 - **laser** — (1) `t ≤` flat-laser limit for the family **and** an in-house
   row at exactly `(material, t)` → in-house; (2) else the supplier row
-  (`inHouse = false`) at exactly `(material, t)` → `subcontract_cutting`;
-  (3) else the supplier row with the **nearest** thickness (ties → thicker)
-  → subcontract, `exactThickness = false`; (4) else none → red
-  `laser.no_rate_row`. Rows that cannot price (time without speed, per_m
-  without €/m) are skipped. `reason` is `in_house | over_limit |
-  supplier_row | no_machine | none`.
+  (`inHouse = false`) at exactly `(material, t)` → `subcontract_cutting`
+  (amber `laser.subcontract` when `t` is allowed, `laser.thickness_over_limit`
+  when it is not); (3) **only beyond our laser** (over the limit, or no flat
+  laser in the park): the next **thicker** supplier row for the material →
+  subcontract, `exactThickness = false` and `rowThicknessMm` in the flag —
+  never a thinner row (it would under-price), and no distance cap because
+  the next row up is the next step of the supplier's ladder; (4) else none →
+  red `laser.no_rate_row`. An **allowed** thickness with no row at exactly
+  `t` is therefore red, not priced from a plate tariff: the in-house table
+  must carry every stock gauge (seed.sql does). Rows that cannot price (time
+  without speed, per_m without €/m) are skipped. `reason` is `in_house |
+  over_limit | supplier_row | no_machine | none`.
 - **bend / roll** — rows of the smallest thickness class `≥ t`, then the
   smallest length (radius) class `≥` the bend length (radius); none → null
-  (amber `*.no_rate_row`, line omitted).
+  (red `*.no_rate_row`, line omitted).
 - **weld** — rows of the process, smallest bead `≥` bead, else the largest;
   no rows → null (red).
 - **tube laser** — rows of the family, smallest wall `≥` wall; none → null.
@@ -97,7 +103,7 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `laser.subcontract` | amber | allowed thickness but only a supplier row prices it (or no flat laser in the park) | `thicknessMm`, `rowThicknessMm`, `supplier`, `reason` |
 | `laser.no_rate_row` | red | no usable in-house or supplier row | `materialCode`, `thicknessMm`, `limitMm`, `family`, `reason` |
 | `laser.blank_exceeds_bed` | red | in-house cut and the blank does not fit `(bed − 2·edgeMargin)` in either orientation | `blankLengthMm`, `blankWidthMm`, `bedLengthMm`, `bedWidthMm`, `edgeMarginMm`, `machine` |
-| `laser.slow_contours` | green | slow contours present | `count`, `factor`, `lengthMm`, `thresholdMm` |
+| `laser.slow_contours` | green | slow contours present **and** the factor applied, i.e. the priced row is mode `time` (a per-metre row prices the plain length, so no info) | `count`, `factor`, `lengthMm`, `thresholdMm` |
 | `material.no_price` | red | material has no price band | `code`, `thicknessMm` |
 | `material.mass_handling` | green | net part mass `> handlingMassLimitKg` | `massKg`, `limitKg`, `surchargeEur` |
 | `bend.force_over_limit` | red | `F > forceKN × 1000` | `bendId`, `forceKN`, `limitKN`, `lengthMm`, `thicknessMm`, `dieVMm`, `rmNmm2` |
@@ -105,11 +111,11 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `bend.hole_crosses_bend` | red | a hole edge crosses the bend line (per bend, aggregated) | `bendId`, `count`, `loopIds` |
 | `bend.hole_near_bend` | amber | hole edge `< 2.5 × t` from the bend line (per bend, nearest distance) | `bendId`, `count`, `distanceMm`, `minMm`, `loopIds` |
 | `bend.short_flange` | amber | smaller flange (outline extent or distance to a parallel bend) `< V/2 + r + 2` | `bendId`, `flangeMm`, `minMm`, `dieVMm`, `radiusMm` |
-| `bend.no_rate_row` | amber | no bend row for `(t, length)` — line omitted | `bendId`, `thicknessMm`, `lengthMm` |
+| `bend.no_rate_row` | red | no bend row for `(t, length)` — line omitted, so it must block sending (an override would ship the bend at 0 €) | `bendId`, `thicknessMm`, `lengthMm` |
 | `roll.radius_too_small` | red | `radius < minRadiusMm` | `radiusMm`, `minRadiusMm` |
 | `roll.axis_too_long` | red | `axisLength > maxWidthMm` | `axisLengthMm`, `maxWidthMm` |
 | `roll.thickness_over_limit` | red | `t > maxThicknessMm` ("cannot roll in-house — subcontract") | `thicknessMm`, `maxThicknessMm` |
-| `roll.no_rate_row` | amber | no roll row — line omitted | `thicknessMm`, `radiusMm` |
+| `roll.no_rate_row` | red | no roll row — line omitted, so it must block sending | `thicknessMm`, `radiusMm` |
 | `weld.no_rate_row` | red | no weld row for the process (part seams: `weldId`; welding-only seams: `seamId`) | `weldId`/`seamId`, `process`, `beadMm` |
 | `weld.min_order_applied` | green | welding-only total topped up to the minimum order | `minOrder`, `shortfall`, `totalBefore` |
 | `tube.over_limit` | red | tube extra beyond the tube laser: `what` = `length`, `wall` (lower of the two manufacturer values), `envelope`, `circumscribed`, `kg_per_m`, `raw_weight` (the last four only when the optional fields are given) | `index`, `profileFamily`, `what`, `value`, `limit`, `family` |
@@ -140,8 +146,30 @@ lines; roll and tube keep the setup inside `unitCost` with `setupShare`
 saying how much. `totalsByType` puts every `setupShare × qty` into the
 `setup` bucket, so Σ buckets = `subtotalCost`.
 
-A line whose rate row is missing is omitted and a `*.no_rate_row` flag is
-raised; red flags block sending so nothing ships silently free.
+A line whose rate row is missing is omitted and a **red** `*.no_rate_row`
+flag is raised — for every operation, bend and roll included — so nothing
+ships silently free, not even through an approved override.
+
+## Input validation (`validate.ts`)
+
+The formulas guard their own arithmetic, but a user-typed number that is
+copied straight into a line never reached a formula. `buildPartContext`
+therefore runs `validatePricingItem` (qty > 0 with code `invalid_qty`;
+`scrapPct` null or ≥ 0; every extra: `minutes`, `count` (integer),
+`maskingMinutes`, `wallMm`, `cutLengthMm`, `metres`, `pricePerMTube`,
+`envelopeMm`, `circumscribedMm`, `kgPerM`, `unitCost` finite and ≥ 0) and
+`validatePartAnnotations` (weld `lengthMm`/`beadMm` ≥ 0, `sides` 1|2,
+stitch bead ≥ 0 and pitch > 0; bend coordinates/length/angle finite,
+`radiusMm`/`dieVMm` ≥ 0 when given; roll radius/axis/width ≥ 0, cone radii
+≥ 0) before any line or flag is built; `priceQuote` runs
+`validateWeldingOnly` (partsCount integer ≥ 0, seams as welds, qty > 0) on
+the welding-only block. A failure throws `PricingError("invalid_input")`
+with `details` `{ itemId | partId | seamId, index?, type?, field, value }`
+(NaN/±Infinity as strings). Both `priceQuote` and `evaluatePartFlags`
+throw — a UI preview must validate its form before calling, or catch
+`isPricingError`. Negative "other"/"handling" lines are rejected on
+purpose: a discount belongs in the margin, not in a cost line that would
+then be marked up.
 
 ## Adding an operation type
 

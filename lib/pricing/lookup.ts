@@ -18,13 +18,20 @@
  *                       (material, t) → subcontract; reason "over_limit"
  *                       when t exceeds the machine limit, "supplier_row"
  *                       when the thickness is allowed but only a supplier
- *                       prices it, "no_machine" when the park has no flat
- *                       laser.
- *                    3. else the supplier row with the NEAREST thickness for
- *                       that material (ties → the thicker row, which is the
- *                       conservative price) → subcontract, exactThickness
- *                       false so the UI can flag it.
- *                    4. else null → red laser.no_rate_row.
+ *                       prices it (Step 9 "in_house = false"), "no_machine"
+ *                       when the park has no flat laser.
+ *                    3. only when t is BEYOND our laser (over the limit or
+ *                       no machine): the next THICKER supplier row for the
+ *                       material → subcontract, exactThickness false so the
+ *                       UI shows the row thickness. A thinner row is never
+ *                       used (it would under-price), and no distance cap
+ *                       is needed because the next row up IS the next step
+ *                       of the supplier's ladder.
+ *                    4. else null → red laser.no_rate_row. In particular an
+ *                       ALLOWED thickness with no row at exactly t is null:
+ *                       the in-house table is meant to carry every stock
+ *                       gauge, and pricing 2.5 mm sheet from a 15 mm plate
+ *                       tariff (43× the price) was a review finding.
  *                    Rows that cannot price (mode "time" without a speed,
  *                    mode "per_m" without €/m) are ignored at every step.
  *   bend             rows of the SMALLEST thickness class ≥ t, then the
@@ -109,7 +116,7 @@ export type LaserRateLookup = {
   /** True when the cut is priced from a supplier row (subcontract_cutting). */
   subcontract: boolean;
   reason: LaserLookupReason;
-  /** False when the nearest-thickness supplier row was used. */
+  /** False when the next thicker supplier row was used (row.thicknessMm > t). */
   exactThickness: boolean;
   /** Flat-laser limit for the material family (null without a machine). */
   limitMm: number | null;
@@ -155,21 +162,22 @@ export function findLaserRate(
   if (exact) {
     return { row: exact, subcontract: true, reason, exactThickness: true, limitMm: machineLimitMm };
   }
-  if (supplierRows.length > 0) {
-    const nearest = supplierRows.reduce((best, r) => {
-      const d = Math.abs(r.thicknessMm - thicknessMm);
-      const bd = Math.abs(best.thicknessMm - thicknessMm);
-      if (d < bd - MM_EPSILON) return r;
-      if (Math.abs(d - bd) < MM_EPSILON && r.thicknessMm > best.thicknessMm) return r;
-      return best;
-    });
-    return {
-      row: nearest,
-      subcontract: true,
-      reason,
-      exactThickness: false,
-      limitMm: machineLimitMm,
-    };
+  if (!withinLimit) {
+    // Beyond our laser the supplier tariff is a thickness ladder: the next
+    // thicker row prices t (a thicker plate never cuts cheaper). Never a
+    // thinner one, and never for an allowed thickness (see header).
+    const thicker = supplierRows
+      .filter((r) => r.thicknessMm > thicknessMm + MM_EPSILON)
+      .sort((a, b) => a.thicknessMm - b.thicknessMm)[0];
+    if (thicker) {
+      return {
+        row: thicker,
+        subcontract: true,
+        reason,
+        exactThickness: false,
+        limitMm: machineLimitMm,
+      };
+    }
   }
   return {
     row: null,

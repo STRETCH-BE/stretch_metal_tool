@@ -7,15 +7,26 @@
  *
  * Driven by useActionState over a server action reducer
  * (createCustomer or updateCustomer.bind(null, id)); field errors come
- * back as codes and are mapped to copy here. Country is controlled only
- * to show the default-currency hint (PLN for PL, EUR otherwise — rule in
- * lib/customers/currency.ts). Everything else is uncontrolled so the
- * browser keeps typed values across a failed submit. `readOnly` renders
- * the viewer role's disabled version.
+ * back as codes and are mapped to copy here.
+ *
+ * React 19 resets a <form action> to its defaultValues once the action
+ * settles — also after a validation error — so nothing may rely on the
+ * DOM keeping typed input. The actions echo the submitted strings back
+ * as `state.values`, and every control takes its defaultValue from
+ * `state.values` first, then the saved/loaded row, then "". Country is
+ * controlled (state) to drive the default-currency hint (PLN for PL, EUR
+ * otherwise — lib/customers/currency.ts) and is re-synced from
+ * `state.values` on error for the same reason.
+ *
+ * Country select: the curated PREFERRED_COUNTRY_CODES (names from
+ * content) come first, then every other ISO 3166-1 code labelled via
+ * Intl.DisplayNames (lib/customers/countries.ts) — any country is valid,
+ * only the default currency depends on it. `readOnly` renders the
+ * viewer role's disabled version.
  */
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useContent } from "@/components/providers/locale";
 import { Field, Input, Select, Textarea, describedBy } from "@/components/ui/field";
 import { FormError } from "@/components/ui/notice";
@@ -25,7 +36,13 @@ import { interpolate } from "@/components/ui/format";
 import { routes } from "@/lib/routes";
 import { defaultCurrencyForCountry } from "@/lib/customers/currency";
 import {
-  COUNTRY_CODES,
+  ALL_COUNTRY_CODES,
+  countryName,
+  isCountryCode,
+  sortCountryCodesByName,
+} from "@/lib/customers/countries";
+import {
+  PREFERRED_COUNTRY_CODES,
   CUSTOMER_CLASSES,
   DEFAULT_COUNTRY,
   DEFAULT_CUSTOMER_CLASS,
@@ -34,7 +51,6 @@ import {
   type CustomerFormState,
 } from "@/lib/customers/schema";
 import type { CustomerRow } from "@/lib/db/types";
-import type { CustomerCountryCode } from "@/content/quote";
 
 export type CustomerFormProps = {
   mode: "create" | "edit";
@@ -43,20 +59,31 @@ export type CustomerFormProps = {
   readOnly?: boolean;
 };
 
+const PREFERRED_SET: ReadonlySet<string> = new Set(PREFERRED_COUNTRY_CODES);
+
 export function CustomerForm({ mode, action, customer, readOnly = false }: CustomerFormProps) {
   const c = useContent();
   const t = c.quote.customers;
   const { toast } = useToast();
   const [state, formAction] = useActionState(action, INITIAL_CUSTOMER_FORM_STATE);
   const [country, setCountry] = useState<string>(customer?.country ?? DEFAULT_COUNTRY);
-  const lastToasted = useRef<CustomerFormState | null>(null);
+  const lastHandled = useRef<CustomerFormState | null>(null);
 
   useEffect(() => {
-    if (state.status === "saved" && lastToasted.current !== state) {
-      lastToasted.current = state;
-      toast(t.form.saved, { tone: "success" });
-    }
+    if (lastHandled.current === state) return;
+    lastHandled.current = state;
+    if (state.status === "saved") toast(t.form.saved, { tone: "success" });
+    if (state.status === "error" && state.values) setCountry(state.values.country);
   }, [state, toast, t.form.saved]);
+
+  const otherCountries = useMemo(
+    () =>
+      sortCountryCodesByName(
+        ALL_COUNTRY_CODES.filter((code) => !PREFERRED_SET.has(code)),
+        c.locale
+      ),
+    [c.locale]
+  );
 
   const fieldError = (field: CustomerField): string | undefined => {
     const code = state.fieldErrors?.[field];
@@ -64,8 +91,12 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
   };
   const formError = state.error ? t.errors[state.error] : null;
   const current = state.customer ?? customer ?? null;
+  const typed = state.status === "error" ? state.values : undefined;
+  /** defaultValue precedence: what the user just typed → the row → "". */
+  const initial = (field: CustomerField, fallback: string | null | undefined): string =>
+    typed?.[field] ?? fallback ?? "";
   const currency = defaultCurrencyForCountry(country);
-  const countryKnown = (COUNTRY_CODES as readonly string[]).includes(country);
+  const countryListed = PREFERRED_SET.has(country) || isCountryCode(country);
 
   const disabled = readOnly;
   const errorId = (field: CustomerField) => describedBy(`customer-${field}`, {
@@ -89,7 +120,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
           <Input
             id="customer-name"
             name="name"
-            defaultValue={current?.name ?? ""}
+            defaultValue={initial("name", current?.name)}
             maxLength={200}
             required
             autoComplete="organization"
@@ -107,7 +138,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
           <Input
             id="customer-vat_id"
             name="vat_id"
-            defaultValue={current?.vat_id ?? ""}
+            defaultValue={initial("vat_id", current?.vat_id)}
             maxLength={32}
             className="mono"
             invalid={Boolean(fieldError("vat_id"))}
@@ -135,12 +166,21 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
               error: Boolean(fieldError("country")),
             })}
           >
-            {!countryKnown && <option value={country}>{country}</option>}
-            {COUNTRY_CODES.map((code) => (
-              <option key={code} value={code}>
-                {code} — {t.countries[code as CustomerCountryCode]}
-              </option>
-            ))}
+            {!countryListed && <option value={country}>{country}</option>}
+            <optgroup label={t.form.countryGroupPreferred}>
+              {PREFERRED_COUNTRY_CODES.map((code) => (
+                <option key={code} value={code}>
+                  {code} — {t.countries[code]}
+                </option>
+              ))}
+            </optgroup>
+            <optgroup label={t.form.countryGroupOther}>
+              {otherCountries.map((code) => (
+                <option key={code} value={code}>
+                  {code} — {countryName(code, c.locale)}
+                </option>
+              ))}
+            </optgroup>
           </Select>
         </Field>
 
@@ -154,7 +194,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
             id="customer-address"
             name="address"
             rows={3}
-            defaultValue={current?.address ?? ""}
+            defaultValue={initial("address", current?.address)}
             maxLength={500}
             autoComplete="street-address"
             invalid={Boolean(fieldError("address"))}
@@ -171,7 +211,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
             id="customer-email"
             name="email"
             type="email"
-            defaultValue={current?.email ?? ""}
+            defaultValue={initial("email", current?.email)}
             maxLength={200}
             autoComplete="email"
             invalid={Boolean(fieldError("email"))}
@@ -184,7 +224,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
             id="customer-phone"
             name="phone"
             type="tel"
-            defaultValue={current?.phone ?? ""}
+            defaultValue={initial("phone", current?.phone)}
             maxLength={40}
             autoComplete="tel"
             invalid={Boolean(fieldError("phone"))}
@@ -204,7 +244,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
           <Select
             id="customer-customer_class"
             name="customer_class"
-            defaultValue={current?.customer_class ?? DEFAULT_CUSTOMER_CLASS}
+            defaultValue={initial("customer_class", current?.customer_class ?? DEFAULT_CUSTOMER_CLASS)}
             invalid={Boolean(fieldError("customer_class"))}
             aria-describedby={errorId("customer_class")}
           >
@@ -225,7 +265,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
           <Select
             id="customer-preferred_locale"
             name="preferred_locale"
-            defaultValue={current?.preferred_locale ?? ""}
+            defaultValue={initial("preferred_locale", current?.preferred_locale)}
             invalid={Boolean(fieldError("preferred_locale"))}
             aria-describedby={describedBy("customer-preferred_locale", {
               help: true,
@@ -248,7 +288,7 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
             id="customer-notes"
             name="notes"
             rows={4}
-            defaultValue={current?.notes ?? ""}
+            defaultValue={initial("notes", current?.notes)}
             maxLength={2000}
             invalid={Boolean(fieldError("notes"))}
             aria-describedby={errorId("notes")}

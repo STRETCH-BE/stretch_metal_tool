@@ -5,14 +5,23 @@
  * File path: /components/ui/modal.tsx
  *
  * Accessibility: role="dialog" + aria-modal, labelled by the title; focus
- * moves into the dialog on open (first focusable element, else the panel),
- * Tab/Shift+Tab cycle inside it, Escape and a backdrop click call onClose,
- * and focus returns to the element that opened it. Rendered inline (no
- * portal) — .modal-backdrop is position:fixed so any ancestor works
- * unless it is transformed; keep modals out of transformed containers.
+ * moves into the dialog on open — `initialFocusRef` if given, else the
+ * first focusable control inside .panel-body (the header Close button is
+ * deliberately skipped), else the panel itself. Tab/Shift+Tab cycle
+ * inside it, Escape and a backdrop click call onClose, and focus returns
+ * to the opener when the dialog closes or unmounts.
+ *
+ * The trap effect depends on `open` only: `onClose` is read through a
+ * ref, so a parent re-rendering with a fresh inline callback (typing in
+ * a controlled input inside the dialog) never re-initialises the trap
+ * or moves focus. `initialFocusRef` must be a stable ref (useRef).
+ *
+ * Rendered inline (no portal) — .modal-backdrop is position:fixed so any
+ * ancestor works unless it is transformed; keep modals out of
+ * transformed containers.
  */
 
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from "react";
 import { useContent } from "@/components/providers/locale";
 
 export type ModalProps = {
@@ -23,6 +32,8 @@ export type ModalProps = {
   footer?: ReactNode;
   size?: "sm" | "md" | "lg";
   className?: string;
+  /** Element to focus on open instead of the first control in the body. */
+  initialFocusRef?: RefObject<HTMLElement | null>;
 };
 
 const FOCUSABLE =
@@ -42,18 +53,31 @@ export function Modal({
   footer,
   size = "md",
   className = "",
+  initialFocusRef,
 }: ModalProps) {
   const c = useContent();
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return;
-    restoreRef.current = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
-    const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? panel)?.focus();
+    if (!panel) return;
+
+    restoreRef.current = document.activeElement as HTMLElement | null;
+    const target =
+      initialFocusRef?.current ??
+      bodyRef.current?.querySelector<HTMLElement>(FOCUSABLE) ??
+      panel.querySelector<HTMLElement>(FOCUSABLE) ??
+      panel;
+    target.focus();
 
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -61,10 +85,10 @@ export function Modal({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
-      if (event.key !== "Tab" || !panel) return;
+      if (event.key !== "Tab") return;
       const focusable = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
       if (focusable.length === 0) {
         event.preventDefault();
@@ -88,7 +112,7 @@ export function Modal({
       document.body.style.overflow = previousOverflow;
       restoreRef.current?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open, initialFocusRef]);
 
   if (!open) return null;
 
@@ -121,7 +145,9 @@ export function Modal({
             {c.common.ui.close}
           </button>
         </div>
-        <div className="panel-body">{children}</div>
+        <div ref={bodyRef} className="panel-body">
+          {children}
+        </div>
         {footer && (
           <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-4 py-3">
             {footer}

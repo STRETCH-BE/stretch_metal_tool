@@ -6,7 +6,10 @@
  * `customers` is owned by the customers module (list, form, quote
  * history); the quote builder extends this same file with its own keys.
  * Country labels live here (ISO 3166-1 alpha-2 keys) because the customer
- * country drives the default quote currency (PL → PLN, else EUR).
+ * country drives the default quote currency (PL → PLN, else EUR). This map
+ * is the CURATED list shown first in the country select — any ISO code is
+ * a valid customer country; the rest are named via Intl.DisplayNames
+ * (lib/customers/countries.ts).
  */
 
 export type CustomerCountryCode =
@@ -72,6 +75,8 @@ export type CustomersContent = {
     vatId: string;
     vatIdHelp: string;
     country: string;
+    countryGroupPreferred: string;
+    countryGroupOther: string;
     address: string;
     email: string;
     phone: string;
@@ -157,6 +162,8 @@ export const quote: QuoteContent = {
       vatId: "NIP / numer VAT",
       vatIdHelp: "Z prefiksem kraju dla firm z UE, np. DE123456789.",
       country: "Kraj",
+      countryGroupPreferred: "Najczęstsze kraje",
+      countryGroupOther: "Pozostałe kraje",
       address: "Adres",
       email: "E-mail",
       phone: "Telefon",
@@ -227,7 +234,7 @@ export const quote: QuoteContent = {
       required: "Pole wymagane.",
       tooLong: "Za długa wartość.",
       invalidEmail: "Nieprawidłowy adres e-mail.",
-      invalidCountry: "Wybierz kraj z listy.",
+      invalidCountry: "Nieprawidłowy kod kraju (ISO 3166-1, np. DE).",
       invalidClass: "Wybierz klasę z listy.",
       invalidLocale: "Wybierz język z listy.",
       notFound: "Nie znaleziono klienta.",

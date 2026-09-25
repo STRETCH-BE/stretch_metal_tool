@@ -2,17 +2,24 @@
  * Geometry engine — measures for one part group.
  * File path: /lib/geometry/measure.ts
  *
- * Everything the pricing engine bills from: cut length (outer + holes
- * only — bend, weld, engrave and ignored entities never count), pierces
- * (1 + holes), bbox and blank, areas, mass, holes with thread
- * suggestions, bend lines from bend-role entities, slow contours.
- * Holes nested inside holes are islands: their area is added back and
- * their contour is still cut (pierce + length).
+ * Everything the pricing engine bills from: cut length (outer + holes +
+ * open chains the user answered "cut"), pierces (1 + holes + open cuts),
+ * bbox and blank, areas, mass, holes with thread suggestions, bend lines
+ * from bend-role entities, engrave length, slow contours.
+ * - Every member of a closed outer/hole loop is laser-cut, whatever tag
+ *   it carries: a weld or engrave tag on an outline edge ADDS an
+ *   operation, it never removes the cut. (An "ignore" tag takes the
+ *   entity out of chaining, so it can never be a loop member.)
+ * - Bend lines and engrave length belong to the part group whose outline
+ *   contains them (`loop.partIndex`); a marking line that lies inside no
+ *   outline goes to the part whose bbox holds it, or to the only part.
+ * - Holes nested inside holes are islands: their area is added back and
+ *   their contour is still cut (pierce + length).
  * Units: mm, mm², kg. Mass = net area × thickness × density / 1e9.
  */
 
 import type { BendLine, GeometryEntity, HoleInfo, Loop, PartMeasures, SlowContour } from "./types";
-import { bboxCenter, bboxMaxSide, bboxUnionAll, emptyBbox } from "./math";
+import { bboxCenter, bboxContains, bboxMaxSide, bboxUnionAll, emptyBbox } from "./math";
 import { loopContains } from "./classify";
 import { freeEndpoints } from "./heal";
 import { suggestThread } from "./threads";
@@ -63,18 +70,41 @@ export function measure(entities: GeometryEntity[], loops: Loop[], options: Meas
   const thickness = options.thicknessMm ?? null;
   const density = options.densityKgM3 ?? null;
   const byId = new Map(entities.map((e) => [e.id, e]));
+  const loopById = new Map(loops.map((l) => [l.id, l]));
 
   const outer = loops.find((l) => (l.kind === "outer" || l.kind === "other_part") && l.partIndex === partIndex) ?? null;
   const holes = loops.filter((l) => l.kind === "hole" && l.partIndex === partIndex);
+  const partCount = loops.filter((l) => l.kind === "outer" || l.kind === "other_part").length;
 
-  const cutLength = (l: Loop) =>
-    l.entityIds.reduce((acc, id) => {
-      const e = byId.get(id);
-      return e && (e.role === "cut" || e.role === "hole") ? acc + e.lengthMm : acc;
-    }, 0);
+  // Every member of a closed contour is cut, whatever else it is tagged as.
+  const cutLength = (l: Loop) => l.entityIds.reduce((acc, id) => acc + (byId.get(id)?.lengthMm ?? 0), 0);
 
   const outerLengthMm = outer ? cutLength(outer) : 0;
   const holesLengthMm = holes.reduce((acc, h) => acc + cutLength(h), 0);
+
+  // Open chains answered "cut" (slits): length + one pierce per chain.
+  let openCutsLengthMm = 0;
+  let openCuts = 0;
+  for (const l of loops) {
+    if (l.kind !== "open_chain" || l.partIndex !== partIndex) continue;
+    const len = l.entityIds.reduce((acc, id) => {
+      const e = byId.get(id);
+      return e && e.role === "cut" ? acc + e.lengthMm : acc;
+    }, 0);
+    if (len > 0) {
+      openCutsLengthMm += len;
+      openCuts += 1;
+    }
+  }
+
+  // Marking entities (bends, engraving) of THIS part group only.
+  const inThisPart = (e: GeometryEntity): boolean => {
+    const idx = e.loopId ? (loopById.get(e.loopId)?.partIndex ?? -1) : -1;
+    if (idx === partIndex) return true;
+    if (idx >= 0) return false;
+    if (outer && bboxContains(outer.bbox, e.bbox, 1e-6)) return true;
+    return partCount <= 1;
+  };
 
   // Island parity: a hole inside an odd number of other holes adds material back.
   const holesAreaMm2 = holes.reduce((acc, h) => {
@@ -103,6 +133,7 @@ export function measure(entities: GeometryEntity[], loops: Loop[], options: Meas
 
   const bendLines: BendLine[] = [];
   for (const e of entities) {
+    if (!inThisPart(e)) continue;
     const b = bendLineFromEntity(e);
     if (b) bendLines.push(b);
   }
@@ -115,13 +146,15 @@ export function measure(entities: GeometryEntity[], loops: Loop[], options: Meas
           .map((h) => ({ loopId: h.id, maxSideMm: bboxMaxSide(h.bbox), lengthMm: cutLength(h) }))
       : [];
 
-  const engraveLengthMm = entities.reduce((acc, e) => (e.role === "engrave" ? acc + e.lengthMm : acc), 0);
+  const engraveLengthMm = entities.reduce((acc, e) => (e.role === "engrave" && inThisPart(e) ? acc + e.lengthMm : acc), 0);
 
   return {
-    cutLengthMm: outerLengthMm + holesLengthMm,
+    cutLengthMm: outerLengthMm + holesLengthMm + openCutsLengthMm,
     outerLengthMm,
     holesLengthMm,
-    pierces: outer ? 1 + holes.length : 0,
+    openCutsLengthMm,
+    openCuts,
+    pierces: outer ? 1 + holes.length + openCuts : 0,
     bbox,
     blank: { lengthMm: bbox.width + 2 * margin, widthMm: bbox.height + 2 * margin, marginMm: margin },
     outerAreaMm2,

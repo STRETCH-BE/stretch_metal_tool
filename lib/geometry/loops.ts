@@ -3,10 +3,25 @@
  * File path: /lib/geometry/loops.ts
  *
  * Every entity is a "unit" with two free endpoints (or none when it is
- * closed: CIRCLE, closed polyline). Units are chained through a grid
- * hash of endpoints (cell = tolerance). At a branching vertex the walk
- * continues with the unit whose outgoing tangent turns least from the
- * incoming tangent; whatever is left over becomes further chains.
+ * closed: CIRCLE, closed polyline, a single segment whose two ends
+ * coincide). Units are chained through a grid hash of endpoints (cell =
+ * tolerance) in three passes per chain class:
+ * 1. leaf peeling — a unit with an end nothing else touches can never
+ *    lie on a closed loop (an AutoCAD overshoot past a corner, a bend
+ *    candidate, a dangling tail); peeling repeats until no leaf is left;
+ * 2. loop search — from every remaining unit a depth-first walk tries the
+ *    continuations at each branch in order of smallest turning angle and
+ *    BACKTRACKS when a path dead-ends, so a stray line through a corner
+ *    can no longer swallow the outline. A loop closes as soon as the
+ *    exit meets the entry of any earlier link; the links before that
+ *    link (a bridge between two parts) are released and retried. A walk
+ *    that exhausts without closing proves its component acyclic, so
+ *    everything it explored is deferred. A global step budget
+ *    (`DFS_BUDGET_BASE + DFS_BUDGET_PER_UNIT × units`) bounds pathological
+ *    files; once spent, pass 3 takes over for what is left;
+ * 3. greedy open chains — leftovers are walked forward and backward
+ *    with the smallest-turn rule without backtracking (the pre-review
+ *    behaviour), which is all an open chain needs.
  *
  * Chains are built per "chain class": cut-like entities (layer role
  * null/cut) chain together; bend/weld/engrave-layer entities only chain
@@ -192,6 +207,184 @@ export function detectCircle(entities: GeometryEntity[], points: Point[]): Loop[
   return { center, diameterMm: 2 * onCircle };
 }
 
+/* ─── Chaining ───────────────────────────────────────────── */
+
+type Cand = { unit: Unit; endIndex: 0 | 1 };
+type Chain = { links: ChainLink[]; closed: boolean };
+
+/** Steps the loop search may spend per chain class before the greedy walk takes over. */
+export const DFS_BUDGET_BASE = 20_000;
+export const DFS_BUDGET_PER_UNIT = 200;
+
+function entryPoint(link: ChainLink): Point {
+  return unitEnd(link.unit, link.reversed, "entry").point;
+}
+
+function exitPoint(link: ChainLink): Point {
+  return unitEnd(link.unit, link.reversed, "exit").point;
+}
+
+/** Continuations at `exit`, smallest turning angle first (ties by unit index). */
+function continuations(grid: PointGrid<Cand>, exit: Point, inDir: Point, excluded: (u: Unit) => boolean): Cand[] {
+  const cands = grid
+    .findAll(exit)
+    .map((c) => c.v)
+    .filter((c) => !excluded(c.unit));
+  if (cands.length <= 1) return cands;
+  return cands
+    .map((c) => ({ c, ang: angleBetweenDeg(inDir, leavingDir(c.unit, c.endIndex === 1)) }))
+    .sort((a, b) => (Math.abs(a.ang - b.ang) > 1e-9 ? a.ang - b.ang : a.c.unit.index - b.c.unit.index))
+    .map((x) => x.c);
+}
+
+/**
+ * Chains open units into closed loops and open chains (see the header
+ * for the three passes). Deterministic: unit order and turning angles
+ * decide every choice.
+ */
+function chainUnits(units: Unit[], tol: number): Chain[] {
+  const out: Chain[] = [];
+  if (units.length === 0) return out;
+
+  const grid = new PointGrid<Cand>(tol);
+  for (const u of units) {
+    grid.add(u.ends[0].point, { unit: u, endIndex: 0 });
+    grid.add(u.ends[1].point, { unit: u, endIndex: 1 });
+  }
+
+  // 1. Leaf peeling: a unit end that touches no other unit can never close.
+  const adj: Cand[][][] = units.map((u) =>
+    u.ends.map((end) =>
+      grid
+        .findAll(end.point)
+        .map((c) => c.v)
+        .filter((c) => c.unit.index !== u.index)
+    )
+  );
+  const live = adj.map((ends) => ends.map((list) => list.length));
+  const leaf = new Set<number>();
+  const queue: number[] = [];
+  for (const u of units) {
+    if (live[u.index][0] === 0 || live[u.index][1] === 0) {
+      leaf.add(u.index);
+      queue.push(u.index);
+    }
+  }
+  while (queue.length > 0) {
+    const ui = queue.pop() as number;
+    for (const endList of adj[ui]) {
+      for (const c of endList) {
+        if (leaf.has(c.unit.index)) continue;
+        live[c.unit.index][c.endIndex] -= 1;
+        if (live[c.unit.index][c.endIndex] === 0) {
+          leaf.add(c.unit.index);
+          queue.push(c.unit.index);
+        }
+      }
+    }
+  }
+
+  // 2. Loop search with backtracking.
+  const visited = new Set<number>(); // members of emitted loops
+  const deferred = new Set<number>(); // proven acyclic (or out of budget): open chains
+  let budget = DFS_BUDGET_BASE + DFS_BUDGET_PER_UNIT * units.length;
+
+  const findLoop = (start: Unit): { loop: ChainLink[]; released: ChainLink[] } | { explored: Set<number> } | "budget" => {
+    const chain: ChainLink[] = [{ unit: start, reversed: false }];
+    const onPath = new Set<number>([start.index]);
+    const explored = new Set<number>([start.index]);
+    const entries = new PointGrid<number>(tol);
+    entries.add(entryPoint(chain[0]), 0);
+    const excluded = (u: Unit) => leaf.has(u.index) || visited.has(u.index) || deferred.has(u.index) || onPath.has(u.index);
+    const stack: { cands: Cand[]; next: number }[] = [
+      { cands: continuations(grid, exitPoint(chain[0]), arrivingDir(chain[0]), excluded), next: 0 },
+    ];
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top.next < top.cands.length) {
+        if (budget <= 0) return "budget";
+        budget -= 1;
+        const c = top.cands[top.next++];
+        const link: ChainLink = { unit: c.unit, reversed: c.endIndex === 1 };
+        chain.push(link);
+        onPath.add(c.unit.index);
+        explored.add(c.unit.index);
+        const exit = exitPoint(link);
+        // Closed when the exit meets the entry of an earlier link (the most
+        // recent one gives the tightest loop; links before it are released).
+        let k = -1;
+        for (const hit of entries.findAll(exit)) if (hit.v <= chain.length - 2 && hit.v > k) k = hit.v;
+        if (k >= 0) return { loop: chain.slice(k), released: chain.slice(0, k) };
+        entries.add(entryPoint(link), chain.length - 1);
+        stack.push({ cands: continuations(grid, exit, arrivingDir(link), excluded), next: 0 });
+      } else {
+        stack.pop();
+        if (stack.length === 0) break;
+        const link = chain.pop() as ChainLink;
+        onPath.delete(link.unit.index);
+        entries.remove(entryPoint(link), chain.length);
+      }
+    }
+    return { explored };
+  };
+
+  let i = 0;
+  while (i < units.length) {
+    const u = units[i];
+    if (leaf.has(u.index) || visited.has(u.index) || deferred.has(u.index)) {
+      i += 1;
+      continue;
+    }
+    const r = findLoop(u);
+    if (r === "budget") {
+      deferred.add(u.index);
+      i += 1;
+      continue;
+    }
+    if ("explored" in r) {
+      for (const x of r.explored) deferred.add(x);
+      i += 1;
+      continue;
+    }
+    for (const l of r.loop) visited.add(l.unit.index);
+    out.push({ links: r.loop, closed: true });
+    // A released prefix (bridge) stays unvisited; retry the same start when it was released.
+    if (!visited.has(u.index)) continue;
+    i += 1;
+  }
+
+  // 3. Greedy open chains for whatever is left (leaves, deferred, budget fallbacks).
+  const walk = (chain: ChainLink[]): boolean => {
+    let guard = units.length + 1;
+    while (guard-- > 0) {
+      const last = chain[chain.length - 1];
+      const exit = exitPoint(last);
+      if (chain.length >= 2 && dist(exit, entryPoint(chain[0])) <= tol) return true;
+      const cands = continuations(grid, exit, arrivingDir(last), (x) => visited.has(x.index));
+      if (cands.length === 0) return false;
+      const pick = cands[0];
+      visited.add(pick.unit.index);
+      chain.push({ unit: pick.unit, reversed: pick.endIndex === 1 });
+    }
+    return false;
+  };
+  for (const u of units) {
+    if (visited.has(u.index)) continue;
+    visited.add(u.index);
+    const chain: ChainLink[] = [{ unit: u, reversed: false }];
+    let closed = walk(chain);
+    if (!closed) {
+      // Extend backwards: flip the chain and keep walking.
+      chain.reverse();
+      for (const l of chain) l.reversed = !l.reversed;
+      closed = walk(chain);
+    }
+    if (!closed && chain.length >= 2 && dist(exitPoint(chain[chain.length - 1]), entryPoint(chain[0])) <= tol) closed = true;
+    out.push({ links: chain, closed });
+  }
+  return out;
+}
+
 /* ─── Entry point ────────────────────────────────────────── */
 
 export function buildLoops(
@@ -255,73 +448,16 @@ export function buildLoops(
         loops.push(makeLoop([{ unit: { index: -1, entity: e, ends: [], closed: true }, reversed: false }], true));
         continue;
       }
-      if (e.segments.length > 1 && dist(ends[0].point, ends[1].point) <= tol) {
+      if (dist(ends[0].point, ends[1].point) <= tol) {
+        // Ends within tolerance: an unflagged polyline back at its start, or a
+        // single arc healed shut (a 359.99° arc). A zero-length LINE never gets here.
         loopsClosed += 1;
         loops.push(makeLoop([{ unit: { index: -1, entity: e, ends, closed: true }, reversed: false }], true));
         continue;
       }
       units.push({ index: units.length, entity: e, ends: [ends[0], ends[1]], closed: false });
     }
-
-    const grid = new PointGrid<{ unit: Unit; endIndex: 0 | 1 }>(tol);
-    for (const u of units) {
-      grid.add(u.ends[0].point, { unit: u, endIndex: 0 });
-      grid.add(u.ends[1].point, { unit: u, endIndex: 1 });
-    }
-    const visited = new Set<number>();
-
-    const walk = (chain: ChainLink[]): boolean => {
-      // Extends `chain` forward from its current exit; returns true when it closed.
-      let guard = units.length + 1;
-      while (guard-- > 0) {
-        const last = chain[chain.length - 1];
-        const exit = unitEnd(last.unit, last.reversed, "exit").point;
-        const first = chain[0];
-        const entry = unitEnd(first.unit, first.reversed, "entry").point;
-        if (chain.length >= 2 && dist(exit, entry) <= tol) return true;
-        const cands = grid
-          .findAll(exit)
-          .map((c) => c.v)
-          .filter((c) => !visited.has(c.unit.index))
-          .sort((a, b) => a.unit.index - b.unit.index);
-        if (cands.length === 0) return false;
-        let pick = cands[0];
-        if (cands.length > 1) {
-          const inDir = arrivingDir(last);
-          let bestAngle = Infinity;
-          for (const c of cands) {
-            const reversed = c.endIndex === 1;
-            const ang = angleBetweenDeg(inDir, leavingDir(c.unit, reversed));
-            if (ang < bestAngle - 1e-9) {
-              bestAngle = ang;
-              pick = c;
-            }
-          }
-        }
-        visited.add(pick.unit.index);
-        chain.push({ unit: pick.unit, reversed: pick.endIndex === 1 });
-      }
-      return false;
-    };
-
-    for (const u of units) {
-      if (visited.has(u.index)) continue;
-      visited.add(u.index);
-      const chain: ChainLink[] = [{ unit: u, reversed: false }];
-      let closed = walk(chain);
-      if (!closed) {
-        // Extend backwards: flip the chain and keep walking.
-        chain.reverse();
-        for (const l of chain) l.reversed = !l.reversed;
-        closed = walk(chain);
-      }
-      if (!closed && chain.length >= 2) {
-        const exit = unitEnd(chain[chain.length - 1].unit, chain[chain.length - 1].reversed, "exit").point;
-        const entry = unitEnd(chain[0].unit, chain[0].reversed, "entry").point;
-        if (dist(exit, entry) <= tol) closed = true;
-      }
-      loops.push(makeLoop(chain, closed));
-    }
+    for (const chain of chainUnits(units, tol)) loops.push(makeLoop(chain.links, chain.closed));
   }
 
   // Deterministic order: closed loops by area desc, then open chains by length desc, ties by id.

@@ -23,6 +23,16 @@
  *   are filled in; wall and length are always checked.
  * - The rate for a bend/roll is looked up with the same functions the
  *   operations builder uses, so "no_rate_row" and "line omitted" agree.
+ * - EVERY `*.no_rate_row` is red, bend and roll included: the operations
+ *   builder omits the line, so an amber (overridable) flag would let an
+ *   approved override send the bends or the rolling at 0 € (review
+ *   finding). Adding the row is the admin's fix, not an override.
+ * - `laser.slow_contours` (green) is raised only when the slow factor is
+ *   actually applied, i.e. the priced row is mode "time"; a per-metre row
+ *   (in-house or supplier) prices the plain length (Step 9).
+ * - User-typed numbers are validated in buildPartContext (validate.ts):
+ *   evaluatePartFlags throws PricingError("invalid_input") for NaN /
+ *   Infinity / negative extras and annotations instead of skipping rules.
  */
 
 import { flangeLengthsMm, holeEdgeToBendMm } from "./bend-checks";
@@ -185,7 +195,7 @@ function laserFlags(ctx: PartContext): Flag[] {
     }
   }
 
-  if (laser.row && ctx.slowContours.length > 0) {
+  if (laser.row && laser.row.mode === "time" && ctx.slowContours.length > 0) {
     flags.push(
       partFlag(ctx, "laser.slow_contours", "green", {
         count: ctx.slowContours.length,
@@ -330,7 +340,7 @@ function bendFlags(ctx: PartContext): Flag[] {
 
     if (t !== null && !findBendRate(rates, t, bend.lengthMm)) {
       flags.push(
-        partFlag(ctx, "bend.no_rate_row", "amber", { bendId, thicknessMm: t, lengthMm: bend.lengthMm })
+        partFlag(ctx, "bend.no_rate_row", "red", { bendId, thicknessMm: t, lengthMm: bend.lengthMm })
       );
     }
   }
@@ -361,7 +371,7 @@ function rollFlags(ctx: PartContext): Flag[] {
     }
   }
   if (t !== null && !findRollRate(rates, t, roll.radiusMm)) {
-    flags.push(partFlag(ctx, "roll.no_rate_row", "amber", { thicknessMm: t, radiusMm: roll.radiusMm }));
+    flags.push(partFlag(ctx, "roll.no_rate_row", "red", { thicknessMm: t, radiusMm: roll.radiusMm }));
   }
   return flags;
 }
