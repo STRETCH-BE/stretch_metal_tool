@@ -192,6 +192,7 @@ export type QuoteErrorKey =
   | "pricing"
   | "cannotSend"
   | "mail"
+  | "sendFailed"
   | "generic";
 
 export type QuoteBuilderContent = {
@@ -391,6 +392,8 @@ export type QuoteBuilderContent = {
     sentNoMail: string;
     /** Mailer configured but the e-mail failed: quote is sent, PDF stored. */
     sentMailFailed: string;
+    /** `{message}` placeholder — JSON message of a failed /api/quotes/[id]/pdf call. */
+    pdfFailed: string;
     mailNotConfigured: string;
     markWon: string;
     markLost: string;
@@ -724,6 +727,7 @@ const builderPl: QuoteBuilderContent = {
     sent: "Oferta wysłana e-mailem do klienta.",
     sentNoMail: "Oferta oznaczona jako wysłana. PDF zapisany — wysyłka e-mail nie jest skonfigurowana, pobierz PDF i wyślij ręcznie.",
     sentMailFailed: "Oferta oznaczona jako wysłana, PDF zapisany — wysyłka e-mail nie powiodła się. Pobierz PDF i wyślij ręcznie.",
+    pdfFailed: "Nie udało się wygenerować PDF: {message}",
     mailNotConfigured: "Wysyłka e-mail wyłączona (brak konfiguracji Microsoft Graph) — „Wyślij” zapisze PDF i zmieni status.",
     markWon: "Wygrana",
     markLost: "Przegrana",
@@ -843,6 +847,7 @@ const builderPl: QuoteBuilderContent = {
     locked: "Wycena jest zablokowana (wysłana lub rozstrzygnięta).",
     noRates: "Brak aktywnego cennika — administrator musi aktywować wersję cennika.",
     pricing: "Nie udało się policzyć ceny: {message}",
+    sendFailed: "Wysyłka nie powiodła się: {message}",
     cannotSend: "Wycena nie spełnia warunków wysyłki.",
     mail: "PDF zapisany, ale e-mail nie został wysłany. Sprawdź konfigurację poczty.",
     generic: "Coś poszło nie tak. Spróbuj ponownie.",

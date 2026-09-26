@@ -51,6 +51,7 @@ import { makeReanalyseDeps } from "./server-deps";
 import {
   annotationsSchema,
   bendParamsSchema,
+  bulkMaterialSchema,
   isUuid,
   materialSchema,
   parseStoredAnnotations,
@@ -331,6 +332,65 @@ export async function setPartMaterial(partId: string, input: { materialCode: str
     await storeMaterial(ctx, known, parsed.data.thicknessMm);
     await afterChange(ctx.quote.id, partId);
     return null;
+  });
+}
+
+/**
+ * Bulk material / thickness for several parts of one quote (upload page
+ * and quote page). One quote-level access check and one rates load; each
+ * part goes through storeMaterial (its own "part.material" audit row and
+ * re-measure), a few at a time so a 40-part quote stays inside the action
+ * budget; one reprice + revalidation at the end. Parts that already carry
+ * the requested values are skipped; `undefined` fields keep the part's
+ * value (bulkMaterialSchema). Returns how many parts changed.
+ */
+export async function setPartsMaterial(quoteId: string, input: unknown): Promise<ActionResult<{ updated: number }>> {
+  return run(async () => {
+    const parsed = bulkMaterialSchema.safeParse(input);
+    if (!parsed.success) fail("validation");
+    const writer = await requireQuoteWriter(quoteId);
+    const rates = await loadRatesInfo(writer.supabase, writer.quote.rate_version_id);
+    const { data: parts, error } = await writer.supabase.from("parts").select("*").eq("quote_id", quoteId).in("id", parsed.data.partIds);
+    if (error) throw new Error(`parts select (bulk): ${error.message}`);
+    if (!parts || parts.length === 0) fail("not_found");
+
+    const { materialCode, thicknessMm } = parsed.data;
+    const known =
+      materialCode === undefined || materialCode === null
+        ? materialCode
+        : (rates.materials.find((m) => m.code.toLowerCase() === materialCode.toLowerCase())?.code ?? materialCode);
+    const nextFor = (part: PartRow) => ({
+      code: known === undefined ? part.material_code : known,
+      thickness: thicknessMm === undefined ? thicknessOf(part) : thicknessMm,
+    });
+    const targets = parts.filter((part) => {
+      const next = nextFor(part);
+      return next.code !== part.material_code || next.thickness !== thicknessOf(part);
+    });
+
+    const CONCURRENCY = 4;
+    for (let i = 0; i < targets.length; i += CONCURRENCY) {
+      await Promise.all(
+        targets.slice(i, i + CONCURRENCY).map(async (part) => {
+          const file = await fileRowOf(writer.supabase, part.file_id);
+          // storeMaterial never reads ctx.item; the quote-level writer check above covers every part of the quote.
+          const ctx: Ctx = {
+            ...writer,
+            part,
+            item: null,
+            rates,
+            file,
+            geometry: parseStoredGeometry(part.geometry),
+            annotations: parseStoredAnnotations(part.annotations),
+          };
+          const next = nextFor(part);
+          await storeMaterial(ctx, next.code, next.thickness);
+        })
+      );
+    }
+    for (const part of targets) revalidatePath(routes.part(part.id));
+    await afterChange(quoteId);
+    return { updated: targets.length };
   });
 }
 

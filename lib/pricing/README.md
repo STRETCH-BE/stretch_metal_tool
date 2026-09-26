@@ -108,7 +108,7 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `material.mass_handling` | green | net part mass `> handlingMassLimitKg` | `massKg`, `limitKg`, `surchargeEur` |
 | `bend.force_over_limit` | red | `F > forceKN × 1000` | `bendId`, `forceKN`, `limitKN`, `lengthMm`, `thicknessMm`, `dieVMm`, `rmNmm2` |
 | `bend.length_over_limit` | red | bend length `> bendLengthMm` | `bendId`, `lengthMm`, `limitMm` |
-| `bend.hole_crosses_bend` | red | a hole edge crosses the bend line (per bend, aggregated) | `bendId`, `count`, `loopIds` |
+| `bend.hole_crosses_bend` | red | a hole edge crosses the bend line (per bend, aggregated; circles by centre/radius, other holes by their loop polygon) | `bendId`, `count`, `loopIds` |
 | `bend.hole_near_bend` | amber | hole edge `< 2.5 × t` from the bend line (per bend, nearest distance) | `bendId`, `count`, `distanceMm`, `minMm`, `loopIds` |
 | `bend.short_flange` | amber | smaller flange (outline extent or distance to a parallel bend) `< V/2 + r + 2` | `bendId`, `flangeMm`, `minMm`, `dieVMm`, `radiusMm` |
 | `bend.no_rate_row` | red | no bend row for `(t, length)` — line omitted, so it must block sending (an override would ship the bend at 0 €) | `bendId`, `thicknessMm`, `lengthMm` |

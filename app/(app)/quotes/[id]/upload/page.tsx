@@ -25,6 +25,7 @@ import { listQuoteParts, loadRatesInfo } from "@/lib/parts/queries";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
 import { UploadWorkspace } from "@/components/intake/upload-workspace";
+import { BulkMaterialModal } from "@/components/intake/bulk-material-modal";
 import { PartsTable } from "@/components/intake/parts-table";
 
 type Params = Promise<{ id: string }>;
@@ -79,7 +80,19 @@ export default async function QuoteUploadPage({ params }: { params: Params }) {
           canWrite={canWrite}
           materials={rates.materials.map((m) => ({ code: m.code, name: m.name }))}
         />
-        <Panel title={t.parts.title} flush>
+        <Panel
+          title={t.parts.title}
+          flush
+          actions={
+            canWrite && parts.length > 0 ? (
+              <BulkMaterialModal
+                quoteId={id}
+                parts={parts.map((p) => ({ id: p.id, name: p.name, materialCode: p.materialCode, thicknessMm: p.thicknessMm }))}
+                materials={rates.materials.map((m) => ({ code: m.code, name: m.name }))}
+              />
+            ) : undefined
+          }
+        >
           <PartsTable rows={parts} canWrite={canWrite} />
         </Panel>
       </div>

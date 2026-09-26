@@ -4,10 +4,17 @@
  * can see (RLS); the document never contains cost or margin.
  * File path: /app/api/quotes/[id]/pdf/route.ts
  *
- * Node runtime (react-pdf + font files from disk), never cached, 60 s
- * budget for large multi-part quotes. `ops` overrides the quote's
+ * Node runtime (react-pdf; the fonts are embedded in lib/pdf/fonts-data.ts
+ * so nothing is read from disk at runtime), never cached, 60 s budget for
+ * large multi-part quotes. `ops` overrides the quote's
  * show_operations_on_pdf setting for this export only; `locale` falls
  * back to the customer's preferred locale, then Polish.
+ *
+ * A render failure answers 500 with JSON `{ error: "pdf_failed", message }`
+ * and is logged with the quote id. The quote builder fetches this route
+ * with fetch() and shows that message in a toast — a bare <a download>
+ * would only show "Failed — server problem" in the browser's download
+ * bar, which is what hid the production failure from the user.
  */
 
 import { NextResponse } from "next/server";
@@ -32,11 +39,18 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const opsParam = url.searchParams.get("ops");
   const showOperations = opsParam === null ? bundle.quote.show_operations_on_pdf : opsParam === "1" || opsParam === "true";
 
-  const pdf = await renderQuotePdf(bundle, {
-    locale,
-    showOperations,
-    preparedBy: session.profile.full_name?.trim() || session.profile.email,
-  });
+  let pdf: Buffer;
+  try {
+    pdf = await renderQuotePdf(bundle, {
+      locale,
+      showOperations,
+      preparedBy: session.profile.full_name?.trim() || session.profile.email,
+    });
+  } catch (renderError) {
+    console.error(`[pdf] render failed for quote ${id}`, renderError);
+    const message = renderError instanceof Error ? renderError.message : String(renderError);
+    return NextResponse.json({ error: "pdf_failed", message }, { status: 500 });
+  }
   const fileName = quotePdfFileName(bundle.quote, locale);
   return new NextResponse(new Uint8Array(pdf), {
     status: 200,

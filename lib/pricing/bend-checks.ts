@@ -8,6 +8,9 @@
  * - hole edge distance = |(c − a)·n| − r, evaluated only when the
  *   perpendicular foot (c − a)·d lies within [−r, |b − a| + r], i.e. the
  *   hole actually meets the bend's span; otherwise null (no rule fires).
+ * - contour edge distance (non-circular holes) = the same, over the
+ *   loop's polygon vertices: negative when vertices lie on both sides,
+ *   null when the vertices' span along d misses [0, |b − a|].
  * - flange lengths = the extent of the outline on each side of the line
  *   (max of (p − a)·n over the outline points on the positive side, max of
  *   −(p − a)·n on the negative side), capped by the distance to the nearest
@@ -121,4 +124,36 @@ export function flangeLengthsMm(
     smaller,
     boundedByBend: smaller === positive ? boundedPositive : boundedNegative,
   };
+}
+
+/**
+ * Signed distance (mm) from a closed contour (the loop's flattened
+ * polygon) to the bend line: negative when the contour straddles the
+ * line (depth of the shallower side), null when the contour lies
+ * entirely beside the bend's span. Used for non-circular holes (windows,
+ * slots, rounded cut-outs) whose HoleInfo.diameterMm is only the bbox
+ * max side — a 129 mm wide window treated as a Ø129 circle would "cross"
+ * a bend 30 mm away. All vertices on one side of the line ⇒ the whole
+ * polygon is (it lies inside the convex hull of its vertices), and the
+ * nearest point of a non-crossing polygon to a line is always a vertex.
+ */
+export function contourEdgeToBendMm(bend: BendSegment, points: readonly Point[]): number | null {
+  const f = frameOf(bend);
+  if (!f || points.length === 0) return null;
+  let minAlong = Number.POSITIVE_INFINITY;
+  let maxAlong = Number.NEGATIVE_INFINITY;
+  let minPerp = Number.POSITIVE_INFINITY;
+  let maxPerp = Number.NEGATIVE_INFINITY;
+  for (const p of points) {
+    const v = rel(p, f.a);
+    const along = dot(v, f.d);
+    const perp = dot(v, f.n);
+    if (along < minAlong) minAlong = along;
+    if (along > maxAlong) maxAlong = along;
+    if (perp < minPerp) minPerp = perp;
+    if (perp > maxPerp) maxPerp = perp;
+  }
+  if (maxAlong < 0 || minAlong > f.length) return null;
+  if (minPerp < -EPS && maxPerp > EPS) return -Math.min(-minPerp, maxPerp);
+  return Math.min(Math.abs(minPerp), Math.abs(maxPerp));
 }

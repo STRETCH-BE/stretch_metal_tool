@@ -151,6 +151,26 @@ export type UploadContent = {
       delete: string;
       deleteConfirm: string;
       deleted: string;
+      /** Bulk material / thickness dialog (upload page + quote page). */
+      bulk: {
+        open: string;
+        title: string;
+        intro: string;
+        selectAll: string;
+        selectNone: string;
+        /** `{selected}` and `{total}` placeholders. */
+        selected: string;
+        material: string;
+        keepMaterial: string;
+        clearMaterial: string;
+        thickness: string;
+        thicknessHelp: string;
+        apply: string;
+        nothingToApply: string;
+        /** `{count}` placeholder. */
+        applied: string;
+        columns: { part: string; current: string };
+      };
     };
     sources: Record<PartSourceDb, string>;
   };
@@ -511,6 +531,23 @@ export const upload: UploadContent = {
       delete: "Usuń",
       deleteConfirm: "Usunąć część z wyceny?",
       deleted: "Część usunięta.",
+      bulk: {
+        open: "Zmień materiał / grubość",
+        title: "Zmiana materiału i grubości",
+        intro: "Zaznacz części i podaj nowy materiał lub grubość. Pole pozostawione bez zmian nie nadpisze wartości części.",
+        selectAll: "Zaznacz wszystkie",
+        selectNone: "Odznacz wszystkie",
+        selected: "{selected} z {total} części",
+        material: "Materiał",
+        keepMaterial: "— bez zmian —",
+        clearMaterial: "— usuń materiał —",
+        thickness: "Grubość [mm]",
+        thicknessHelp: "Puste pole = bez zmian.",
+        apply: "Zastosuj",
+        nothingToApply: "Zaznacz co najmniej jedną część i podaj materiał lub grubość.",
+        applied: "Zaktualizowano części: {count}. Wycena została przeliczona.",
+        columns: { part: "Część", current: "Obecnie" },
+      },
     },
     sources: {
       dxf: "DXF",

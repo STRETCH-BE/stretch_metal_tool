@@ -174,6 +174,20 @@ export const materialSchema = z.object({
 });
 export type MaterialInput = z.infer<typeof materialSchema>;
 
+/**
+ * Bulk material / thickness edit (upload page + quote page). A field left
+ * `undefined` keeps each part's current value; `null` clears the material
+ * like the single-part form. At least one field must be present.
+ */
+export const bulkMaterialSchema = z
+  .object({
+    partIds: z.array(z.string().refine(isUuid)).min(1).max(500),
+    materialCode: z.string().trim().min(1).max(40).nullable().optional(),
+    thicknessMm: z.number().positive().max(200).nullable().optional(),
+  })
+  .refine((v) => v.materialCode !== undefined || v.thicknessMm !== undefined, { message: "nothing_to_apply" });
+export type BulkMaterialInput = z.infer<typeof bulkMaterialSchema>;
+
 export const qtySchema = z.number().int().min(1).max(1_000_000);
 export const partNameSchema = z.string().trim().min(1).max(120);
 export const toleranceSchema = z.number().min(DEFAULT_TOLERANCE_MM).max(MAX_TOLERANCE_MM);

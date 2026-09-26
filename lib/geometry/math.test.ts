@@ -151,6 +151,12 @@ describe("layer conventions", () => {
     expect(roleForLayer("0")).toBe("cut");
     expect(roleForLayer("IV_OUTER_PROFILE")).toBe("cut");
     expect(roleForLayer("MARK")).toBe("engrave");
+    expect(roleForLayer("IV_MARK_SURFACE")).toBe("engrave");
+    expect(roleForLayer("iv_mark_surface_down")).toBe("engrave");
+    expect(roleForLayer("IV_TOOL_CENTER")).toBe("ignore");
+    expect(roleForLayer("IV_TOOL_CENTER_DOWN")).toBe("ignore");
+    expect(roleForLayer("IV_ALTREP_BACK")).toBe("ignore");
+    expect(roleForLayer("IV_ROLL_TANGENT")).toBe("ignore");
     expect(roleForLayer("weld_seam")).toBe("weld");
     expect(roleForLayer("SOMETHING_ELSE")).toBeNull();
     expect(isIgnoredLayer("IV_TANGENT")).toBe(true);

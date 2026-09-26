@@ -16,6 +16,11 @@
  *   holes, one amber for the near ones, with the smallest distance and
  *   the loop ids) rather than one flag per hole, so overrides stay per
  *   rule and part.
+ * - Non-circular holes (windows, slots, rounded cut-outs) are measured
+ *   against the bend line with their loop polygon, not with the
+ *   bbox-derived HoleInfo.diameterMm — see holeEdgeDistanceMm. That
+ *   "diameter" is the bbox max side, and a 129 mm window read as a Ø129
+ *   circle flagged a bend 30 mm away as crossing (review, part 200037).
  * - The flat-laser bed check only runs for in-house cutting; a
  *   subcontracted cut is bounded by the supplier, not our bed.
  * - Tube limits that need data the extra does not carry (envelope,
@@ -35,7 +40,7 @@
  *   Infinity / negative extras and annotations instead of skipping rules.
  */
 
-import { flangeLengthsMm, holeEdgeToBendMm } from "./bend-checks";
+import { contourEdgeToBendMm, flangeLengthsMm, holeEdgeToBendMm, type BendSegment } from "./bend-checks";
 import { buildPartContext, type PartContext } from "./context";
 import { computeFinish } from "./finish";
 import { bendForceN, minFlangeMm, minHoleToBendMm } from "./formulas";
@@ -59,7 +64,7 @@ import type {
   PricingPart,
   RateSnapshot,
 } from "./types";
-import type { Point } from "../geometry/types";
+import type { HoleInfo, Point } from "../geometry/types";
 
 const EPS = 1e-9;
 
@@ -231,6 +236,21 @@ function materialFlags(ctx: PartContext): Flag[] {
 
 /* ─── Press brake ─────────────────────────────────────────── */
 
+/**
+ * Hole edge → bend line distance. Circles use the exact centre/radius
+ * form; any other hole (window, slot, rounded cut-out) uses its loop
+ * polygon, because HoleInfo.diameterMm is only the bbox max side for
+ * those and a circle of that size crosses bends the real contour is far
+ * from. Falls back to the circle form when the loop has no polygon.
+ */
+function holeEdgeDistanceMm(bend: BendSegment, hole: HoleInfo, loopPoints: ReadonlyMap<string, Point[]>): number | null {
+  if (!hole.circular) {
+    const points = loopPoints.get(hole.loopId);
+    if (points && points.length >= 3) return contourEdgeToBendMm(bend, points);
+  }
+  return holeEdgeToBendMm(bend, hole.center, hole.diameterMm / 2);
+}
+
 function outlinePoints(ctx: PartContext): Point[] {
   const { geometry } = ctx;
   const outer = geometry.loops.find((l) => l.id === geometry.outerLoopId);
@@ -251,6 +271,7 @@ function bendFlags(ctx: PartContext): Flag[] {
   if (bends.length === 0) return flags;
   const outline = outlinePoints(ctx);
 
+  const loopPoints: ReadonlyMap<string, Point[]> = new Map(ctx.geometry.loops.map((l) => [l.id, l.points] as const));
   for (const bend of bends) {
     if (bend.lengthMm <= 0) continue;
     const bendId = bend.id;
@@ -289,7 +310,7 @@ function bendFlags(ctx: PartContext): Flag[] {
       const near: string[] = [];
       let nearest = Number.POSITIVE_INFINITY;
       for (const hole of holes) {
-        const distance = holeEdgeToBendMm(bend, hole.center, hole.diameterMm / 2);
+        const distance = holeEdgeDistanceMm(bend, hole, loopPoints);
         if (distance === null) continue;
         if (distance < -EPS) {
           crossing.push(hole.loopId);

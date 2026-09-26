@@ -9,6 +9,12 @@
  * most hand-made files put everything there. The admin will edit this
  * list in a later phase, so callers pass their own `LayerConventions`
  * and everything here stays data-driven.
+ *
+ * Inventor flat-pattern layers: IV_MARK* (the sheet-metal Mark feature —
+ * surface marking/engraving, e.g. IV_MARK_SURFACE) is engrave, never a
+ * bend candidate; IV_TOOL_CENTER(_DOWN) (punch tool centres), IV_ALTREP_*
+ * (alternate bend representations) and IV_ROLL_TANGENT (tangent lines of
+ * rolled features) are drawing aids and are ignored like IV_TANGENT.
  */
 
 import type { EntityRole, LayerConventions } from "./types";
@@ -22,13 +28,18 @@ export const DEFAULT_LAYER_CONVENTIONS: LayerConventions = {
     "IV_FEATURE_PROFILES",
     "IV_FEATURE_PROFILES_DOWN",
     "IV_UNCONSUMED_SKETCHES",
+    "IV_TOOL_CENTER",
+    "IV_TOOL_CENTER_DOWN",
+    "IV_ALTREP_FRONT",
+    "IV_ALTREP_BACK",
+    "IV_ROLL_TANGENT",
     "DEFPOINTS",
     "DIM*",
     "TEXT*",
     "FRAME",
     "TITLE*",
   ],
-  engrave: ["ENGRAVE", "MARK", "ETCH", "IV_ENGRAVE"],
+  engrave: ["ENGRAVE", "MARK", "ETCH", "IV_ENGRAVE", "IV_MARK*"],
   weld: ["WELD", "WELD_SEAM"],
   cut: ["IV_OUTER_PROFILE", "IV_INTERIOR_PROFILES", "CUT", "0"],
 };

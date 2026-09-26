@@ -35,7 +35,8 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, type MouseEvent } from "react";
+import { BulkMaterialModal } from "@/components/intake/bulk-material-modal";
 import { useContent } from "@/components/providers/locale";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -66,7 +67,7 @@ import {
 import type { CustomerOption } from "@/lib/quotes/queries";
 import { CURRENCIES, type ItemUpdateInput, type QuoteActionResult } from "@/lib/quotes/schema";
 import { canSend } from "@/lib/quotes/send-guard";
-import { OPERATION_TYPE_ORDER, isQuoteEditable, quoteNumberLabel, validUntilDate } from "@/lib/quotes/shared";
+import { OPERATION_TYPE_ORDER, isQuoteEditable, quoteNumberLabel, quotePdfFileName, validUntilDate } from "@/lib/quotes/shared";
 import type { QuoteAuditRow, QuoteBundle, SendCheck } from "@/lib/quotes/types";
 import { effectiveFxRate, headerFromBundle, headerFxInvalid, headerToInput, type HeaderState } from "./header-state";
 import { makeMoney } from "./money";
@@ -165,6 +166,35 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   };
   const onRequestOverride = async (flag: Flag, note: string) => {
     report(await requestOverride({ quoteId: quote.id, flagCode: flag.code, partId: flag.partId, itemId: flag.itemId, note }), b.flags.requestSent);
+  };
+
+  /* ─── PDF export ─────────────────────────────────────────── */
+  // fetch() instead of letting the bare <a download> navigate: a 500 from
+  // /api/quotes/[id]/pdf would only show "Failed — server problem" in the
+  // browser's download bar; this way the route's JSON message reaches the
+  // user as a toast. The href stays as a no-JS fallback.
+  const downloadPdf = async (event: MouseEvent<HTMLAnchorElement>, locale: "pl" | "en") => {
+    event.preventDefault();
+    const href = event.currentTarget.href;
+    const fail = (message: string) => toast(interpolate(b.actions.pdfFailed, { message }), { tone: "error", durationMs: 10000 });
+    try {
+      const response = await fetch(href, { credentials: "same-origin" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+        fail(body?.message ?? body?.error ?? `HTTP ${response.status}`);
+        return;
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = quotePdfFileName(quote, locale);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    } catch (error) {
+      fail(error instanceof Error ? error.message : String(error));
+    }
   };
 
   /* ─── Send / status ──────────────────────────────────────── */
@@ -327,12 +357,25 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
           title={b.parts.title}
           actions={
             editable ? (
-              <Link href={routes.quoteUpload(quote.id)} className="btn btn-ghost btn-sm">
-                {b.parts.uploadParts}
-                <span aria-hidden="true" className="btn-arrow">
-                  →
-                </span>
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <BulkMaterialModal
+                  quoteId={quote.id}
+                  parts={bundle.parts.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    materialCode: p.material_code,
+                    thicknessMm: p.thickness_mm === null ? null : Number(p.thickness_mm),
+                  }))}
+                  materials={(rates?.materials ?? []).map((m) => ({ code: m.code, name: m.name }))}
+                  disabled={pending}
+                />
+                <Link href={routes.quoteUpload(quote.id)} className="btn btn-ghost btn-sm">
+                  {b.parts.uploadParts}
+                  <span aria-hidden="true" className="btn-arrow">
+                    →
+                  </span>
+                </Link>
+              </div>
             ) : undefined
           }
         >
@@ -525,10 +568,20 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
               {b.actions.withOperations}
             </label>
             <div className="flex flex-wrap gap-2">
-              <a href={routes.quotePdfExport(quote.id, "pl", pdfOps)} className="btn btn-ghost btn-sm" download>
+              <a
+                href={routes.quotePdfExport(quote.id, "pl", pdfOps)}
+                className="btn btn-ghost btn-sm"
+                download={quotePdfFileName(quote, "pl")}
+                onClick={(event) => void downloadPdf(event, "pl")}
+              >
                 {b.actions.exportPdfPl}
               </a>
-              <a href={routes.quotePdfExport(quote.id, "en", pdfOps)} className="btn btn-ghost btn-sm" download>
+              <a
+                href={routes.quotePdfExport(quote.id, "en", pdfOps)}
+                className="btn btn-ghost btn-sm"
+                download={quotePdfFileName(quote, "en")}
+                onClick={(event) => void downloadPdf(event, "en")}
+              >
                 {b.actions.exportPdfEn}
               </a>
             </div>

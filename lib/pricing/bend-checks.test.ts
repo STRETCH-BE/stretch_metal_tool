@@ -4,7 +4,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { areParallel, flangeLengthsMm, holeEdgeToBendMm, spansOverlap } from "./bend-checks";
+import { areParallel, contourEdgeToBendMm, flangeLengthsMm, holeEdgeToBendMm, spansOverlap } from "./bend-checks";
 
 const vertical = { start: { x: 0, y: 0 }, end: { x: 0, y: 100 } };
 
@@ -82,5 +82,39 @@ describe("flangeLengthsMm", () => {
   it("null without an outline or for a zero-length bend", () => {
     expect(flangeLengthsMm(vertical, [])).toBeNull();
     expect(flangeLengthsMm({ start: { x: 1, y: 1 }, end: { x: 1, y: 1 } }, rect)).toBeNull();
+  });
+});
+
+describe("contourEdgeToBendMm", () => {
+  const horizontal = { start: { x: 0, y: 110 }, end: { x: 300, y: 110 } };
+  const box = (x1: number, y1: number, x2: number, y2: number) => [
+    { x: x1, y: y1 },
+    { x: x2, y: y1 },
+    { x: x2, y: y2 },
+    { x: x1, y: y2 },
+  ];
+  it("a wide window beside the line measures its real edge, not a bbox-sized circle", () => {
+    // 129 × 20 window with its lower edge 31 mm above the bend: as a Ø129 circle it would 'cross'.
+    expect(contourEdgeToBendMm(horizontal, box(20, 141, 149, 161))).toBeCloseTo(31, 12);
+    expect(holeEdgeToBendMm(horizontal, { x: 84.5, y: 151 }, 64.5)).toBeLessThan(0);
+  });
+  it("negative when the contour straddles the line (depth of the shallower side)", () => {
+    expect(contourEdgeToBendMm(horizontal, box(10, 100, 50, 130))).toBeCloseTo(-10, 12);
+    expect(contourEdgeToBendMm(horizontal, box(10, 80, 50, 115))).toBeCloseTo(-5, 12);
+  });
+  it("null when the contour lies beyond the bend's span, distance when it overlaps it", () => {
+    expect(contourEdgeToBendMm(horizontal, box(310, 100, 340, 130))).toBeNull();
+    expect(contourEdgeToBendMm(horizontal, box(-40, 100, -1, 130))).toBeNull();
+    expect(contourEdgeToBendMm(horizontal, box(290, 115, 340, 130))).toBeCloseTo(5, 12);
+  });
+  it("works below the line and for a diagonal bend", () => {
+    expect(contourEdgeToBendMm(horizontal, box(10, 50, 50, 100))).toBeCloseTo(10, 12);
+    const diag = { start: { x: 0, y: 0 }, end: { x: 100, y: 100 } };
+    // square whose nearest corner (0, 20) is 20/√2 from y = x
+    expect(contourEdgeToBendMm(diag, box(-10, 20, 0, 30))).toBeCloseTo(20 / Math.SQRT2, 9);
+  });
+  it("null for an empty contour or a zero-length bend", () => {
+    expect(contourEdgeToBendMm(horizontal, [])).toBeNull();
+    expect(contourEdgeToBendMm({ start: { x: 1, y: 1 }, end: { x: 1, y: 1 } }, box(0, 0, 1, 1))).toBeNull();
   });
 });

@@ -16,6 +16,7 @@ import type {
   PricingPart,
   RateSnapshot,
 } from "@/lib/pricing/types";
+import type { PartGeometry } from "@/lib/geometry/types";
 import { makeAnnotations, makeRectPartGeometry } from "@/test/helpers/geometry";
 import { make200005Like, make200164Like } from "@/test/helpers/parts";
 import { makeItem, makePricingPart } from "@/test/helpers/quote";
@@ -648,5 +649,71 @@ describe("evaluateQuoteFlags", () => {
     });
     expect(flags).toHaveLength(1);
     expect(flags[0]).toMatchObject({ code: "weld.min_order_applied", params: { minOrder: 60, shortfall: 12.5, totalBefore: 47.5 } });
+  });
+});
+
+describe("press brake — non-circular holes (windows, slots)", () => {
+  /** Adds a rectangular window: a hole loop + HoleInfo with circular: false, exactly as measure.ts stores it (diameterMm = bbox max side). */
+  function withWindow(part: PricingPart, id: string, x1: number, y1: number, x2: number, y2: number): PricingPart {
+    const points = [
+      { x: x1, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+      { x: x1, y: y2 },
+    ];
+    const w = x2 - x1;
+    const h = y2 - y1;
+    const bbox = { minX: x1, minY: y1, maxX: x2, maxY: y2, width: w, height: h };
+    const geometry: PartGeometry = {
+      ...part.geometry,
+      loops: [
+        ...part.geometry.loops,
+        { id, entityIds: [`${id}-e`], closed: true, areaMm2: w * h, perimeterMm: 2 * (w + h), bbox, points, kind: "hole", partIndex: 0 },
+      ],
+      measures: {
+        ...part.geometry.measures,
+        holes: [
+          ...part.geometry.measures.holes,
+          {
+            loopId: id,
+            center: { x: (x1 + x2) / 2, y: (y1 + y2) / 2 },
+            diameterMm: Math.max(w, h),
+            circular: false,
+            maxSideMm: Math.max(w, h),
+            thread: null,
+          },
+        ],
+      },
+    };
+    return { ...part, geometry };
+  }
+  const bend = { id: "b", x1: 0, y1: 110, x2: 300, y2: 110, direction: "up" as const };
+
+  it("review (part 200037): a 129 mm wide window 31 mm above the bend is neither crossing nor near", () => {
+    const part = withWindow(rect(300, 250, 1.5, "S235", { bendLines: [bend] }), "window", 20, 141, 149, 161);
+    const flags = flagsFor(part);
+    expect(find(flags, "bend.hole_crosses_bend")).toBeUndefined();
+    expect(find(flags, "bend.hole_near_bend")).toBeUndefined();
+  });
+
+  it("a window that straddles the bend line is red", () => {
+    const part = withWindow(rect(300, 250, 1.5, "S235", { bendLines: [bend] }), "window", 20, 100, 149, 130);
+    const f = find(flagsFor(part), "bend.hole_crosses_bend");
+    expect(f?.severity).toBe("red");
+    expect(f?.params).toMatchObject({ bendId: "b", count: 1, loopIds: "window" });
+  });
+
+  it("a window edge closer than 2.5 × t is amber with the real edge distance", () => {
+    // t = 8 → min 20 mm; the window's lower edge is 5 mm above the bend
+    const part = withWindow(rect(300, 250, 8, "S235", { bendLines: [bend] }), "window", 20, 115, 149, 135);
+    const f = find(flagsFor(part), "bend.hole_near_bend");
+    expect(f?.severity).toBe("amber");
+    expect(f?.params.distanceMm).toBeCloseTo(5, 9);
+    expect(f?.params).toMatchObject({ minMm: 20, count: 1, loopIds: "window" });
+  });
+
+  it("circular holes keep the exact centre/radius rule", () => {
+    const part = rect(300, 250, 8, "S235", { holes: [{ x: 150, y: 140, diameterMm: 50 }], bendLines: [bend] });
+    expect(find(flagsFor(part), "bend.hole_near_bend")?.params.distanceMm).toBeCloseTo(5, 9);
   });
 });
