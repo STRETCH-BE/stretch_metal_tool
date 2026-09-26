@@ -5,10 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  MARGIN_PCT_LIMIT,
   RATE_TABLES,
   RATE_TABLE_NAMES,
   blankRateRow,
   csvColumns,
+  isMarginPctValid,
   keyCell,
   rateRowKey,
   validateRateRow,
@@ -98,22 +100,58 @@ describe("validateRateRow", () => {
     if (!bad.ok) expect(bad.fieldErrors).toEqual({ price_per_kg: "invalidJson", sheet_formats: "invalidJson" });
   });
 
+  const GENERAL = {
+    machine_rate_eur_h: 70,
+    labour_rate_eur_h: 35,
+    machining_rate_eur_h: 60,
+    default_margin_pct: 30,
+    margin_by_class: { key: 25 },
+    blank_margin_mm: 10,
+    slow_contour_factor: 1.5,
+    default_stitch_bead_mm: 30,
+    default_stitch_pitch_mm: 60,
+    handling_mass_limit_kg: 25,
+    handling_surcharge_eur: 5,
+    weld_handling_per_part: 3,
+  };
+
   it("validates the single-row general table including margin_by_class", () => {
-    const result = validateRateRow("general", {
-      machine_rate_eur_h: 70,
-      labour_rate_eur_h: 35,
-      machining_rate_eur_h: 60,
-      default_margin_pct: 30,
-      margin_by_class: { key: 25 },
-      blank_margin_mm: 10,
-      slow_contour_factor: 1.5,
-      default_stitch_bead_mm: 30,
-      default_stitch_pitch_mm: 60,
-      handling_mass_limit_kg: 25,
-      handling_surcharge_eur: 5,
-      weld_handling_per_part: 3,
-    });
-    expect(result.ok).toBe(true);
+    expect(validateRateRow("general", GENERAL).ok).toBe(true);
+  });
+
+  it("refuses margins the pricing engine would throw on (≥ 100 %) with marginTooHigh", () => {
+    // priceQuote throws PricingError("invalid_margin") for margin ≥ 100:
+    // such a version would break every reprice once activated.
+    for (const pct of [100, 250, "100"]) {
+      const result = validateRateRow("general", { ...GENERAL, default_margin_pct: pct });
+      expect(result.ok, String(pct)).toBe(false);
+      if (!result.ok) expect(result.fieldErrors).toEqual({ default_margin_pct: "marginTooHigh" });
+    }
+    const byClass = validateRateRow("general", { ...GENERAL, margin_by_class: { key: 150 } });
+    expect(byClass.ok).toBe(false);
+    if (!byClass.ok) expect(byClass.fieldErrors).toEqual({ margin_by_class: "marginTooHigh" });
+    const byClassText = validateRateRow("general", { ...GENERAL, margin_by_class: '{"key": 100}' });
+    expect(byClassText.ok).toBe(false);
+    if (!byClassText.ok) expect(byClassText.fieldErrors).toEqual({ margin_by_class: "marginTooHigh" });
+
+    expect(validateRateRow("general", { ...GENERAL, default_margin_pct: 99.99 }).ok).toBe(true);
+    expect(validateRateRow("general", { ...GENERAL, margin_by_class: { key: 0, vip: 99 } }).ok).toBe(true);
+    const negative = validateRateRow("general", { ...GENERAL, default_margin_pct: -1 });
+    if (!negative.ok) expect(negative.fieldErrors).toEqual({ default_margin_pct: "negative" });
+    expect(negative.ok).toBe(false);
+    const broken = validateRateRow("general", { ...GENERAL, margin_by_class: { key: "abc" } });
+    if (!broken.ok) expect(broken.fieldErrors).toEqual({ margin_by_class: "invalidJson" });
+    expect(broken.ok).toBe(false);
+  });
+
+  it("exposes the margin bound the JSON editor checks with", () => {
+    expect(MARGIN_PCT_LIMIT).toBe(100);
+    expect(isMarginPctValid(0)).toBe(true);
+    expect(isMarginPctValid(99.9)).toBe(true);
+    expect(isMarginPctValid(100)).toBe(false);
+    expect(isMarginPctValid(-1)).toBe(false);
+    expect(isMarginPctValid(null)).toBe(false);
+    expect(isMarginPctValid(Number.NaN)).toBe(false);
   });
 
   it("every table accepts its own blank row once the key/required cells are filled in", () => {

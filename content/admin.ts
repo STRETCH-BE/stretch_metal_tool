@@ -52,7 +52,9 @@ export type RateErrorCode =
   | "duplicateKey"
   | "noActiveVersion"
   | "unknownTable"
-  | "keyChange";
+  | "keyChange"
+  | "marginTooHigh"
+  | "materialInUse";
 
 export type MachineHourFieldKey =
   | "purchasePrice"
@@ -121,6 +123,7 @@ export type AdminContent = {
         deleted: string;
         cloneFailed: string;
         activateFailed: string;
+        activateMissing: string;
         deleteFailed: string;
         labelRequired: string;
       };
@@ -206,6 +209,7 @@ export type AdminContent = {
       saveRow: string;
       deleteRow: string;
       deleteRowQuestion: string;
+      deleteMaterialQuestion: string;
       revertRow: string;
       saving: string;
       saved: string;
@@ -382,7 +386,15 @@ export type AdminContent = {
       submit: string;
       sent: string;
       notConfigured: string;
-      errors: { invalidEmail: string; required: string; forbidden: string; generic: string; exists: string; notConfigured: string };
+      errors: {
+        invalidEmail: string;
+        required: string;
+        forbidden: string;
+        generic: string;
+        exists: string;
+        notConfigured: string;
+        roleNotSet: string;
+      };
     };
     row: { save: string; saved: string; lastAdmin: string; forbidden: string; generic: string; notFound: string; noChange: string };
   };
@@ -545,6 +557,7 @@ export const admin: AdminContent = {
         deleted: "Wersja została usunięta.",
         cloneFailed: "Nie udało się sklonować wersji.",
         activateFailed: "Nie udało się aktywować wersji.",
+        activateMissing: "Ta wersja już nie istnieje — odśwież listę i wybierz inną.",
         deleteFailed: "Nie udało się usunąć wersji (aktywna lub użyta w wycenach).",
         labelRequired: "Podaj etykietę nowej wersji.",
       },
@@ -678,6 +691,7 @@ export const admin: AdminContent = {
       saveRow: "Zapisz",
       deleteRow: "Usuń",
       deleteRowQuestion: "Usunąć ten wiersz?",
+      deleteMaterialQuestion: "Usunąć ten materiał razem z jego wierszami cięcia laserem ({count}) w tej wersji?",
       revertRow: "Cofnij",
       saving: "Zapisywanie…",
       saved: "Wiersz zapisany.",
@@ -777,6 +791,9 @@ export const admin: AdminContent = {
       noActiveVersion: "Brak aktywnej wersji cennika.",
       unknownTable: "Nieznana tabela.",
       keyChange: "Klucza istniejącego wiersza nie można zmienić — dodaj nowy wiersz.",
+      marginTooHigh: "Marża musi być mniejsza niż 100 % (cena = koszt ÷ (1 − marża)).",
+      materialInUse:
+        "Ten materiał ma wiersze cięcia laserem w tej wersji ({count}) — odśwież stronę i potwierdź usunięcie razem z nimi.",
     },
   },
   machines: {
@@ -943,6 +960,7 @@ export const admin: AdminContent = {
         generic: "Nie udało się wysłać zaproszenia.",
         exists: "Użytkownik z tym adresem już istnieje.",
         notConfigured: "Brak klucza serwisowego Supabase — zaproszenia są wyłączone.",
+        roleNotSet: "Zaproszenie wysłano, ale nie udało się zapisać roli i języka — ustaw je na liście poniżej.",
       },
     },
     row: {

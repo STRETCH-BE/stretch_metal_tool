@@ -1,14 +1,15 @@
 /**
  * Quote server actions against the fake client: duplicate-as-new-version
  * numbering and copying, amber confirmation (self-approved override),
- * override request (pending + status flip), won/lost transitions, and
- * the role/ownership gates.
+ * override request (pending + status flip), won/lost transitions, the
+ * role/ownership gates, the header currency ↔ fx rule and the audited
+ * explicit re-price.
  * File path: /test/quotes/actions.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
 import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
-import { ADMIN_ID, ITEM_ID, PART_ID, QUOTE_ID, USER_ID, amberFlag, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, redFlag } from "./fixtures";
+import { ADMIN_ID, CUSTOMER_ID, ITEM_ID, PART_ID, QUOTE_ID, USER_ID, amberFlag, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, redFlag } from "./fixtures";
 
 const state = vi.hoisted(() => ({
   db: null as unknown as { from: unknown },
@@ -37,7 +38,8 @@ vi.mock("@/lib/rates/load", () => ({
   loadMachinePark: vi.fn(async () => MACHINE_PARK),
 }));
 
-import { confirmFlag, duplicateAsNewVersion, requestOverride, setQuoteStatus, updateItem } from "@/lib/quotes/actions";
+import { confirmFlag, duplicateAsNewVersion, repriceQuoteAction, requestOverride, setQuoteStatus, updateItem, updateQuoteHeader } from "@/lib/quotes/actions";
+import type { QuoteHeaderInput } from "@/lib/quotes/schema";
 
 function seed(options: { quote?: Partial<ReturnType<typeof makeQuoteRow>>; extraQuotes?: ReturnType<typeof makeQuoteRow>[] } = {}) {
   const db = new FakeSupabase({
@@ -173,6 +175,78 @@ describe("setQuoteStatus", () => {
     expect(typeof db.tables.quotes[0].decided_at).toBe("string");
     seed({ quote: { status: "draft" } });
     expect(await setQuoteStatus(QUOTE_ID, "lost")).toEqual({ ok: false, error: "invalidStatus" });
+  });
+});
+
+describe("updateQuoteHeader (currency ↔ fx)", () => {
+  beforeEach(() => {
+    state.session = sales();
+    state.logAudit.mockClear();
+  });
+
+  const header = (over: Partial<QuoteHeaderInput>): QuoteHeaderInput => ({
+    customerId: CUSTOMER_ID,
+    currency: "PLN",
+    fxRate: 4.35,
+    marginPct: 30,
+    validityDays: 30,
+    leadTimeText: "",
+    paymentTermsText: "",
+    notes: "",
+    showOperationsOnPdf: false,
+    weldingSeparate: false,
+    ...over,
+  });
+
+  it("rejects a PLN quote saved with the EUR sentinel rate (1) and writes nothing", async () => {
+    const db = seed({ quote: { currency: "EUR", fx_rate: 1 } });
+    expect(await updateQuoteHeader(QUOTE_ID, header({ currency: "PLN", fxRate: 1 }))).toEqual({ ok: false, error: "invalidFx" });
+    expect(await updateQuoteHeader(QUOTE_ID, header({ currency: "PLN", fxRate: 0.23 }))).toEqual({ ok: false, error: "invalidFx" });
+    expect(db.tables.quotes[0]).toMatchObject({ currency: "EUR", fx_rate: 1 });
+    expect(db.writes).toHaveLength(0);
+    expect(state.logAudit).not.toHaveBeenCalled();
+  });
+
+  it("EUR → PLN with a real rate stores the rate and prices the PLN subtotals with it", async () => {
+    const db = seed({ quote: { currency: "EUR", fx_rate: 1 } });
+    expect(await updateQuoteHeader(QUOTE_ID, header({ currency: "PLN", fxRate: 4.35 }))).toEqual({ ok: true });
+    const quote = db.tables.quotes[0];
+    expect(quote).toMatchObject({ currency: "PLN", fx_rate: 4.35 });
+    const pricing = quote.pricing as { subtotalPrice: number };
+    expect(pricing.subtotalPrice).toBeGreaterThan(0);
+    expect(Number(quote.subtotal_price)).toBeCloseTo(pricing.subtotalPrice * 4.35, 6);
+    expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "quote.update", after: expect.objectContaining({ currency: "PLN", fx_rate: 4.35 }) }));
+  });
+
+  it("PLN → EUR stores fx 1 whatever the field held and the subtotals equal the engine numbers", async () => {
+    const db = seed();
+    expect(await updateQuoteHeader(QUOTE_ID, header({ currency: "EUR", fxRate: 4.3 }))).toEqual({ ok: true });
+    const quote = db.tables.quotes[0];
+    expect(quote).toMatchObject({ currency: "EUR", fx_rate: 1 });
+    const pricing = quote.pricing as { subtotalPrice: number };
+    expect(Number(quote.subtotal_price)).toBeCloseTo(pricing.subtotalPrice, 6);
+  });
+});
+
+describe("repriceQuoteAction", () => {
+  beforeEach(() => {
+    state.session = sales();
+    state.logAudit.mockClear();
+  });
+
+  it("re-prices an editable quote and audits it as quote.reprice", async () => {
+    const db = seed();
+    expect(await repriceQuoteAction(QUOTE_ID)).toEqual({ ok: true });
+    expect(typeof db.tables.quotes[0].priced_at).toBe("string");
+    expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "quote.reprice", entity: "quotes", entityId: QUOTE_ID, actor: USER_ID }));
+  });
+
+  it("refuses locked quotes without touching them or logging", async () => {
+    const db = seed({ quote: { status: "sent", priced_at: "2026-01-01T00:00:00Z" } });
+    expect(await repriceQuoteAction(QUOTE_ID)).toEqual({ ok: false, error: "locked" });
+    expect(db.tables.quotes[0].priced_at).toBe("2026-01-01T00:00:00Z");
+    expect(db.writes).toHaveLength(0);
+    expect(state.logAudit).not.toHaveBeenCalled();
   });
 });
 

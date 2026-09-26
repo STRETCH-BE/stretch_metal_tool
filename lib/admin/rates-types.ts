@@ -34,9 +34,18 @@ export type DeleteRateRowInput = {
   versionId: string;
   table: RateTableName;
   ref: RateRowRef;
+  /**
+   * materials only: also delete the version's rate_laser rows of that
+   * material (the DB foreign key cascades; the action reads them first and
+   * audits every one). Without it a material that still has laser rows is
+   * refused with "materialInUse" + count, so nothing disappears silently.
+   */
+  cascade?: boolean;
 };
 
-export type DeleteRateRowResult = { ok: true } | { ok: false; error: RateErrorCode; message?: string };
+export type DeleteRateRowResult =
+  | { ok: true; cascaded?: number }
+  | { ok: false; error: RateErrorCode; message?: string; count?: number };
 
 export type CsvImportError = {
   line: number;

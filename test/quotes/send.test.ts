@@ -1,7 +1,9 @@
 /**
  * sendQuote end to end with mocks: re-price → guard → PDF → storage +
  * files row → mail → status sent → audit; blocked cases return reasons
- * and change nothing.
+ * and change nothing. Includes the mailer ↔ customer e-mail rule: with
+ * the Graph mailer configured a customer without an address blocks the
+ * send (no_customer_email) instead of flipping the quote to sent.
  * File path: /test/quotes/send.test.ts
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,7 +62,7 @@ describe("sendQuote", () => {
   it("re-prices, stores the PDF, mails it, marks the quote sent and audits", async () => {
     const db = seed();
     const result = await sendQuote(QUOTE_ID, { locale: "en" });
-    expect(result).toMatchObject({ sent: true, mailed: true });
+    expect(result).toMatchObject({ sent: true, mailed: true, mail: "sent" });
     expect(result.pdfPath).toMatch(new RegExp(`^quotes/${QUOTE_ID}/.*SM-2026-0001-EN\\.pdf$`));
     const quote = db.tables.quotes[0];
     expect(quote.status).toBe("sent");
@@ -84,7 +86,7 @@ describe("sendQuote", () => {
     const db = seed({}, { preferred_locale: "en" });
     state.mailConfigured = false;
     const result = await sendQuote(QUOTE_ID);
-    expect(result).toMatchObject({ sent: true, mailed: false });
+    expect(result).toMatchObject({ sent: true, mailed: false, mail: "off" });
     expect(state.sendMail).not.toHaveBeenCalled();
     expect(db.tables.quotes[0].status).toBe("sent");
     expect(state.renderQuotePdf).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ locale: "en" }));
@@ -95,10 +97,40 @@ describe("sendQuote", () => {
     state.sendMail.mockRejectedValueOnce(new Error("graph down"));
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const result = await sendQuote(QUOTE_ID, { locale: "pl" });
-    expect(result).toMatchObject({ sent: true, mailed: false });
+    expect(result).toMatchObject({ sent: true, mailed: false, mail: "failed" });
     expect(db.tables.quotes[0].status).toBe("sent");
     expect(db.tables.files).toHaveLength(1);
+    expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ after: expect.objectContaining({ mail: "failed", to: null }) }));
     vi.restoreAllMocks();
+  });
+
+  it("with the mailer configured, a customer without an e-mail blocks the send (no_customer_email) and changes nothing", async () => {
+    const db = seed({}, { email: null });
+    const result = await sendQuote(QUOTE_ID, { locale: "pl" });
+    expect(result).toEqual({ sent: false, mailed: false, pdfPath: null, reasons: ["no_customer_email"] });
+    expect(db.tables.quotes[0].status).toBe("draft");
+    expect(db.tables.quotes[0].sent_at).toBeNull();
+    expect(db.tables.files).toHaveLength(0);
+    expect(state.renderQuotePdf).not.toHaveBeenCalled();
+    expect(state.sendMail).not.toHaveBeenCalled();
+    expect(state.logAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: "quote.send" }));
+  });
+
+  it("without the mailer a customer without an e-mail is a download-only send (mail: off)", async () => {
+    const db = seed({}, { email: null });
+    state.mailConfigured = false;
+    const result = await sendQuote(QUOTE_ID, { locale: "pl" });
+    expect(result).toMatchObject({ sent: true, mailed: false, mail: "off" });
+    expect(db.tables.quotes[0].status).toBe("sent");
+    expect(state.sendMail).not.toHaveBeenCalled();
+  });
+
+  it("skipMail makes a download-only send even with the mailer configured", async () => {
+    const db = seed({}, { email: null });
+    const result = await sendQuote(QUOTE_ID, { locale: "pl", skipMail: true });
+    expect(result).toMatchObject({ sent: true, mailed: false, mail: "off" });
+    expect(db.tables.quotes[0].status).toBe("sent");
+    expect(state.sendMail).not.toHaveBeenCalled();
   });
 
   it("is blocked by the guard after re-pricing (no customer) and changes nothing", async () => {

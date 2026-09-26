@@ -1,7 +1,8 @@
 /**
  * repriceQuote against mocked clients: RLS reads, admin writes, pinning of
  * the active rate version, item/operation/quote persistence, idempotence,
- * the empty case and the access checks.
+ * the empty case, the access checks and the lock (sent / won / lost
+ * quotes keep their stored prices in both modes).
  * File path: /test/quotes/reprice.test.ts
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -108,6 +109,19 @@ describe("repriceQuote", () => {
     await expect(repriceQuote(QUOTE_ID)).rejects.toBeInstanceOf(QuoteAccessError);
     state.session = null;
     await expect(repriceQuote(QUOTE_ID)).rejects.toMatchObject({ code: "unauthenticated" });
+  });
+
+  it("never re-prices a locked quote (sent / won / lost), in either mode", async () => {
+    for (const status of ["sent", "won", "lost"] as const) {
+      const db = seed({ quote: makeQuoteRow({ status, priced_at: "2026-01-01T00:00:00Z", subtotal_price: 1234 }) });
+      await expect(repriceQuote(QUOTE_ID)).rejects.toMatchObject({ code: "locked" });
+      state.session = null;
+      await expect(repriceQuote(QUOTE_ID, { admin: true })).rejects.toMatchObject({ code: "locked" });
+      state.session = { user: { id: USER_ID }, profile: { id: USER_ID, role: "sales" } };
+      expect(db.tables.quotes[0]).toMatchObject({ status, priced_at: "2026-01-01T00:00:00Z", subtotal_price: 1234 });
+      expect(db.tables.operations.some((o) => o.id === "old-op")).toBe(true);
+      expect(db.writes).toHaveLength(0);
+    }
   });
 
   it("admin mode skips the session and prices with the admin client", async () => {

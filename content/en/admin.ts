@@ -87,6 +87,7 @@ export const admin: AdminContent = {
         deleted: "The version was deleted.",
         cloneFailed: "Cloning the version failed.",
         activateFailed: "Activating the version failed.",
+        activateMissing: "This version no longer exists — refresh the list and pick another one.",
         deleteFailed: "The version could not be deleted (active or used by quotes).",
         labelRequired: "Give the new version a label.",
       },
@@ -220,6 +221,7 @@ export const admin: AdminContent = {
       saveRow: "Save",
       deleteRow: "Delete",
       deleteRowQuestion: "Delete this row?",
+      deleteMaterialQuestion: "Delete this material together with its laser rows ({count}) in this version?",
       revertRow: "Revert",
       saving: "Saving…",
       saved: "Row saved.",
@@ -319,6 +321,9 @@ export const admin: AdminContent = {
       noActiveVersion: "No active rate version.",
       unknownTable: "Unknown table.",
       keyChange: "The key of an existing row cannot change — add a new row instead.",
+      marginTooHigh: "A margin must be below 100 % (price = cost ÷ (1 − margin)).",
+      materialInUse:
+        "This material has laser rows in this version ({count}) — refresh the page and confirm deleting them together.",
     },
   },
   machines: {
@@ -485,6 +490,7 @@ export const admin: AdminContent = {
         generic: "The invitation could not be sent.",
         exists: "A user with this e-mail already exists.",
         notConfigured: "Supabase service key missing — invitations are disabled.",
+        roleNotSet: "The invitation was sent, but the role and language could not be saved — set them in the list below.",
       },
     },
     row: {

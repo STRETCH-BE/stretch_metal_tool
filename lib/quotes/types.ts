@@ -102,8 +102,20 @@ export type SendCheck = {
   reasons: SendBlockReason[];
 };
 
+/**
+ * What happened to the e-mail of a successful send:
+ *   sent    the Graph mailer delivered the PDF to the customer
+ *   off     the mailer is not configured (or the caller asked to skip it):
+ *           download-only send, the user mails the PDF by hand
+ *   failed  the mailer is configured but threw — the PDF is stored and the
+ *           quote is still marked sent (see lib/quotes/send.ts)
+ * A configured mailer with a customer that has no e-mail never reaches
+ * this point: the send guard blocks it with `no_customer_email`.
+ */
+export type MailOutcome = "sent" | "off" | "failed";
+
 export type SendResult =
-  | { sent: true; mailed: boolean; pdfPath: string }
+  | { sent: true; mailed: boolean; mail: MailOutcome; pdfPath: string }
   | { sent: false; mailed: false; pdfPath: null; reasons: SendBlockReason[] };
 
 /** Audit excerpt row shown on the quote page. */

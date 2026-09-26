@@ -9,8 +9,13 @@
  * saveRateRow server action (Enter anywhere in the row, or the Save
  * button); Escape reverts the row; Tab moves between cells as native
  * inputs do. Add row appends a blank local row (saved on first Save);
- * Delete asks inline (ConfirmButton) and calls deleteRateRow. Server
- * validation errors come back as codes per column and mark the cells.
+ * Delete asks inline (ConfirmButton) and calls deleteRateRow. On the
+ * materials tab the question names the laser rows that go with the
+ * material (`dependants`, counted by the server page — rate_laser cascades
+ * on delete) and the call passes cascade; the action refuses without it,
+ * so a count that went stale surfaces as a "materialInUse" row error
+ * instead of a silent cascade. Server validation errors come back as
+ * codes per column and mark the cells.
  *
  * Server re-renders (router.refresh after a save, another tab's import)
  * hand in a new `rows` array: it is merged during render — rows the user
@@ -102,9 +107,11 @@ export type RateGridProps = {
   table: RateTableName;
   rows: LooseRow[];
   editable: boolean;
+  /** materials only: rate_laser rows per material code in this version. */
+  dependants?: Record<string, number>;
 };
 
-export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
+export function RateGrid({ versionId, table, rows, editable, dependants }: RateGridProps) {
   const c = useContent();
   const locale = useLocale();
   const { toast } = useToast();
@@ -129,10 +136,14 @@ export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
       )
     );
 
-  const errorText = (code: RateErrorCode | string, message?: string): string => {
+  const errorText = (code: RateErrorCode | string, params: Record<string, string | number> = {}): string => {
     const template = (c.admin.rates.errors as Record<string, string>)[code] ?? c.admin.rates.errors.generic;
-    return interpolate(template, { message: message ?? "" });
+    return interpolate(template, { message: "", ...params });
   };
+
+  /** Laser rows deleted together with a material row (0 for other tables / new rows). */
+  const dependantCount = (row: GridRow): number =>
+    table === "materials" && row.ref.key ? (dependants?.[row.ref.key] ?? 0) : 0;
 
   const setCell = (localId: string, column: string, value: unknown) =>
     patchRow(localId, (row) => {
@@ -154,7 +165,10 @@ export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
       } else {
         patchRow(row.localId, {
           saving: false,
-          error: result.error === "validation" ? c.admin.rates.errors.validation : errorText(result.error, result.message),
+          error:
+            result.error === "validation"
+              ? c.admin.rates.errors.validation
+              : errorText(result.error, { message: result.message ?? "" }),
           fieldErrors: result.fieldErrors ?? {},
         });
       }
@@ -171,13 +185,15 @@ export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
       setGrid((current) => current.filter((r) => r.localId !== row.localId));
       return;
     }
-    const result = await deleteRateRow({ versionId, table, ref: row.ref });
+    const result = await deleteRateRow({ versionId, table, ref: row.ref, cascade: dependantCount(row) > 0 });
     if (result.ok) {
       setGrid((current) => current.filter((r) => r.localId !== row.localId));
       toast(t.deleted, { tone: "success" });
       router.refresh();
     } else {
-      patchRow(row.localId, { error: errorText(result.error, result.message) });
+      patchRow(row.localId, {
+        error: errorText(result.error, { message: result.message ?? "", count: result.count ?? 0 }),
+      });
     }
   };
 
@@ -242,6 +258,7 @@ export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
             {grid.map((row) => {
               const rowKey = row.isNew ? t.newRow : rateRowKey(table, row.values);
               const rowError = row.error;
+              const cascadeCount = dependantCount(row);
               return (
                 <tr
                   key={row.localId}
@@ -311,7 +328,15 @@ export function RateGrid({ versionId, table, rows, editable }: RateGridProps) {
                               {t.deleteRow}
                             </button>
                           ) : (
-                            <ConfirmButton action={() => remove(row)} question={t.deleteRowQuestion} variant="ghost">
+                            <ConfirmButton
+                              action={() => remove(row)}
+                              question={
+                                cascadeCount > 0
+                                  ? interpolate(t.deleteMaterialQuestion, { count: cascadeCount })
+                                  : t.deleteRowQuestion
+                              }
+                              variant={cascadeCount > 0 ? "danger" : "ghost"}
+                            >
                               {t.deleteRow}
                             </ConfirmButton>
                           ))}

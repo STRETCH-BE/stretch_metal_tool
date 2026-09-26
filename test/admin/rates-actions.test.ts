@@ -1,7 +1,10 @@
 /**
  * Rate-row server actions with mocked Supabase — role refusal for a
  * sales session, validation before any DB call, the draft rule (active /
- * used versions are read-only), update path with audit before/after.
+ * used versions are read-only), update path with audit before/after, the
+ * activate guard (the RPC deactivates everything before it updates by id,
+ * so an unknown id must never reach it) and the materials delete guard
+ * (rate_laser cascades on delete: refuse without cascade, audit each row).
  * File path: /test/admin/rates-actions.test.ts
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +31,13 @@ vi.mock("@/lib/auth", () => ({
   ADMIN_ONLY: ["admin"],
 }));
 
-import { cloneRateVersionAction, deleteRateRow, importRateCsv, saveRateRow } from "@/lib/admin/rates-actions";
+import {
+  activateRateVersionAction,
+  cloneRateVersionAction,
+  deleteRateRow,
+  importRateCsv,
+  saveRateRow,
+} from "@/lib/admin/rates-actions";
 import { INITIAL_CSV_IMPORT_STATE } from "@/lib/admin/rates-types";
 
 const VERSION = "4b6d1c5e-9c3a-4f6e-8a2b-1d2e3f4a5b6c";
@@ -233,6 +242,81 @@ describe("deleteRateRow / cloneRateVersionAction / importRateCsv", () => {
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "rate_thread.import" }));
   });
 
+  it("deleteRateRow refuses to delete a material that still has laser rows (FK cascade) and reports the count", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const material = { rate_version_id: VERSION, code: "S235", name: "Steel", family: "mild_steel", placeholder: false };
+    const laserRows = [
+      { id: ROW_ID, rate_version_id: VERSION, material_code: "S235", thickness_mm: 3, in_house: true },
+      { id: "7b6d1c5e-9c3a-4f6e-8a2b-1d2e3f4a5b6c", rate_version_id: VERSION, material_code: "S235", thickness_mm: 15, in_house: false },
+    ];
+    const client = fakeClient({
+      rate_versions: { single: { data: draftVersion } },
+      quotes: { list: { data: [] } },
+      materials: { single: { data: material } },
+      rate_laser: { list: { data: laserRows } },
+    });
+    createClient.mockResolvedValue(client);
+    const result = await deleteRateRow({ versionId: VERSION, table: "materials", ref: { key: "S235" } });
+    expect(result).toEqual({ ok: false, error: "materialInUse", count: 2 });
+    expect(callsTo(client.calls, "materials", "delete")).toHaveLength(0);
+    expect(logAudit).not.toHaveBeenCalled();
+    // the dependants were looked up for THIS version and material
+    const filters = callsTo(client.calls, "rate_laser", "eq").map((call) => call.args);
+    expect(filters).toEqual([["rate_version_id", VERSION], ["material_code", "S235"]]);
+  });
+
+  it("deleteRateRow with cascade deletes the material and audits every laser row that went with it", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const material = { rate_version_id: VERSION, code: "S235", name: "Steel", family: "mild_steel", placeholder: false };
+    const laserRow = { id: ROW_ID, rate_version_id: VERSION, material_code: "S235", thickness_mm: 3, in_house: true };
+    const client = fakeClient({
+      rate_versions: { single: { data: draftVersion } },
+      quotes: { list: { data: [] } },
+      materials: { single: { data: material }, list: { data: null, error: null } },
+      rate_laser: { list: { data: [laserRow] } },
+    });
+    createClient.mockResolvedValue(client);
+    const result = await deleteRateRow({ versionId: VERSION, table: "materials", ref: { key: "S235" }, cascade: true });
+    expect(result).toEqual({ ok: true, cascaded: 1 });
+    expect(callsTo(client.calls, "materials", "delete")).toHaveLength(1);
+    expect(logAudit).toHaveBeenCalledTimes(2);
+    expect(logAudit).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        action: "rate_laser.delete",
+        entity: "rate_laser",
+        entityId: ROW_ID,
+        before: laserRow,
+        after: { cascadedFrom: `${VERSION}:S235` },
+      })
+    );
+    expect(logAudit).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        action: "rate_materials.delete",
+        entity: "materials",
+        entityId: `${VERSION}:S235`,
+        before: material,
+        after: { cascadedLaserRows: 1 },
+      })
+    );
+  });
+
+  it("deleteRateRow deletes a material without laser rows plainly (no cascade needed)", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const material = { rate_version_id: VERSION, code: "X1", name: "Odd", family: "brass", placeholder: false };
+    const client = fakeClient({
+      rate_versions: { single: { data: draftVersion } },
+      quotes: { list: { data: [] } },
+      materials: { single: { data: material }, list: { data: null, error: null } },
+      rate_laser: { list: { data: [] } },
+    });
+    createClient.mockResolvedValue(client);
+    expect(await deleteRateRow({ versionId: VERSION, table: "materials", ref: { key: "X1" } })).toEqual({ ok: true });
+    expect(logAudit).toHaveBeenCalledTimes(1);
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "rate_materials.delete", after: null }));
+  });
+
   it("importRateCsv reports missing header columns", async () => {
     getCurrentUser.mockResolvedValue(ADMIN);
     createClient.mockResolvedValue(
@@ -242,5 +326,67 @@ describe("deleteRateRow / cloneRateVersionAction / importRateCsv", () => {
     data.set("file", new File(["size\nM8\n"], "t.csv", { type: "text/csv" }));
     const state = await importRateCsv(VERSION, "thread", INITIAL_CSV_IMPORT_STATE, data);
     expect(state).toEqual({ status: "error", error: "missingColumns", missing: ["price_each"] });
+  });
+});
+
+describe("activateRateVersionAction", () => {
+  beforeEach(() => {
+    createClient.mockReset();
+    getCurrentUser.mockReset();
+    logAudit.mockClear();
+    redirect.mockClear();
+    revalidatePath.mockClear();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("never calls activate_rate_version for an id that is not a current version (the RPC would leave no active version)", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const client = fakeClient({ rate_versions: { single: { data: null } } }, { activate_rate_version: { data: null } });
+    createClient.mockResolvedValue(client);
+    await expect(activateRateVersionAction(VERSION)).rejects.toThrow("NEXT_REDIRECT:/admin/rates?error=activateMissing");
+    expect(client.rpc).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed id before any database call", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    await expect(activateRateVersionAction("not-a-uuid")).rejects.toThrow("NEXT_REDIRECT:/admin/rates?error=activateMissing");
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for the version that is already active", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const client = fakeClient({ rate_versions: { single: { data: { ...draftVersion, active: true } } } }, { activate_rate_version: { data: null } });
+    createClient.mockResolvedValue(client);
+    await expect(activateRateVersionAction(VERSION)).rejects.toThrow("NEXT_REDIRECT:/admin/rates?notice=activated");
+    expect(client.rpc).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it("activates an existing draft through the RPC and audits the previous active version", async () => {
+    getCurrentUser.mockResolvedValue(ADMIN);
+    const previous = { id: "8b6d1c5e-9c3a-4f6e-8a2b-1d2e3f4a5b6c", label: "v1" };
+    const client = fakeClient(
+      { rate_versions: { single: [{ data: draftVersion }, { data: previous }] } },
+      { activate_rate_version: { data: null } }
+    );
+    createClient.mockResolvedValue(client);
+    await expect(activateRateVersionAction(VERSION)).rejects.toThrow("NEXT_REDIRECT:/admin/rates?notice=activated");
+    expect(client.rpc).toHaveBeenCalledWith("activate_rate_version", { p_version: VERSION });
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "rate_version.activate",
+        entityId: VERSION,
+        before: { activeId: previous.id, label: "v1" },
+        after: { activeId: VERSION },
+      })
+    );
+  });
+
+  it("redirects a sales session to /forbidden", async () => {
+    getCurrentUser.mockResolvedValue(SALES);
+    await expect(activateRateVersionAction(VERSION)).rejects.toThrow("NEXT_REDIRECT:/forbidden");
+    expect(createClient).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,12 @@
  * is pinned to (or the active one) + the machine park for the live
  * preview, the customer options, the audit excerpt and the send check.
  * `canEdit` = write role and (admin or owner), mirroring can_edit_quote().
+ * The audit excerpt is admin-or-owner only (listQuoteAudit gates itself
+ * on the session; the builder gets `null` for everyone else and hides
+ * the panel). The send check requires a customer e-mail exactly when the
+ * mailer is configured — the same rule sendQuote applies on the server.
+ * The environment EUR→PLN default is handed to the builder so an EUR →
+ * PLN switch in the header starts from a real rate, not the stored 1.
  * A missing rate version does not break the page: the preview is off and
  * the actions report "no active rate version" on save.
  */
@@ -23,7 +29,8 @@ import { isMailConfigured } from "@/lib/email";
 import { loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
 import type { MachinePark, RateSnapshot } from "@/lib/pricing/types";
 import { routes } from "@/lib/routes";
-import { getQuoteBundle, listCustomerOptions, listQuoteAudit } from "@/lib/quotes/queries";
+import { defaultFxEurPln } from "@/lib/site-config";
+import { canSeeQuoteAudit, getQuoteBundle, listCustomerOptions, listQuoteAudit } from "@/lib/quotes/queries";
 import { canSend } from "@/lib/quotes/send-guard";
 import { isQuoteEditor, isUuid, quoteNumberLabel } from "@/lib/quotes/shared";
 import { Button } from "@/components/ui/button";
@@ -61,11 +68,12 @@ export default async function QuotePage({ params }: { params: Params }) {
   } catch {
     rates = null;
   }
-  const [customers, audit] = await Promise.all([listCustomerOptions(), listQuoteAudit(id)]);
+  const [customers, audit] = await Promise.all([listCustomerOptions(), listQuoteAudit(session, bundle.quote)]);
 
   const canEdit = Boolean(session && hasRole(session, WRITE_ROLES) && isQuoteEditor(session.profile.role, session.user.id, bundle.quote));
   const isAdmin = hasRole(session, ADMIN_ONLY);
-  const sendCheck = canSend(bundle);
+  const mailConfigured = isMailConfigured();
+  const sendCheck = canSend(bundle, { requireEmail: mailConfigured });
 
   const subtitle = [
     bundle.customer?.name ?? t.header.noCustomer,
@@ -90,11 +98,12 @@ export default async function QuotePage({ params }: { params: Params }) {
         rates={rates}
         machines={machines}
         customers={customers}
-        audit={audit}
+        audit={canSeeQuoteAudit(session, bundle.quote) ? audit : null}
         canEdit={canEdit}
         isAdmin={isAdmin}
-        mailConfigured={isMailConfigured()}
+        mailConfigured={mailConfigured}
         sendCheck={sendCheck}
+        fxEurPln={defaultFxEurPln()}
       />
     </>
   );

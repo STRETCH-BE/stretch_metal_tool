@@ -18,7 +18,7 @@ export const USER_LOCALES: readonly UserLocale[] = ["pl", "en"];
 
 export type InviteFormState = {
   status: "idle" | "sent" | "error";
-  error?: "invalidEmail" | "required" | "forbidden" | "generic" | "exists" | "notConfigured";
+  error?: "invalidEmail" | "required" | "forbidden" | "generic" | "exists" | "notConfigured" | "roleNotSet";
   email?: string;
   values?: { email: string; full_name: string; role: string; locale: string };
 };

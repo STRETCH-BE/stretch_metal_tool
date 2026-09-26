@@ -19,6 +19,19 @@
  * a transition; error codes map to content.quote.builder.errors and
  * surface as toasts. `canEdit` (role + ownership) and `editable`
  * (status draft / pending_override) gate every control.
+ *
+ * Header currency ↔ fx: the header state keeps the EUR→PLN rate the
+ * quote would use as PLN (components/quote/header-state.ts). An EUR
+ * quote stores fx_rate = 1, so switching it to PLN seeds the rate from
+ * `fxEurPln` (the environment default passed by the page) instead of
+ * carrying the sentinel 1 into PLN prices; a PLN rate ≤ 1 is flagged on
+ * the field and rejected by the server schema.
+ *
+ * Send: the guard requires a customer e-mail exactly when the mailer is
+ * configured (the server applies the same rule), and the success toast
+ * distinguishes mailed / mailer off / mail failed. The audit excerpt is
+ * `null` when the viewer may not see it (not admin, not the owner) and
+ * the panel is then not rendered at all.
  */
 
 import Link from "next/link";
@@ -51,10 +64,11 @@ import {
   updateWeldingOnly,
 } from "@/lib/quotes/actions";
 import type { CustomerOption } from "@/lib/quotes/queries";
-import { CURRENCIES, type ItemUpdateInput, type QuoteActionResult, type QuoteHeaderInput } from "@/lib/quotes/schema";
+import { CURRENCIES, type ItemUpdateInput, type QuoteActionResult } from "@/lib/quotes/schema";
 import { canSend } from "@/lib/quotes/send-guard";
 import { OPERATION_TYPE_ORDER, isQuoteEditable, quoteNumberLabel, validUntilDate } from "@/lib/quotes/shared";
 import type { QuoteAuditRow, QuoteBundle, SendCheck } from "@/lib/quotes/types";
+import { effectiveFxRate, headerFromBundle, headerFxInvalid, headerToInput, type HeaderState } from "./header-state";
 import { makeMoney } from "./money";
 import { computePreview, draftFromBundle, isDraftDirty, type QuoteDraft } from "./preview";
 import { QuoteAudit } from "./quote-audit";
@@ -68,43 +82,17 @@ export type QuoteBuilderProps = {
   rates: RateSnapshot | null;
   machines: MachinePark;
   customers: CustomerOption[];
-  audit: QuoteAuditRow[];
+  /** Audit excerpt, or null when this viewer may not see it (panel hidden). */
+  audit: QuoteAuditRow[] | null;
   canEdit: boolean;
   isAdmin: boolean;
   mailConfigured: boolean;
   sendCheck: SendCheck;
+  /** Environment default EUR→PLN rate (defaultFxEurPln()), seeds the fx field on an EUR → PLN switch. */
+  fxEurPln: number;
 };
 
-type HeaderState = {
-  customerId: string;
-  currency: "PLN" | "EUR";
-  fxRate: number;
-  marginPct: number;
-  validityDays: number;
-  leadTimeText: string;
-  paymentTermsText: string;
-  notes: string;
-  showOperationsOnPdf: boolean;
-  weldingSeparate: boolean;
-};
-
-function headerFromBundle(bundle: QuoteBundle): HeaderState {
-  const q = bundle.quote;
-  return {
-    customerId: q.customer_id ?? "",
-    currency: q.currency,
-    fxRate: Number(q.fx_rate) || 1,
-    marginPct: Number(q.margin_pct) || 0,
-    validityDays: Number(q.validity_days) || 30,
-    leadTimeText: q.lead_time_text ?? "",
-    paymentTermsText: q.payment_terms_text ?? "",
-    notes: q.notes ?? "",
-    showOperationsOnPdf: q.show_operations_on_pdf,
-    weldingSeparate: q.welding_separate,
-  };
-}
-
-export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck }: QuoteBuilderProps) {
+export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck, fxEurPln }: QuoteBuilderProps) {
   const c = useContent();
   const b = c.quote.builder;
   const { toast } = useToast();
@@ -114,14 +102,14 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   const bundleKey = `${quote.updated_at}|${quote.priced_at ?? ""}|${bundle.items.map((i) => `${i.id}:${i.qty}:${i.position}`).join(",")}`;
 
   const [draft, setDraft] = useState<QuoteDraft>(() => draftFromBundle(bundle));
-  const [header, setHeader] = useState<HeaderState>(() => headerFromBundle(bundle));
+  const [header, setHeader] = useState<HeaderState>(() => headerFromBundle(bundle, fxEurPln));
   const [pdfOps, setPdfOps] = useState(quote.show_operations_on_pdf);
   const [sendLocale, setSendLocale] = useState<"pl" | "en">(bundle.customer?.preferred_locale ?? "pl");
 
   // Server truth arrived (after a save): drop local edits.
   useEffect(() => {
     setDraft(draftFromBundle(bundle));
-    setHeader(headerFromBundle(bundle));
+    setHeader(headerFromBundle(bundle, fxEurPln));
     setPdfOps(bundle.quote.show_operations_on_pdf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundleKey]);
@@ -146,22 +134,15 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   const patchHeader = (patch: Partial<HeaderState>) => {
     const next = { ...header, ...patch };
     setHeader(next);
-    setDraft((d) => ({ ...d, marginPct: next.marginPct, currency: next.currency, fxRate: next.currency === "EUR" ? 1 : next.fxRate }));
+    setDraft((d) => ({ ...d, marginPct: next.marginPct, currency: next.currency, fxRate: effectiveFxRate(next) }));
   };
+  const fxInvalid = headerFxInvalid(header);
   const saveHeader = () => {
-    const input: QuoteHeaderInput = {
-      customerId: header.customerId || null,
-      currency: header.currency,
-      fxRate: header.currency === "EUR" ? 1 : header.fxRate,
-      marginPct: header.marginPct,
-      validityDays: header.validityDays,
-      leadTimeText: header.leadTimeText,
-      paymentTermsText: header.paymentTermsText,
-      notes: header.notes,
-      showOperationsOnPdf: header.showOperationsOnPdf,
-      weldingSeparate: header.weldingSeparate,
-    };
-    run(() => updateQuoteHeader(quote.id, input), b.header.saved);
+    if (fxInvalid) {
+      toast(b.errors.invalidFx, { tone: "error" });
+      return;
+    }
+    run(() => updateQuoteHeader(quote.id, headerToInput(header)), b.header.saved);
   };
 
   /* ─── Items ──────────────────────────────────────────────── */
@@ -187,7 +168,10 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   };
 
   /* ─── Send / status ──────────────────────────────────────── */
-  const liveSendCheck = useMemo(() => (dirty ? sendCheck : canSend(bundle)), [bundle, dirty, sendCheck]);
+  const liveSendCheck = useMemo(
+    () => (dirty ? sendCheck : canSend(bundle, { requireEmail: mailConfigured })),
+    [bundle, dirty, sendCheck, mailConfigured]
+  );
   const onSend = async () => {
     const result = await sendQuoteAction(quote.id, { locale: sendLocale });
     if (!result.ok) {
@@ -198,7 +182,11 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
       toast(`${b.actions.sendBlocked} ${result.reasons.map((r) => b.send.reasons[r]).join("; ")}`, { tone: "error", durationMs: 8000 });
       return;
     }
-    toast(result.mailed ? b.actions.sent : b.actions.sentNoMail, { tone: "success", durationMs: 8000 });
+    if (result.mail === "failed") {
+      toast(b.actions.sentMailFailed, { tone: "error", durationMs: 10000 });
+      return;
+    }
+    toast(result.mail === "sent" ? b.actions.sent : b.actions.sentNoMail, { tone: "success", durationMs: 8000 });
   };
 
   const validUntil = validUntilDate(quote.sent_at ?? quote.created_at, header.validityDays);
@@ -250,14 +238,20 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
                 ))}
               </Select>
             </Field>
-            <Field label={b.header.fxRate} htmlFor="q-fx">
+            <Field
+              label={b.header.fxRate}
+              htmlFor="q-fx"
+              help={interpolate(b.header.fxRateHelp, { fx: formatNumber(fxEurPln, c.locale, { maximumFractionDigits: 4 }) })}
+              error={fxInvalid ? b.errors.invalidFx : undefined}
+            >
               <NumberInput
                 id="q-fx"
                 dense
-                value={header.currency === "EUR" ? 1 : header.fxRate}
+                value={effectiveFxRate(header)}
                 onValueChange={(v) => v !== null && patchHeader({ fxRate: v })}
                 decimals={4}
                 min={0.0001}
+                invalid={fxInvalid}
                 disabled={header.currency === "EUR"}
               />
             </Field>
@@ -316,7 +310,7 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
                 {b.header.weldingSeparate}
               </label>
               {editable && (
-                <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={saveHeader} disabled={pending}>
+                <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={saveHeader} disabled={pending || fxInvalid}>
                   {b.header.save}
                   <span aria-hidden="true" className="btn-arrow">
                     →
@@ -414,9 +408,11 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
           <QuoteOverridesList bundle={bundle} />
         </Panel>
 
-        <Panel flush title={b.audit.title}>
-          <QuoteAudit rows={audit} content={c} locale={c.locale} />
-        </Panel>
+        {audit && (
+          <Panel flush title={b.audit.title}>
+            <QuoteAudit rows={audit} content={c} locale={c.locale} />
+          </Panel>
+        )}
       </div>
 
       {/* Right column: totals + actions */}

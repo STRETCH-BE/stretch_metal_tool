@@ -14,7 +14,14 @@
  *
  * Validation messages are CODES (keys of content.admin.rates.errors):
  * required · invalidNumber · negative · invalidOption · invalidJson ·
- * tooLong · invalid — never copy.
+ * tooLong · invalid · marginTooHigh — never copy.
+ *
+ * Margins are bounded here because the pricing engine prices from cost
+ * with price = cost ÷ (1 − margin) and throws PricingError("invalid_margin")
+ * for any margin ≥ 100 % (lib/pricing/price-quote.ts). A version saved with
+ * such a default or per-class margin would break every reprice once it is
+ * activated, so default_margin_pct and every margin_by_class value must be
+ * below MARGIN_PCT_LIMIT. That bound is the formula's domain, not a rate.
  */
 
 import { z } from "zod";
@@ -101,16 +108,38 @@ function toNumberInput(value: unknown): unknown {
   return value;
 }
 
-function numberField(options: { nullable?: boolean; min?: number } = {}) {
+/**
+ * Exclusive upper bound of a margin percentage: the pricing formula
+ * price = cost ÷ (1 − margin) is undefined at 100 % and the engine rejects
+ * anything ≥ 100 (PricingError "invalid_margin").
+ */
+export const MARGIN_PCT_LIMIT = 100;
+
+/** True for a finite margin percentage the pricing engine accepts (0 ≤ m < 100). */
+export function isMarginPctValid(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < MARGIN_PCT_LIMIT;
+}
+
+function numberField(options: { nullable?: boolean; min?: number; below?: number; belowCode?: string } = {}) {
   const min = options.min ?? 0;
+  const below = options.below;
   const base = z
     .number({
       error: (issue) => (issue.input === null || issue.input === undefined ? "required" : "invalidNumber"),
     })
     .refine((n) => Number.isFinite(n), "invalidNumber")
-    .refine((n) => n >= min, "negative");
+    .refine((n) => n >= min, "negative")
+    .refine((n) => below === undefined || n < below, options.belowCode ?? "invalid");
   return z.preprocess(toNumberInput, options.nullable ? base.nullable() : base);
 }
+
+const marginPctField = () => numberField({ below: MARGIN_PCT_LIMIT, belowCode: "marginTooHigh" });
+
+/** margin_by_class: the pricing schema plus the < 100 % bound on every value. */
+const marginByClassBoundedSchema = marginByClassSchema.refine(
+  (record) => Object.values(record).every((value) => isMarginPctValid(value)),
+  "marginTooHigh"
+);
 
 function textField(options: { nullable?: boolean; max?: number } = {}) {
   const max = options.max ?? 120;
@@ -272,8 +301,8 @@ const generalSchema = rowSchema({
   machine_rate_eur_h: numberField(),
   labour_rate_eur_h: numberField(),
   machining_rate_eur_h: numberField(),
-  default_margin_pct: numberField(),
-  margin_by_class: jsonField(marginByClassSchema),
+  default_margin_pct: marginPctField(),
+  margin_by_class: jsonField(marginByClassBoundedSchema),
   blank_margin_mm: numberField(),
   slow_contour_factor: numberField(),
   default_stitch_bead_mm: numberField(),
@@ -402,12 +431,22 @@ export type ValidatedRow =
   | { ok: true; values: Record<string, unknown> }
   | { ok: false; fieldErrors: RowFieldErrors };
 
-const KNOWN_CODES = new Set(["required", "invalidNumber", "negative", "invalidOption", "invalidJson", "tooLong", "invalid"]);
+const KNOWN_CODES = new Set([
+  "required",
+  "invalidNumber",
+  "negative",
+  "invalidOption",
+  "invalidJson",
+  "tooLong",
+  "invalid",
+  "marginTooHigh",
+]);
 
 /**
  * Validate the editable columns of one row. Unknown keys are dropped
  * (`id`, `rate_version_id`, `placeholder`, CSV extras). Field errors are
- * codes keyed by column; nested JSON issues collapse to "invalidJson".
+ * codes keyed by column; nested JSON issues collapse to "invalidJson"
+ * unless the issue itself carries a known code (marginTooHigh).
  */
 export function validateRateRow(table: RateTableName, input: Record<string, unknown>): ValidatedRow {
   const table_ = RATE_TABLES[table];
@@ -422,7 +461,7 @@ export function validateRateRow(table: RateTableName, input: Record<string, unkn
     if (column in fieldErrors) continue;
     const columnDef = table_.columns.find((c) => c.name === column);
     if (columnDef?.kind === "json") {
-      fieldErrors[column] = "invalidJson";
+      fieldErrors[column] = KNOWN_CODES.has(issue.message) && issue.message !== "invalid" ? issue.message : "invalidJson";
       continue;
     }
     fieldErrors[column] = KNOWN_CODES.has(issue.message) ? issue.message : "invalid";

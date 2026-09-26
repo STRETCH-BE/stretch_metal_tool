@@ -8,6 +8,8 @@
  * File path: /components/admin/json-editors.tsx
  *
  * The editors work on a local draft; nothing reaches the grid row until
+ * Margins must also stay below MARGIN_PCT_LIMIT (the pricing engine
+ * rejects ≥ 100 %) — reported as marginTooHigh, not as invalid JSON.
  * Apply passes priceBandsSchema / sheetFormatsSchema / marginByClassSchema
  * (the same schemas the engine parses the column with), so a value that
  * would break pricing can never be saved from here.
@@ -21,6 +23,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { Notice } from "@/components/ui/notice";
 import { Table, Td, Th } from "@/components/ui/table";
 import { marginByClassSchema, priceBandsSchema, sheetFormatsSchema } from "@/lib/pricing/snapshot";
+import { isMarginPctValid } from "@/lib/admin/tables";
 import type { ColumnDef } from "@/lib/admin/tables";
 
 type Band = { maxThicknessMm: number | null; pricePerKg: number | null };
@@ -286,7 +289,12 @@ export function JsonCellModal({ column, value, open, onClose, onApply }: JsonCel
       const record: Record<string, unknown> = {};
       for (const row of margins) record[row.customerClass.trim()] = row.marginPct;
       candidate = record;
-      ok = margins.every((row) => row.customerClass.trim() !== "") && marginByClassSchema.safeParse(record).success;
+      const parsed = marginByClassSchema.safeParse(record);
+      if (parsed.success && !Object.values(parsed.data).every((value) => isMarginPctValid(value))) {
+        setError(c.admin.rates.errors.marginTooHigh);
+        return;
+      }
+      ok = margins.every((row) => row.customerClass.trim() !== "") && parsed.success;
     }
     if (!ok) {
       setError(c.admin.rates.errors.invalidJson);

@@ -21,6 +21,16 @@
  *
  * Errors are CODES from content.admin.rates.errors; "db" carries the raw
  * message for the notice.
+ *
+ * Two guards around the database's own behaviour:
+ *   - activate_rate_version() deactivates EVERY version before it updates
+ *     the requested id and does not check that the id exists, so a stale
+ *     id (a draft another admin deleted meanwhile) would leave no active
+ *     version at all. The action verifies the row first.
+ *   - rate_laser references materials ON DELETE CASCADE: deleting a
+ *     material silently removes every laser row of that material in the
+ *     version. deleteRateRow refuses unless the caller passes cascade
+ *     (the grid asks with the count) and audits each cascaded row.
  */
 
 import { redirect } from "next/navigation";
@@ -121,9 +131,14 @@ export async function cloneRateVersionAction(formData: FormData): Promise<void> 
 export async function activateRateVersionAction(id: string): Promise<void> {
   const session = await adminSession();
   if (!session) redirect(routes.forbidden);
-  if (!UUID.test(id)) redirect(routes.adminRates);
+  if (!UUID.test(id)) redirect(`${routes.adminRates}?error=activateMissing`);
 
   const supabase = await createClient();
+  // The RPC has no "not found" check and deactivates everything first —
+  // never call it for an id that is not a current version.
+  const version = await getRateVersion(supabase, id);
+  if (!version) redirect(`${routes.adminRates}?error=activateMissing`);
+  if (version.active) redirect(`${routes.adminRates}?notice=activated`);
   const { data: previous } = await supabase.from("rate_versions").select("id, label").eq("active", true).maybeSingle();
   const { error } = await supabase.rpc("activate_rate_version", { p_version: id });
   if (error) {
@@ -276,20 +291,48 @@ export async function deleteRateRow(input: DeleteRateRowInput): Promise<DeleteRa
     if (before.error) return { ok: false, error: "db", message: before.error.message };
     if (!before.data) return { ok: false, error: "notFound" };
 
+    // materials: the laser rows of this material go with it (FK cascade).
+    // Read them first — refuse without an explicit cascade, audit each one.
+    let dependants: LooseRow[] = [];
+    if (input.table === "materials") {
+      const code = typeof before.data.code === "string" ? before.data.code : "";
+      const laser = await loose
+        .from("rate_laser")
+        .select("*")
+        .eq("rate_version_id", input.versionId)
+        .eq("material_code", code);
+      if (laser.error) return { ok: false, error: "db", message: laser.error.message };
+      dependants = laser.data ?? [];
+      if (dependants.length > 0 && !input.cascade) {
+        return { ok: false, error: "materialInUse", count: dependants.length };
+      }
+    }
+
     let write = loose.from(def.dbTable).delete();
     for (const [column, value] of Object.entries(filter)) write = write.eq(column, value);
     const result = await write;
     if (result.error) return { ok: false, error: dbErrorCode(result.error), message: result.error.message };
 
+    for (const row of dependants) {
+      await logAudit({
+        actor: session.user.id,
+        action: "rate_laser.delete",
+        entity: "rate_laser",
+        entityId: entityIdOf("laser", input.versionId, row),
+        before: asJson(row),
+        after: { cascadedFrom: entityIdOf(input.table, input.versionId, before.data) },
+      });
+    }
     await logAudit({
       actor: session.user.id,
       action: `rate_${input.table}.delete`,
       entity: def.dbTable,
       entityId: entityIdOf(input.table, input.versionId, before.data),
       before: asJson(before.data),
+      after: dependants.length > 0 ? { cascadedLaserRows: dependants.length } : null,
     });
     revalidateVersion(input.versionId);
-    return { ok: true };
+    return dependants.length > 0 ? { ok: true, cascaded: dependants.length } : { ok: true };
   } catch (error) {
     console.error("[admin/rates] delete row failed", error);
     return { ok: false, error: "generic" };

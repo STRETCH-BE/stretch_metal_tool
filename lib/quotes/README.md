@@ -29,8 +29,19 @@ types.ts       QuoteBundle, QuoteListRow, SendCheck, …
   `{ admin: true }` from a trusted, already role-checked caller.
 - Every mutation that changes a price input ends with `repriceQuote`
   (Step 12: the server re-prices on save and on send).
+- Locked quotes (`sent` / `won` / `lost`) are never re-priced, in either
+  mode of `repriceQuote` (`QuoteAccessError("locked")`; the price route
+  answers 409). The explicit re-price paths (`POST /api/quotes/[id]/price`,
+  the builder's "Recalculate" action) audit-log `quote.reprice`.
 - `quotes.rate_version_id` is pinned on the first pricing run and never
   moved; "duplicate as new version" re-pins to the active version.
+- `listQuoteAudit(session, quote)` reads `audit_log` with the admin
+  client (the table is admin-only by RLS) and therefore gates itself:
+  `[]` unless the session is an admin or the quote's owner; a missing
+  service-role key degrades to `[]`.
+- A PLN quote must carry a real EUR→PLN rate (`fxRateValidFor`, schema
+  refine on the header and new-quote inputs): the EUR sentinel `1` would
+  ship PLN prices at the EUR numbers.
 
 ## Money
 
@@ -43,7 +54,10 @@ customer history display them with `quote.currency`.
 
 Blocked when: any red flag (never overridable — a red `*.no_rate_row`
 would ship an operation at 0 €), any pending override, an amber flag
-without acceptance, no customer, nothing priced, status not draft.
+without acceptance, no customer, no customer e-mail when the mailer will
+be used (`requireEmail` — `sendQuote` passes `isMailConfigured() &&
+!skipMail`, the page and the builder pass `isMailConfigured()`), nothing
+priced, status not draft.
 
 **Amber acceptance = an `overrides` row.** There is no acknowledgement
 column on `quotes`; a sales "confirm" inserts an override with
@@ -63,9 +77,10 @@ block a decided quote).
 1. `repriceQuote` → 2. `canSend` on the fresh bundle → 3. render the PDF
 (`lib/pdf`) → 4. upload to `quote-files` (`quotes/<id>/<stamp>-<label>.pdf`)
 + `files` row (`kind = quote_pdf`) → 5. `sendMail` when `isMailConfigured()`
-and the customer has an e-mail (a mail failure keeps the PDF and the
-status, `mailed: false`) → 6. `status = sent`, `sent_at` → 7. audit
-`quote.send`. Locale: param → `customer.preferred_locale` → `pl`.
+(the guard already guaranteed the address; a mail failure keeps the PDF
+and the status and reports `mail: "failed"`, a download-only send reports
+`mail: "off"`) → 6. `status = sent`, `sent_at` → 7. audit `quote.send`.
+Locale: param → `customer.preferred_locale` → `pl`.
 
 ## Tests
 

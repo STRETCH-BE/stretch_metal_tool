@@ -154,6 +154,30 @@ export async function getRateVersionState(supabase: AdminClient, id: string): Pr
   };
 }
 
+/**
+ * rate_laser rows per material code in a version. The materials tab shows
+ * the count in its delete confirmation because rate_laser references
+ * materials with ON DELETE CASCADE: deleting a material takes every laser
+ * row of that material in the version with it.
+ */
+export async function countLaserRowsByMaterial(
+  supabase: AdminClient,
+  versionId: string
+): Promise<Record<string, number>> {
+  const { data, error } = await looseClient(supabase)
+    .from("rate_laser")
+    .select("material_code")
+    .eq("rate_version_id", versionId);
+  if (error) fail("countLaserRowsByMaterial", error);
+  const counts: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const code = typeof row.material_code === "string" ? row.material_code : null;
+    if (!code) continue;
+    counts[code] = (counts[code] ?? 0) + 1;
+  }
+  return counts;
+}
+
 /** Rows of one rate table in a version, ordered by the natural key. */
 export async function loadRateTableRows(
   supabase: AdminClient,

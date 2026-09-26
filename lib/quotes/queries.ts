@@ -5,10 +5,16 @@
  *
  * Reads go through the RLS client (every signed-in role may read quotes,
  * parts, items, operations and overrides). The one exception is the audit
- * excerpt: audit_log is admin-only by policy, so `listQuoteAudit` uses the
- * admin client after the page has established a session — a sales user
- * may see WHO changed THEIR quote (spec: "everything is audit-logged")
- * without being able to browse the whole log.
+ * excerpt: audit_log is admin-only by policy (migration `audit_select`),
+ * so `listQuoteAudit` uses the admin client — and therefore gates
+ * itself: it takes the caller's Session and the quote row and returns []
+ * unless the caller is an admin or the sales OWNER of that quote
+ * (isQuoteEditor, the can_edit_quote() rule). A sales user may see WHO
+ * changed THEIR quote (spec: "everything is audit-logged") without being
+ * able to browse the whole log; viewers and other sales users see
+ * nothing. The gate lives inside the function so no caller can inherit
+ * the RLS bypass by forgetting a role check. A missing service-role key
+ * degrades to an empty excerpt instead of breaking the quote page.
  *
  * Aggregates (parts count, pending overrides, customer/owner names) are
  * computed in TypeScript from narrow secondary queries instead of
@@ -17,11 +23,12 @@
  * re-pricing glue can run it with the admin client when asked to.
  */
 
+import type { Session } from "@/lib/auth";
 import { createClient, type ServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient, type AdminSupabase } from "@/lib/supabase/admin";
 import type { CustomerRow, OperationRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
 import { parseFlags, parsePricing, parseWeldingOnly } from "./schema";
-import { isUuid, worstSeverity } from "./shared";
+import { isQuoteEditor, isUuid, worstSeverity } from "./shared";
 import type { QuoteAuditRow, QuoteBundle, QuoteListFilters, QuoteListResult, QuoteListRow } from "./types";
 
 export type QuoteReadClient = ServerSupabase | AdminSupabase;
@@ -209,13 +216,35 @@ export async function listCustomerOptions(): Promise<CustomerOption[]> {
   );
 }
 
+/** Who may read a quote's audit excerpt: an admin or the owning sales user. */
+export function canSeeQuoteAudit(session: Session | null, quote: Pick<QuoteRow, "created_by">): boolean {
+  return Boolean(session && isQuoteEditor(session.profile.role, session.user.id, quote));
+}
+
 /**
  * Last audit entries about this quote: rows whose entity_id is the quote
- * or whose `after.quote_id` points at it (override rows). Admin client —
- * see the file header.
+ * or whose `after.quote_id` points at it (override rows). Admin client
+ * behind the admin-or-owner gate — see the file header. Never throws:
+ * a missing service-role key (or a failing query) yields [] and a server
+ * log line, so the quote page still renders.
  */
-export async function listQuoteAudit(quoteId: string, limit = 20): Promise<QuoteAuditRow[]> {
+export async function listQuoteAudit(
+  session: Session | null,
+  quote: Pick<QuoteRow, "id" | "created_by">,
+  limit = 20
+): Promise<QuoteAuditRow[]> {
+  const quoteId = quote.id;
   if (!isUuid(quoteId)) return [];
+  if (!canSeeQuoteAudit(session, quote)) return [];
+  try {
+    return await readQuoteAudit(quoteId, limit);
+  } catch (error) {
+    console.error("[quotes] audit excerpt unavailable", quoteId, error);
+    return [];
+  }
+}
+
+async function readQuoteAudit(quoteId: string, limit: number): Promise<QuoteAuditRow[]> {
   const admin = createAdminClient();
   const entries = await rows<{ id: number; action: string; actor: string | null; at: string }>(
     admin

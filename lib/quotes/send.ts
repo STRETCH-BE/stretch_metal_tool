@@ -15,13 +15,19 @@
  * approvals alike. Red flags are never sendable. See send-guard.ts.
  *
  * Order of operations matters: (1) repriceQuote — the client never
- * decides prices; (2) canSend on the freshly priced bundle; (3) PDF
+ * decides prices; (2) canSend on the freshly priced bundle, with
+ * `requireEmail` = "the mailer will be used" (Step 10: when MS_GRAPH_* is
+ * configured the PDF goes out by e-mail, so a customer without an
+ * address must block the send instead of silently flipping the quote to
+ * `sent` — reason `no_customer_email`; without the mailer, or with
+ * `skipMail`, the send is download-only and needs no address); (3) PDF
  * render; (4) upload to Storage + files row (kind quote_pdf) with the
  * admin client (route handlers never receive file bodies, and the PDF
  * is server-generated); (5) mail when configured — a mail failure does
  * NOT roll back: the PDF is stored and the status is still set, the
- * caller reports `mailed: false` (the user downloads and sends by
- * hand); (6) status sent + sent_at; (7) audit "quote.send".
+ * caller reports `mail: "failed"` (the user downloads and sends by
+ * hand; `mail: "off"` means the mailer was not used at all); (6) status
+ * sent + sent_at; (7) audit "quote.send".
  *
  * Locale: explicit param → customer.preferred_locale → pl. Reply-to is
  * QUOTE_FROM_ADDRESS (env.quoteFromAddress()).
@@ -41,7 +47,7 @@ import { loadQuoteBundle } from "./queries";
 import { repriceQuote } from "./reprice";
 import { canSend } from "./send-guard";
 import { quoteNumberLabel, quotePdfFileName, resolveQuoteLocale, validUntilDate } from "./shared";
-import type { QuoteBundle, SendResult } from "./types";
+import type { MailOutcome, QuoteBundle, SendResult } from "./types";
 
 export { canSend } from "./send-guard";
 
@@ -101,9 +107,10 @@ export async function sendQuote(quoteId: string, options: SendQuoteOptions = {})
   const bundle = await loadQuoteBundle(admin, quoteId);
   if (!bundle) return { sent: false, mailed: false, pdfPath: null, reasons: ["status"] };
 
-  // 2. Guard on the fresh bundle.
+  // 2. Guard on the fresh bundle. The customer needs an e-mail exactly
+  //    when the mailer is going to be used.
   const mailPossible = isMailConfigured() && !options.skipMail;
-  const check = canSend(bundle, { requireEmail: false });
+  const check = canSend(bundle, { requireEmail: mailPossible });
   if (!check.ok) return { sent: false, mailed: false, pdfPath: null, reasons: check.reasons };
 
   const locale = resolveQuoteLocale(options.locale, bundle.customer?.preferred_locale ?? null);
@@ -135,26 +142,27 @@ export async function sendQuote(quoteId: string, options: SendQuoteOptions = {})
   });
   if (fileError) throw new Error(`sendQuote/files: ${fileError.message}`);
 
-  // 5. Mail (best effort).
-  let mailed = false;
+  // 5. Mail (best effort). `to` is guaranteed by the guard when mailPossible.
+  let mail: MailOutcome = "off";
   const to = bundle.customer?.email ?? null;
   if (mailPossible && to) {
-    const mail = buildQuoteEmail(bundle, locale, { senderName, fileName });
+    const message = buildQuoteEmail(bundle, locale, { senderName, fileName });
     try {
       await sendMail({
         to,
-        subject: mail.subject,
-        html: mail.html,
-        text: mail.text,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
         replyTo: env.quoteFromAddress() ?? undefined,
         attachments: [{ name: fileName, contentType: "application/pdf", contentBytes: pdf.toString("base64") }],
       });
-      mailed = true;
+      mail = "sent";
     } catch (error) {
       console.error("[quotes] sendMail failed", error);
-      mailed = false;
+      mail = "failed";
     }
   }
+  const mailed = mail === "sent";
 
   // 6. Status.
   const sentAt = new Date().toISOString();
@@ -171,8 +179,8 @@ export async function sendQuote(quoteId: string, options: SendQuoteOptions = {})
     entity: "quotes",
     entityId: quoteId,
     before: { status: bundle.quote.status },
-    after: { status: "sent", sent_at: sentAt, mailed, to: mailed ? to : null, pdf: storagePath, locale },
+    after: { status: "sent", sent_at: sentAt, mailed, mail, to: mailed ? to : null, pdf: storagePath, locale },
   });
 
-  return { sent: true, mailed, pdfPath: storagePath };
+  return { sent: true, mailed, mail, pdfPath: storagePath };
 }

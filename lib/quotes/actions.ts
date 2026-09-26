@@ -70,7 +70,7 @@ import {
 } from "./schema";
 import { sendQuote } from "./send";
 import { isUuid, nextVersionNumber, overrideMatchesFlag } from "./shared";
-import type { SendBlockReason } from "./types";
+import type { MailOutcome, SendBlockReason } from "./types";
 
 const CONFIRMATION_NOTE = "confirmed by sales";
 
@@ -642,7 +642,7 @@ export async function setQuoteStatus(quoteId: string, status: "won" | "lost"): P
 }
 
 export type SendActionResult =
-  | { ok: true; sent: true; mailed: boolean; pdfPath: string }
+  | { ok: true; sent: true; mailed: boolean; mail: MailOutcome; pdfPath: string }
   | { ok: true; sent: false; reasons: SendBlockReason[] }
   | { ok: false; error: "notFound" | "forbidden" | "locked" | "noRates" | "pricing" | "generic"; message?: string };
 
@@ -652,7 +652,7 @@ export async function sendQuoteAction(quoteId: string, input: { locale?: "pl" | 
     const result = await sendQuote(quoteId, { locale: locale.success ? locale.data : null });
     revalidateQuote(quoteId);
     if (!result.sent) return { ok: true, sent: false, reasons: result.reasons };
-    return { ok: true, sent: true, mailed: result.mailed, pdfPath: result.pdfPath };
+    return { ok: true, sent: true, mailed: result.mailed, mail: result.mail, pdfPath: result.pdfPath };
   } catch (error) {
     revalidateQuote(quoteId);
     if (error instanceof QuoteAccessError) {
@@ -668,12 +668,28 @@ export async function sendQuoteAction(quoteId: string, input: { locale?: "pl" | 
   }
 }
 
-/** Explicit "recalculate" from the builder (also used after edits made on the part page). */
+/**
+ * Explicit "recalculate" from the builder (also used after edits made on
+ * the part page). Unlike the other actions, nothing else changes here, so
+ * the re-pricing itself is the audited event ("quote.reprice").
+ */
 export async function repriceQuoteAction(quoteId: string): Promise<QuoteActionResult> {
+  let editor;
   try {
-    await requireQuoteEditor(quoteId, { editableOnly: true });
+    editor = await requireQuoteEditor(quoteId, { editableOnly: true });
   } catch (error) {
     return accessFailure(error) ?? fail("generic");
   }
-  return repriceAndRevalidate(quoteId);
+  const result = await repriceAndRevalidate(quoteId);
+  if (result.ok) {
+    await logAudit({
+      actor: editor.session.user.id,
+      action: "quote.reprice",
+      entity: "quotes",
+      entityId: quoteId,
+      before: { priced_at: editor.quote.priced_at, subtotal_price: editor.quote.subtotal_price },
+      after: { source: "builder" },
+    });
+  }
+  return result;
 }

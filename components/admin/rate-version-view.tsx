@@ -16,7 +16,7 @@ import type { Locale } from "@/lib/site-config";
 import { formatDate, interpolate } from "@/lib/format";
 import { routes } from "@/lib/routes";
 import { createClient } from "@/lib/supabase/server";
-import { getRateVersionState, loadRateTableRows } from "@/lib/admin/rates";
+import { countLaserRowsByMaterial, getRateVersionState, loadRateTableRows } from "@/lib/admin/rates";
 import { RATE_TABLES, type RateTableName } from "@/lib/admin/tables";
 import { Notice } from "@/components/ui/notice";
 import { PageHeader } from "@/components/ui/page-header";
@@ -45,6 +45,9 @@ export async function RateVersionView({
   const state = await getRateVersionState(supabase, id);
   if (!state) notFound();
   const rows = await loadRateTableRows(supabase, id, table);
+  // Materials: laser rows per material, so the delete confirmation can say
+  // what the FK cascade would take with the row.
+  const dependants = table === "materials" && state.editable ? await countLaserRowsByMaterial(supabase, id) : undefined;
   const t = content.admin.rates;
   const { version } = state;
   const def = RATE_TABLES[table];
@@ -119,7 +122,7 @@ export async function RateVersionView({
               <RateGeneralForm versionId={id} row={rows[0] ?? null} editable={state.editable} />
             ) : (
               <div className="p-3">
-                <RateGrid versionId={id} table={table} rows={rows} editable={state.editable} />
+                <RateGrid versionId={id} table={table} rows={rows} editable={state.editable} dependants={dependants} />
               </div>
             )}
           </div>

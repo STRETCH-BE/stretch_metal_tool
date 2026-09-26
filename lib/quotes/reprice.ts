@@ -24,6 +24,15 @@
  *     price route after assertRole). With `opts.admin` the reads use the
  *     admin client too (no request session needed).
  *
+ * Locked quotes (status sent / won / lost) are NEVER re-priced, in either
+ * mode: QuoteAccessError("locked"). The pinned rate version keeps the
+ * rates stable, but the machines table is not versioned and a re-run
+ * would rewrite operations, flags and priced_at on a quote the customer
+ * already holds (Step 2: "reopening an old quote shows the old price";
+ * Step 14.5). Every server action already refuses locked quotes through
+ * requireQuoteEditor({ editableOnly: true }); this check makes the price
+ * route and any trusted caller obey the same rule.
+ *
  * Rate version: quotes.rate_version_id is pinned to the active version the
  * first time a quote is priced and never changed afterwards (old quotes
  * keep their old prices; "duplicate as new version" re-pins).
@@ -47,7 +56,7 @@ import type { PricedQuote } from "@/lib/pricing/types";
 import { QuoteAccessError } from "./access";
 import { buildQuoteInput, emptyPersistence, hasPriceableContent, pricedToPersistence } from "./mapper";
 import { loadQuoteBundle } from "./queries";
-import { isQuoteEditor, isUuid } from "./shared";
+import { isQuoteEditable, isQuoteEditor, isUuid } from "./shared";
 
 export type RepriceOptions = {
   /** Trusted caller (already role-checked): skip the session check, read with the admin client. */
@@ -72,6 +81,7 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   if (session && !isQuoteEditor(session.profile.role, session.user.id, bundle.quote)) {
     throw new QuoteAccessError("forbidden");
   }
+  if (!isQuoteEditable(bundle.quote.status)) throw new QuoteAccessError("locked");
 
   const admin = createAdminClient();
 

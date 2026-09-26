@@ -4,8 +4,8 @@
  * File path: /app/(app)/admin/rates/page.tsx
  *
  * Admin only. `?notice=cloned|activated|deleted` and
- * `?error=clone|activate|delete|label` come back from the form actions
- * (they redirect) and render as notices.
+ * `?error=clone|activate|activateMissing|delete|label` come back from the
+ * form actions (they redirect) and render as notices.
  */
 
 import type { Metadata } from "next";
@@ -49,7 +49,9 @@ export default async function RateVersionsPage({ searchParams }: { searchParams:
       ? t.versions.notices.cloneFailed
       : error === "activate"
         ? t.versions.notices.activateFailed
-        : error === "delete"
+        : error === "activateMissing"
+          ? t.versions.notices.activateMissing
+          : error === "delete"
           ? t.versions.notices.deleteFailed
           : error === "label"
             ? t.versions.notices.labelRequired

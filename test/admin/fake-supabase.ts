@@ -4,7 +4,7 @@
  *
  * `fakeClient({ table: { list, single } })` returns an object whose
  * `from(table)` yields a chain: every builder method (select, eq, in,
- * order, limit, range, insert, update, delete, like, gte, lte, neq)
+ * order, limit, range, insert, upsert, update, delete, like, gte, lte, neq)
  * returns the chain and records the call; awaiting the chain resolves the
  * next `list` result of that table, `maybeSingle()` / `single()` the next
  * `single` result. Results may be queues (arrays consumed in order) so one
@@ -36,6 +36,7 @@ const CHAIN_METHODS = [
   "limit",
   "range",
   "insert",
+  "upsert",
   "update",
   "delete",
 ] as const;

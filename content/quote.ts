@@ -258,6 +258,8 @@ export type QuoteBuilderContent = {
     noCustomer: string;
     currency: string;
     fxRate: string;
+    /** Help under the fx field; `{fx}` = the environment default rate. */
+    fxRateHelp: string;
     margin: string;
     markup: string;
     validityDays: string;
@@ -387,6 +389,8 @@ export type QuoteBuilderContent = {
     sendBlocked: string;
     sent: string;
     sentNoMail: string;
+    /** Mailer configured but the e-mail failed: quote is sent, PDF stored. */
+    sentMailFailed: string;
     mailNotConfigured: string;
     markWon: string;
     markLost: string;
@@ -535,6 +539,7 @@ const builderPl: QuoteBuilderContent = {
     noCustomer: "— bez klienta —",
     currency: "Waluta",
     fxRate: "Kurs EUR→PLN",
+    fxRateHelp: "Cennik jest w EUR — kurs przelicza ceny na PLN. Domyślny kurs: {fx}.",
     margin: "Marża (%)",
     markup: "narzut {markup}",
     validityDays: "Ważność (dni)",
@@ -718,6 +723,7 @@ const builderPl: QuoteBuilderContent = {
     sendBlocked: "Nie można wysłać:",
     sent: "Oferta wysłana e-mailem do klienta.",
     sentNoMail: "Oferta oznaczona jako wysłana. PDF zapisany — wysyłka e-mail nie jest skonfigurowana, pobierz PDF i wyślij ręcznie.",
+    sentMailFailed: "Oferta oznaczona jako wysłana, PDF zapisany — wysyłka e-mail nie powiodła się. Pobierz PDF i wyślij ręcznie.",
     mailNotConfigured: "Wysyłka e-mail wyłączona (brak konfiguracji Microsoft Graph) — „Wyślij” zapisze PDF i zmieni status.",
     markWon: "Wygrana",
     markLost: "Przegrana",

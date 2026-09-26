@@ -294,32 +294,51 @@ export function parseFlags(json: Json | null | undefined): PricedQuote["flags"] 
 
 /* ─── Server-action inputs ────────────────────────────────── */
 
-export const quoteHeaderSchema = z.object({
-  customerId: z.string().uuid("invalid").nullable(),
-  currency: z.enum(CURRENCIES, "invalidCurrency"),
-  fxRate: finite.gt(0, "invalidFx").max(1000, "invalidFx"),
-  marginPct: finite.min(0, "invalidMargin").lt(100, "invalidMargin"),
-  validityDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
-  leadTimeText: optionalText(200),
-  paymentTermsText: optionalText(2000),
-  notes: optionalText(4000),
-  showOperationsOnPdf: z.boolean(),
-  weldingSeparate: z.boolean(),
-});
+/**
+ * Currency ↔ fx sanity rule shared by the header and the new-quote form:
+ * a PLN quote must carry a real EUR→PLN rate. The rate tables are EUR and
+ * `fx_rate` multiplies them, so a PLN quote saved with the EUR sentinel
+ * (1) would ship at roughly a quarter of the price. 1 EUR has been worth
+ * more than 1 PLN for the whole life of the currency, so "> 1" is a
+ * sanity bound, not a business constant. EUR quotes ignore the field
+ * (the actions store 1).
+ */
+export function fxRateValidFor(currency: CurrencyCode, fxRate: number): boolean {
+  return currency === "EUR" || fxRate > 1;
+}
+
+const fxMatchesCurrency = { message: "invalidFx", path: ["fxRate"] as (string | number)[] };
+
+export const quoteHeaderSchema = z
+  .object({
+    customerId: z.string().uuid("invalid").nullable(),
+    currency: z.enum(CURRENCIES, "invalidCurrency"),
+    fxRate: finite.gt(0, "invalidFx").max(1000, "invalidFx"),
+    marginPct: finite.min(0, "invalidMargin").lt(100, "invalidMargin"),
+    validityDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
+    leadTimeText: optionalText(200),
+    paymentTermsText: optionalText(2000),
+    notes: optionalText(4000),
+    showOperationsOnPdf: z.boolean(),
+    weldingSeparate: z.boolean(),
+  })
+  .refine((v) => fxRateValidFor(v.currency, v.fxRate), fxMatchesCurrency);
 
 export type QuoteHeaderInput = z.input<typeof quoteHeaderSchema>;
 
-export const newQuoteSchema = z.object({
-  type: z.enum(QUOTE_TYPES, "invalidType"),
-  customerId: z.string().uuid("invalid").nullable(),
-  currency: z.enum(CURRENCIES, "invalidCurrency"),
-  fxRate: finite.gt(0, "invalidFx").max(1000, "invalidFx"),
-  marginPct: finite.min(0, "invalidMargin").lt(100, "invalidMargin").nullable(),
-  validityDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
-  leadTimeText: optionalText(200),
-  paymentTermsText: optionalText(2000),
-  notes: optionalText(4000),
-});
+export const newQuoteSchema = z
+  .object({
+    type: z.enum(QUOTE_TYPES, "invalidType"),
+    customerId: z.string().uuid("invalid").nullable(),
+    currency: z.enum(CURRENCIES, "invalidCurrency"),
+    fxRate: finite.gt(0, "invalidFx").max(1000, "invalidFx"),
+    marginPct: finite.min(0, "invalidMargin").lt(100, "invalidMargin").nullable(),
+    validityDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
+    leadTimeText: optionalText(200),
+    paymentTermsText: optionalText(2000),
+    notes: optionalText(4000),
+  })
+  .refine((v) => fxRateValidFor(v.currency, v.fxRate), fxMatchesCurrency);
 
 export type NewQuoteInput = z.input<typeof newQuoteSchema>;
 
