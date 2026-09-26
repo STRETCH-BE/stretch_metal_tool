@@ -10,13 +10,23 @@ import type { NextConfig } from "next";
  * - No image optimisation config: the app renders SVG thumbnails inline
  *   from geometry JSON and has no photography.
  */
+const PDFKIT_RUNTIME_FILES = ["./node_modules/pdfkit/js/standard-fonts/**", "./node_modules/pdfkit/js/data/**"];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ["pdfjs-dist", "@react-pdf/renderer"],
-  // The quote PDF route registers the static Archivo TTFs from disk; make
-  // sure Vercel's output file tracing ships them with the function.
+  // pdfkit (under @react-pdf/renderer) loads its 14 standard fonts lazily
+  // through the package "imports" map (`require('#standard-fonts/Helvetica')`)
+  // and reads the AFM metrics from js/data; file tracing follows neither, so
+  // the Vercel function died with "Cannot find module
+  // …/pdfkit/js/standard-fonts/Helvetica.cjs". Ship both directories with
+  // every function that renders the quote PDF: the export route and the
+  // quote page (its server action sendQuoteAction renders before storing).
+  // The Archivo TTFs are embedded in lib/pdf/fonts-data.ts; keeping them
+  // traced costs nothing and covers a future switch back to disk fonts.
   outputFileTracingIncludes: {
-    "/api/quotes/[id]/pdf": ["./public/fonts/pdf/*.ttf"],
+    "/api/quotes/[id]/pdf": ["./public/fonts/pdf/*.ttf", ...PDFKIT_RUNTIME_FILES],
+    "/quotes/[id]": PDFKIT_RUNTIME_FILES,
     // pdfjs loads its fake worker through a dynamic import that file
     // tracing cannot follow — ship it with every route that extracts PDF text.
     "/api/files/complete": ["./node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs"],
