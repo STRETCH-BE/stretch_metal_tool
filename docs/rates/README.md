@@ -2,8 +2,8 @@
 
 `scripts/seed-market-rates.mjs` loads a **market** rate version (the tables are
 selling prices, e.g. 247TailorSteel × 1.10) from an `.xlsx` workbook placed in this
-folder — expected file: `stretchmetal_rates_247plus10.xlsx` (not committed until the
-owner adds it).
+folder — `stretchmetal_rates_247plus10.xlsx` (committed; sha256 in `rate_versions.note`
+after a load).
 
 Sheet names are table names, header cells are column names (aliases in the
 script's `ALIASES`; anything not consumed is listed as "not mapped" in the run

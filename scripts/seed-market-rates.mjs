@@ -73,7 +73,7 @@ export const SHEETS = {
 
 /** Column aliases per logical field (compared after normalisation). */
 export const ALIASES = {
-  key: ["key", "setting", "name", "parameter", "column"],
+  key: ["key", "field", "setting", "name", "parameter", "column"],
   value: ["value"],
   valueSell: ["value_sell", "sell", "value_247plus10"],
   materialCode: ["material_code", "material", "code"],
@@ -86,6 +86,11 @@ export const ALIASES = {
   gas: ["gas"],
   minContourMm: ["min_contour_mm", "min_contour"],
   source: ["source", "origin", "basis"],
+  speedMMin: ["speed_m_min", "speed"],
+  pierceS: ["pierce_s", "pierce"],
+  inHouse: ["in_house"],
+  placeholderColumn: ["placeholder"],
+  mode: ["mode"],
   code: ["code", "finish_code"],
   priceSell: ["price_sell", "sell_price", "price"],
   setupPerOrderSell: ["setup_per_order_sell", "setup_per_order_eur", "setup_sell", "setup_per_order"],
@@ -136,6 +141,12 @@ function gasOf(value) {
   if (v === "n2" || v === "nitrogen") return "N2";
   if (v === "air") return "air";
   return null;
+}
+
+/** A row that is only a free-text note (one long string, nothing else) — reported, never imported. */
+function noteRow(values) {
+  const present = Object.values(values).filter((v) => v !== null && v !== undefined && v !== "");
+  return present.length === 1 && typeof present[0] === "string" && present[0].length > 40 ? present[0] : null;
 }
 
 function sheetOf(workbook, names) {
@@ -244,6 +255,11 @@ export function buildMarketVersion(workbook, source) {
     const bands = new Map();
     const extra = new Map();
     for (const { values, row } of mats.sheet.records) {
+      const note = noteRow(values);
+      if (note) {
+        report.unmapped.push(`${mats.name} row ${row}: note "${note.slice(0, 80)}…" (text, not imported)`);
+        continue;
+      }
       const code = toText(get(values, ALIASES.materialCode, { required: true, field: "material_code" }));
       const maxT = toNumber(get(values, ALIASES.maxThicknessMm, { required: true, field: "max_thickness_mm" }), `${mats.name} row ${row} max thickness`);
       const price = toNumber(get(values, ALIASES.pricePerKgSell, { required: true, field: "price_per_kg_sell" }), `${mats.name} row ${row} price_per_kg_sell`);
@@ -302,6 +318,11 @@ export function buildMarketVersion(workbook, source) {
     let interpolated = 0;
     for (const { values, row } of las.sheet.records) {
       const where = `${las.name} row ${row}`;
+      const note = noteRow(values);
+      if (note) {
+        report.unmapped.push(`${where}: note "${note.slice(0, 80)}…" (text, not imported)`);
+        continue;
+      }
       const code = toText(get(values, ALIASES.materialCode, { required: true, field: "material_code" }));
       const t = toNumber(get(values, ALIASES.thicknessMm, { required: true, field: "thickness_mm" }), `${where} thickness`);
       const perM = toNumber(get(values, ALIASES.pricePerMSell, { required: true, field: "price_per_m_sell" }), `${where} price_per_m_sell`);
@@ -310,6 +331,14 @@ export function buildMarketVersion(workbook, source) {
       const gas = gasOf(get(values, ALIASES.gas));
       const minContour = toNumber(get(values, ALIASES.minContourMm), `${where} min_contour_mm`);
       const sourceText = toText(get(values, ALIASES.source)) ?? "";
+      // Tool-table speed / pierce time travel with the row for reference (mode stays per_m, so they never price).
+      const speed = toNumber(get(values, ALIASES.speedMMin), `${where} speed_m_min`);
+      const pierceS = toNumber(get(values, ALIASES.pierceS), `${where} pierce_s`);
+      const inHouseText = toText(get(values, ALIASES.inHouse));
+      // The sheet's own placeholder / mode columns are read but the owner's rule decides:
+      // mode per_m, in-house, placeholder only for interpolated / extrapolated rows.
+      get(values, ALIASES.placeholderColumn);
+      get(values, ALIASES.mode);
       if (!code || t === null || perM === null) {
         report.warnings.push(`${where}: incomplete laser row skipped`);
         continue;
@@ -324,13 +353,13 @@ export function buildMarketVersion(workbook, source) {
         material_code: materials.find((m) => m.code.toLowerCase() === code.toLowerCase()).code,
         thickness_mm: t,
         mode: "per_m",
-        speed_m_min: null,
-        pierce_s: null,
+        speed_m_min: speed,
+        pierce_s: pierceS,
         price_per_m: perM,
         price_per_pierce: perPierce ?? 0,
         gas,
         min_contour_mm: minContour,
-        in_house: true,
+        in_house: inHouseText === null ? true : !/^(false|0|no|n|nie)$/i.test(inHouseText),
         supplier: null,
         placeholder,
         setup_eur: setup ?? 0,
@@ -355,6 +384,11 @@ export function buildMarketVersion(workbook, source) {
     const { get, finish: done } = columns(fin.sheet, fin.name, report);
     for (const { values, row } of fin.sheet.records) {
       const where = `${fin.name} row ${row}`;
+      const note = noteRow(values);
+      if (note) {
+        report.unmapped.push(`${where}: note "${note.slice(0, 80)}…" (text, not imported)`);
+        continue;
+      }
       const code = toText(get(values, ALIASES.code, { required: true, field: "code" }));
       const price = toNumber(get(values, ALIASES.priceSell, { required: true, field: "price_sell" }), `${where} price_sell`);
       const setup = toNumber(get(values, ALIASES.setupPerOrderSell), `${where} setup_per_order_sell`);
@@ -411,6 +445,12 @@ export function buildMarketVersion(workbook, source) {
         if (!rawKey) continue;
         let key = normaliseName(rawKey);
         key = KEY_ALIASES[key] ?? key;
+        if (key === "pricing_mode") {
+          const mode = toText(values[sellHeader])?.toLowerCase() ?? null;
+          if (mode !== null && mode !== "market") report.warnings.push(`${gen.name} row ${row}: pricing_mode "${mode}" ignored — a workbook version is always market`);
+          applied.push("pricing_mode = market");
+          continue;
+        }
         if (!GENERAL_KEYS.has(key)) {
           report.unmapped.push(`${gen.name}!${rawKey} = ${JSON.stringify(values[sellHeader])} (no rate_general column)`);
           continue;
@@ -464,6 +504,11 @@ export function buildMarketVersion(workbook, source) {
     const { get, finish: done } = columns(lt.sheet, lt.name, report);
     const rows = [];
     for (const { values, row } of lt.sheet.records) {
+      const note = noteRow(values);
+      if (note) {
+        report.unmapped.push(`${lt.name} row ${row}: note "${note.slice(0, 80)}…" (text, not imported)`);
+        continue;
+      }
       const days = toNumber(get(values, ALIASES.workingDays, { required: true, field: "working_days" }), `${lt.name} row ${row} working_days`);
       const multiplier = toNumber(get(values, ALIASES.multiplier, { required: true, field: "multiplier" }), `${lt.name} row ${row} multiplier`);
       if (days === null || multiplier === null) {

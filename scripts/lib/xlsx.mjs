@@ -8,7 +8,8 @@
  * inline strings, numbers (dates stay serial numbers), booleans, formula
  * cells (their cached <v>), errors (null). ZIP64 and encrypted workbooks
  * are not (a rate workbook is a few sheets). Header = the first row with
- * any text; a header cell's text is trimmed; empty rows are dropped.
+ * two or more text cells; a header cell's text is trimmed; empty rows are
+ * dropped.
  */
 
 import { inflateRawSync } from "node:zlib";
@@ -167,19 +168,17 @@ function isBlank(value) {
 }
 
 /**
- * Rows keyed by header. `headerRow` = the first row containing text; every
- * later row with at least one non-blank cell becomes a record. Cells under
- * a blank header are ignored; headers are trimmed.
+ * Rows keyed by header. The header row is the first row with at least two
+ * text cells (a one-cell title or note above it is skipped); every later
+ * row with at least one non-blank cell becomes a record. Cells under a
+ * blank header are ignored; headers are trimmed.
  */
 export function gridToRecords(grid) {
   const rowNumbers = [...grid.keys()].sort((a, b) => a - b);
-  let headerRowNumber = null;
-  for (const n of rowNumbers) {
-    if ([...grid.get(n).values()].some((v) => typeof v === "string" && v.trim() !== "")) {
-      headerRowNumber = n;
-      break;
-    }
-  }
+  // The header is the first row with at least two text cells: a sheet may
+  // start with a one-cell title and a one-cell explanation above it.
+  const textCells = (n) => [...grid.get(n).values()].filter((v) => typeof v === "string" && v.trim() !== "").length;
+  let headerRowNumber = rowNumbers.find((n) => textCells(n) >= 2) ?? rowNumbers.find((n) => textCells(n) >= 1) ?? null;
   if (headerRowNumber === null) return { headers: [], records: [] };
   const headerCells = grid.get(headerRowNumber);
   const headers = [];

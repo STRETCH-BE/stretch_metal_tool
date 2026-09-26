@@ -226,3 +226,45 @@ describe.skipIf(!ENABLED)("seed-market-rates: idempotent load into Postgres (SMT
     expect(queryScalar(DB, `select note from public.rate_versions where id = '${id}'`)).toContain(`sha256 ${sha}`);
   });
 });
+
+/* ─── The real workbook (docs/rates), when present ────────── */
+
+const REAL_WORKBOOK = path.join(__dirname, "../../docs/rates/stretchmetal_rates_247plus10.xlsx");
+
+describe.skipIf(!fs.existsSync(REAL_WORKBOOK))("seed-market-rates: docs/rates/stretchmetal_rates_247plus10.xlsx", () => {
+  const build = buildMarketVersion(readWorkbook(fs.readFileSync(REAL_WORKBOOK)), SOURCE);
+  const { rows, report } = build;
+  const laser = (code: string, t: number) =>
+    rows.laser.find((r: { material_code: string; thickness_mm: number; in_house: boolean }) => r.material_code === code && Number(r.thickness_mm) === t && r.in_house)!;
+
+  it("names the version from settings and maps every owner rule", () => {
+    expect(build.label).toBe("market-247+10% v1 (26 Sep 2026)");
+    expect(rows.general).toMatchObject({ pricing_mode: "market", order_charge_eur: 17.886, packaging_box_eur: 2.75, packaging_pallet_eur: 34.43, labour_rate_eur_h: 25, blank_margin_mm: 0, default_margin_pct: 30 });
+    expect(rows.materials.find((m: { code: string }) => m.code === "DC01")!.price_per_kg).toHaveLength(4);
+    expect(rows.materials.find((m: { code: string }) => m.code === "S235")!.price_per_kg.at(-1)).toMatchObject({ maxThicknessMm: 999 });
+    expect(rows.materials.filter((m: { scrap_pct_default: number }) => Number(m.scrap_pct_default) === 0)).toHaveLength(4);
+    expect(laser("DC01", 1.5)).toMatchObject({ mode: "per_m", price_per_m: 0.2387, price_per_pierce: 0.0231, setup_eur: 37.323, gas: "N2", min_contour_mm: 15, placeholder: false });
+    expect(laser("DC01", 2.5).placeholder).toBe(true);
+    expect(laser("S235", 12.7).placeholder).toBe(true);
+    expect(rows.laser.filter((r: { placeholder: boolean; mode: string }) => r.mode === "per_m" && r.placeholder)).toHaveLength(5 + SOURCE.laser.filter((r: { in_house: boolean }) => !r.in_house).length);
+    expect(rows.finish.find((f: { code: string }) => f.code === "deburr")).toMatchObject({ unit: "m", price: 1.2903, setup_per_order_eur: 36.828, min_part_mm: DEBURR_MIN_PART_MM });
+    expect(rows.finish.find((f: { code: string }) => f.code === "engrave")).toMatchObject({ unit: "part", price: 0.418 });
+    expect(rows.leadtime.map((r: { working_days: number; multiplier: number }) => [r.working_days, r.multiplier])).toEqual([[4, 1.711], [7, 1.14], [11, 1]]);
+  });
+
+  it("reports the documentation sheets, the cost_at_margin columns and the notes as not mapped, with no warnings", () => {
+    expect(report.warnings).toEqual([]);
+    expect(report.unmapped).toEqual(expect.arrayContaining(['sheet "247_base" (documentation, not imported)', 'sheet "import_notes" (documentation, not imported)']));
+    expect(report.unmapped.some((u: string) => u.startsWith("rate_laser row 21: note"))).toBe(true);
+    expect(report.unmapped.some((u: string) => u.includes("cost_at_margin"))).toBe(true);
+  });
+
+  it("matches the committed export the verification test prices against", () => {
+    const exported = JSON.parse(fs.readFileSync(path.join(__dirname, "../fixtures/rates/market-247plus10.json"), "utf8"));
+    expect(exported.general).toEqual(rows.general);
+    expect(exported.laser).toEqual(rows.laser);
+    expect(exported.materials).toEqual(rows.materials);
+    expect(exported.finish).toEqual(rows.finish);
+    expect(exported.leadtime).toEqual(rows.leadtime);
+  });
+});

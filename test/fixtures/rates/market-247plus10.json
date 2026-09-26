@@ -1,0 +1,2688 @@
+{
+  "version": {
+    "id": null,
+    "label": "market-247+10% v1 (26 Sep 2026)",
+    "note": "sha256 5573a13927cc6d9c38b45479c9c9c7950e4849b848b8171af769862431d62817",
+    "active": false
+  },
+  "general": {
+    "order_charge_eur": 17.886,
+    "packaging_box_eur": 2.75,
+    "packaging_pallet_eur": 34.43,
+    "pricing_mode": "market",
+    "rate_version_id": "00000000-0000-4000-8000-000000000001",
+    "machine_rate_eur_h": 70,
+    "labour_rate_eur_h": 25,
+    "machining_rate_eur_h": 60,
+    "default_margin_pct": 30,
+    "margin_by_class": {},
+    "blank_margin_mm": 0,
+    "slow_contour_factor": 1.5,
+    "default_stitch_bead_mm": 30,
+    "default_stitch_pitch_mm": 60,
+    "handling_mass_limit_kg": 25,
+    "handling_surcharge_eur": 5,
+    "weld_handling_per_part": 3,
+    "placeholder": false
+  },
+  "materials": [
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "1.4301",
+      "name": "1.4301 (AISI 304) stainless",
+      "family": "stainless",
+      "density_kg_m3": 7900,
+      "rm_n_mm2": 600,
+      "price_per_kg": [
+        {
+          "maxThicknessMm": 999,
+          "pricePerKg": 15.3494371308017
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 0,
+      "placeholder": false
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "AlMg3",
+      "name": "AlMg3 EN AW-5754 aluminium",
+      "family": "aluminium",
+      "density_kg_m3": 2660,
+      "rm_n_mm2": 220,
+      "price_per_kg": [
+        {
+          "maxThicknessMm": 999,
+          "pricePerKg": 41.3686290726817
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 0,
+      "placeholder": false
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "Cu-ETP",
+      "name": "Cu-ETP (CW004A) copper",
+      "family": "copper",
+      "density_kg_m3": 8940,
+      "rm_n_mm2": 250,
+      "price_per_kg": [
+        {
+          "pricePerKg": 9.5,
+          "maxThicknessMm": 999
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 25,
+      "placeholder": true
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "CuZn37",
+      "name": "CuZn37 (CW508L) brass",
+      "family": "brass",
+      "density_kg_m3": 8440,
+      "rm_n_mm2": 350,
+      "price_per_kg": [
+        {
+          "pricePerKg": 8.5,
+          "maxThicknessMm": 999
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 25,
+      "placeholder": true
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "DC01",
+      "name": "DC01 cold-rolled sheet",
+      "family": "mild_steel",
+      "density_kg_m3": 7850,
+      "rm_n_mm2": 350,
+      "price_per_kg": [
+        {
+          "maxThicknessMm": 1,
+          "pricePerKg": 7.64130049681529
+        },
+        {
+          "maxThicknessMm": 1.5,
+          "pricePerKg": 3.52186836518047
+        },
+        {
+          "maxThicknessMm": 2,
+          "pricePerKg": 5.5767023825637
+        },
+        {
+          "maxThicknessMm": 3,
+          "pricePerKg": 4.47300702760085
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 0,
+      "placeholder": false
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "S235",
+      "name": "S235JR structural steel",
+      "family": "mild_steel",
+      "density_kg_m3": 7850,
+      "rm_n_mm2": 400,
+      "price_per_kg": [
+        {
+          "maxThicknessMm": 3,
+          "pricePerKg": 4.65050171974522
+        },
+        {
+          "maxThicknessMm": 5,
+          "pricePerKg": 3.34977403821656
+        },
+        {
+          "maxThicknessMm": 8,
+          "pricePerKg": 3.7101035589172
+        },
+        {
+          "maxThicknessMm": 999,
+          "pricePerKg": 3.28447655414013
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 0,
+      "placeholder": false
+    },
+    {
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "S355",
+      "name": "S355J2 structural steel",
+      "family": "mild_steel",
+      "density_kg_m3": 7850,
+      "rm_n_mm2": 510,
+      "price_per_kg": [
+        {
+          "pricePerKg": 1.15,
+          "maxThicknessMm": 3
+        },
+        {
+          "pricePerKg": 1.2,
+          "maxThicknessMm": 8
+        },
+        {
+          "pricePerKg": 1.25,
+          "maxThicknessMm": 999
+        }
+      ],
+      "sheet_formats": [
+        {
+          "widthMm": 1500,
+          "lengthMm": 3000
+        },
+        {
+          "widthMm": 1250,
+          "lengthMm": 2500
+        },
+        {
+          "widthMm": 1000,
+          "lengthMm": 2000
+        }
+      ],
+      "scrap_pct_default": 25,
+      "placeholder": true
+    }
+  ],
+  "laser": [
+    {
+      "setup_eur": 0,
+      "id": "5054c92d-c1ac-4d21-b6ac-220e95d842be",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 17.5,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 35.464,
+      "id": "38e9bec0-aa56-46e0-a0a0-5839741b660e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 1.5,
+      "mode": "per_m",
+      "speed_m_min": 14.35,
+      "pierce_s": 0.25,
+      "price_per_m": 0.341,
+      "price_per_pierce": 0.0231,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 0,
+      "id": "9726eb63-f94f-4fb2-b6a7-647c75b8ebcc",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 11.2,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "68de749b-6500-4548-b79b-e0834f3150e0",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 9.45,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "a7b5859c-5124-4413-b936-b538c8a38d79",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 3,
+      "mode": "time",
+      "speed_m_min": 7.7,
+      "pierce_s": 0.4,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "532f85f1-1ca0-43c3-b1b9-923f1b7e77e5",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 4.9,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "07bd20bc-559d-42e3-8742-86b0248c2dcf",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 3.85,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "c912e88d-1006-4294-9be6-e43ad106dd91",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 3.15,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "ee4d5103-6446-41c5-9c4b-de77ea2d6346",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 8,
+      "mode": "time",
+      "speed_m_min": 2.1,
+      "pierce_s": 1.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 80,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "56d992e9-4bac-4f8b-830b-95e182eb5a40",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 10,
+      "mode": "time",
+      "speed_m_min": 1.54,
+      "pierce_s": 1.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 100,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "641648c9-27a3-446e-b179-cb7584f424a8",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 12,
+      "mode": "time",
+      "speed_m_min": 1.19,
+      "pierce_s": 2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 120,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "e8f479ae-da89-4622-ba93-713c3f0ed504",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "1.4301",
+      "thickness_mm": 12.7,
+      "mode": "time",
+      "speed_m_min": 1.05,
+      "pierce_s": 2.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 127,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "24fef188-c701-4c19-9d22-09089f9c4675",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 17.5,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 55.132,
+      "id": "a0cb32ed-25cb-4679-9623-fbdc5ba4405a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 1.5,
+      "mode": "per_m",
+      "speed_m_min": 14.35,
+      "pierce_s": 0.25,
+      "price_per_m": 0.341,
+      "price_per_pierce": 0.0231,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 0,
+      "id": "cb00a2ad-34f2-4dbc-b9dd-4622818a6d3d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 11.2,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "05983f6a-ccb5-40fd-b12e-90ed4185212d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 9.45,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "e4f0c7de-5957-409a-9f44-7f3970f569a1",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 3,
+      "mode": "time",
+      "speed_m_min": 7.7,
+      "pierce_s": 0.4,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "527e4032-993e-4467-9b41-eb86aa42bb2e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 4.9,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "a1702c58-105a-4a39-8e47-2f1a5ff64a55",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 3.85,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "5e52d48a-cd78-465e-b99d-64a2fafcdaef",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "AlMg3",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 3.15,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "1e4a4795-391b-49eb-8f54-b2f231e0283d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 17.5,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "23606286-1e63-4010-8e83-d12a17534274",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 1.5,
+      "mode": "time",
+      "speed_m_min": 14.35,
+      "pierce_s": 0.25,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "3d688de8-65d8-4047-84b0-c64d0c2e61ac",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 11.2,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "691f91d3-4e5b-4a86-b2d1-d12645eb717c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 9.45,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "e2675789-79ce-44c9-90b5-050c78ce18f9",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 3,
+      "mode": "time",
+      "speed_m_min": 7.7,
+      "pierce_s": 0.4,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "250ac3bb-0d8b-4b41-b444-2d5e9b74023b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 4.9,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "5d124117-943c-4a10-b907-ceb4de3b15a0",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 3.85,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "fbe40753-daa2-4715-9a1c-27600b448764",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "Cu-ETP",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 3.15,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "6850bcd6-9568-4513-97ed-026869020554",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 17.5,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "f2046805-3632-43fe-b291-8ddfcc39a255",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 1.5,
+      "mode": "time",
+      "speed_m_min": 14.35,
+      "pierce_s": 0.25,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "d0645112-f3c7-4282-aca6-d0a904eb6233",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 11.2,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "4e108fa2-398e-4e2e-8912-f03126e6f058",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 9.45,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "2a631bee-1891-493c-9998-d4b6a309fe09",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 3,
+      "mode": "time",
+      "speed_m_min": 7.7,
+      "pierce_s": 0.4,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "7c81a5bc-3b37-4faf-b175-498af3ccd03e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 4.9,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "2f81fa4d-fd00-4dab-a510-864b4660d972",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 3.85,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "6d203e86-e512-40f0-9658-05bb24d4d8ff",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "CuZn37",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 3.15,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 54.329,
+      "id": "a00c7ca9-2a97-43dd-9ccf-351ecb9baa2a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 1,
+      "mode": "per_m",
+      "speed_m_min": 25,
+      "pierce_s": 0.2,
+      "price_per_m": 0.195734,
+      "price_per_pierce": 0.01848,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 37.323,
+      "id": "2ac15381-dfb6-40d3-98d9-fbe2dd698066",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 1.5,
+      "mode": "per_m",
+      "speed_m_min": 20.5,
+      "pierce_s": 0.25,
+      "price_per_m": 0.2387,
+      "price_per_pierce": 0.0231,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 34.276,
+      "id": "1d17e6cb-cf5f-4efb-add0-e3b0b590fe2b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 2,
+      "mode": "per_m",
+      "speed_m_min": 16,
+      "pierce_s": 0.3,
+      "price_per_m": 0.305834375,
+      "price_per_pierce": 0.02772,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 36.9765,
+      "id": "a95feace-19af-4db0-bdd6-32ef39271b37",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 2.5,
+      "mode": "per_m",
+      "speed_m_min": 13.5,
+      "pierce_s": 0.35,
+      "price_per_m": 0.3753421875,
+      "price_per_pierce": 0.03234,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 39.677,
+      "id": "eaece15b-36b3-469e-822f-6e61f06d9733",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 3,
+      "mode": "per_m",
+      "speed_m_min": 11,
+      "pierce_s": 0.4,
+      "price_per_m": 0.44485,
+      "price_per_pierce": 0.03696,
+      "gas": "O2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 0,
+      "id": "fefbd916-7310-4c41-8dc4-298ace8d59b8",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 7,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "7e82286c-2ff1-4a74-b1c0-98d1929af70c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 5.5,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "2cafc0a4-f720-4c7e-8ae3-b8bd2385b636",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 4.5,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "2a160cd8-2245-4cd6-af31-cf9fa20ccf66",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 8,
+      "mode": "time",
+      "speed_m_min": 3,
+      "pierce_s": 1.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 80,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "1c458e62-231f-4015-9fd8-2d889d2cf90c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 10,
+      "mode": "time",
+      "speed_m_min": 2.2,
+      "pierce_s": 1.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 100,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "37eae0ec-4c92-4efd-98dc-0af9c0a7bf93",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 12,
+      "mode": "time",
+      "speed_m_min": 1.7,
+      "pierce_s": 2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 120,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "0f4e458b-d9d5-4371-9f44-941384632fed",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "DC01",
+      "thickness_mm": 12.7,
+      "mode": "time",
+      "speed_m_min": 1.5,
+      "pierce_s": 2.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 127,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "3b4d60f2-d229-4a4d-bff2-184d94a49729",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 25,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "a0a29b62-210c-40ce-a912-71f01c133e4e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 1.5,
+      "mode": "time",
+      "speed_m_min": 20.5,
+      "pierce_s": 0.25,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "074c8ede-4aa3-4680-922d-d086cff321fe",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 16,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "d854236e-d5af-4376-877c-0bbc07a29141",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 13.5,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 32.01,
+      "id": "89d39fcf-4835-4bcb-8842-a52c59281325",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 3,
+      "mode": "per_m",
+      "speed_m_min": 11,
+      "pierce_s": 0.4,
+      "price_per_m": 0.44485,
+      "price_per_pierce": 0.03696,
+      "gas": "O2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 30.052,
+      "id": "37fd3c27-1c84-4708-86c7-49a272927c99",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 4,
+      "mode": "per_m",
+      "speed_m_min": 7,
+      "pierce_s": 0.6,
+      "price_per_m": 0.667275,
+      "price_per_pierce": 0.05544,
+      "gas": "O2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 28.094,
+      "id": "bc9e6bdf-2283-4ed7-a622-631ba11cf9ea",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 5,
+      "mode": "per_m",
+      "speed_m_min": 5.5,
+      "pierce_s": 0.8,
+      "price_per_m": 0.8897,
+      "price_per_pierce": 0.07392,
+      "gas": "O2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 28.523,
+      "id": "dee2178f-0448-4c20-9eb2-495e3f3ab041",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 6,
+      "mode": "per_m",
+      "speed_m_min": 4.5,
+      "pierce_s": 1,
+      "price_per_m": 1.13683888888889,
+      "price_per_pierce": 0.08932,
+      "gas": "O2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 29.381,
+      "id": "c9ef503c-8817-40d8-be08-e512f3eacc1f",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 8,
+      "mode": "per_m",
+      "speed_m_min": 3,
+      "pierce_s": 1.3,
+      "price_per_m": 1.63111666666667,
+      "price_per_pierce": 0.12012,
+      "gas": "O2",
+      "min_contour_mm": 80,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 23.903,
+      "id": "3d7748cc-4b74-40d0-a801-ef429770d57e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 10,
+      "mode": "per_m",
+      "speed_m_min": 2.2,
+      "pierce_s": 1.6,
+      "price_per_m": 2.22425,
+      "price_per_pierce": 0.14784,
+      "gas": "O2",
+      "min_contour_mm": 100,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": false
+    },
+    {
+      "setup_eur": 23.903,
+      "id": "10f9c2a2-200d-4883-8638-6d37a4593466",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 12,
+      "mode": "per_m",
+      "speed_m_min": 1.7,
+      "pierce_s": 2,
+      "price_per_m": 2.81738333333333,
+      "price_per_pierce": 0.17556,
+      "gas": "O2",
+      "min_contour_mm": 120,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 23.903,
+      "id": "09b17a8f-bc34-4e61-9cfd-5c3153188666",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 12.7,
+      "mode": "per_m",
+      "speed_m_min": 1.5,
+      "pierce_s": 2.2,
+      "price_per_m": 3.02498,
+      "price_per_pierce": 0.185262,
+      "gas": "O2",
+      "min_contour_mm": 127,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "1fda6234-bc56-4d72-9022-b3d3df479b37",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 15,
+      "mode": "per_m",
+      "speed_m_min": null,
+      "pierce_s": null,
+      "price_per_m": 6,
+      "price_per_pierce": 0.5,
+      "gas": null,
+      "min_contour_mm": null,
+      "in_house": false,
+      "supplier": "[CONFIRM] subcontractor",
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "4f4b17c0-b13c-4f45-8481-bd0e1e36bb2b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S235",
+      "thickness_mm": 20,
+      "mode": "per_m",
+      "speed_m_min": null,
+      "pierce_s": null,
+      "price_per_m": 8,
+      "price_per_pierce": 0.5,
+      "gas": null,
+      "min_contour_mm": null,
+      "in_house": false,
+      "supplier": "[CONFIRM] subcontractor",
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "086d6d18-b32f-4b06-b477-7e0f375e4d92",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 1,
+      "mode": "time",
+      "speed_m_min": 25,
+      "pierce_s": 0.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 10,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "f8598a1e-59ec-44e2-916e-07250ad64ea8",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 1.5,
+      "mode": "time",
+      "speed_m_min": 20.5,
+      "pierce_s": 0.25,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 15,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "b5db31a0-84c0-4334-9585-abdd83eabc23",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 2,
+      "mode": "time",
+      "speed_m_min": 16,
+      "pierce_s": 0.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 20,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "98770b0f-2d15-4a71-8b8c-a78d0b4b501d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 2.5,
+      "mode": "time",
+      "speed_m_min": 13.5,
+      "pierce_s": 0.35,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "N2",
+      "min_contour_mm": 25,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "1a36d0e9-990a-44d6-8a5a-1eb40324f26c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 3,
+      "mode": "time",
+      "speed_m_min": 11,
+      "pierce_s": 0.4,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 30,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "97b4be4e-922d-4aa3-a0b9-2d000ac74b82",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 4,
+      "mode": "time",
+      "speed_m_min": 7,
+      "pierce_s": 0.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 40,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "1e3c5613-302b-4bb9-93ed-d024021a2ff3",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 5,
+      "mode": "time",
+      "speed_m_min": 5.5,
+      "pierce_s": 0.8,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 50,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "5003d953-2b64-4f76-8bd6-212bfc27edc3",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 6,
+      "mode": "time",
+      "speed_m_min": 4.5,
+      "pierce_s": 1,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 60,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "2c6dae17-d7d3-41d9-aa06-4c29131972f2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 8,
+      "mode": "time",
+      "speed_m_min": 3,
+      "pierce_s": 1.3,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 80,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "e29a1499-d5e7-40a6-a0bc-73f59ad41ed2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 10,
+      "mode": "time",
+      "speed_m_min": 2.2,
+      "pierce_s": 1.6,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 100,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "4c685410-052f-430c-819c-2419e01dc658",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 12,
+      "mode": "time",
+      "speed_m_min": 1.7,
+      "pierce_s": 2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 120,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "01a76cf4-881b-4ff6-8c95-e8b50bc561e4",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 12.7,
+      "mode": "time",
+      "speed_m_min": 1.5,
+      "pierce_s": 2.2,
+      "price_per_m": null,
+      "price_per_pierce": 0.05,
+      "gas": "O2",
+      "min_contour_mm": 127,
+      "in_house": true,
+      "supplier": null,
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "b53fb803-1e7c-4202-806e-6c0997a5699f",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 15,
+      "mode": "per_m",
+      "speed_m_min": null,
+      "pierce_s": null,
+      "price_per_m": 6,
+      "price_per_pierce": 0.5,
+      "gas": null,
+      "min_contour_mm": null,
+      "in_house": false,
+      "supplier": "[CONFIRM] subcontractor",
+      "placeholder": true
+    },
+    {
+      "setup_eur": 0,
+      "id": "7cb6f77a-a008-452f-a21d-1b255f982f60",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "material_code": "S355",
+      "thickness_mm": 20,
+      "mode": "per_m",
+      "speed_m_min": null,
+      "pierce_s": null,
+      "price_per_m": 8,
+      "price_per_pierce": 0.5,
+      "gas": null,
+      "min_contour_mm": null,
+      "in_house": false,
+      "supplier": "[CONFIRM] subcontractor",
+      "placeholder": true
+    }
+  ],
+  "tubeLaser": [
+    {
+      "id": "1fc715e2-b2cb-4c41-9407-e8363bc32ace",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 2,
+      "price_per_m_cut": 4,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "5f30dbb9-b407-49e2-9986-71809553b1f1",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 2,
+      "price_per_m_cut": 4,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "49f447c5-2405-4ac8-99d0-31bc665a571c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 2,
+      "price_per_m_cut": 4,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "e6741f6c-cfc1-4398-951d-c4ffe55378ac",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 3,
+      "price_per_m_cut": 5,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "046e8661-8880-4007-95b2-729deb8c4f75",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 3,
+      "price_per_m_cut": 5,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "7264bf7a-980f-4c88-81f3-871f11bba6eb",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 3,
+      "price_per_m_cut": 5,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "cc01c90a-54c2-403f-b0f7-baf9f060b1ff",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 4,
+      "price_per_m_cut": 6,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "f38b9434-7573-4072-ada9-47be3ce1c265",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 4,
+      "price_per_m_cut": 6,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "543077ec-9d5f-4858-b6ec-ecb055216522",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 4,
+      "price_per_m_cut": 6,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "1602d15b-9d66-4302-8dc1-0f7412489ed1",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 5,
+      "price_per_m_cut": 7,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "0c92c1cd-4b85-4b7a-9570-6854fe9ab6cf",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 5,
+      "price_per_m_cut": 7,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "2b904d9d-dd11-4eb5-9319-ca037bd3c24b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 5,
+      "price_per_m_cut": 7,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "ea591c35-5b9d-4852-b4e2-5fa5525b6481",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 6,
+      "price_per_m_cut": 8,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "88ab0f20-b751-4f6d-9b65-cba00888567d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 6,
+      "price_per_m_cut": 8,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "5012b75a-2f47-4458-a10d-858c0eeac9e7",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 6,
+      "price_per_m_cut": 8,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "7dc8b434-5a5b-4cc3-ada9-f93f4a6ff374",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "round",
+      "wall_mm": 8,
+      "price_per_m_cut": 10,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "cafe1182-cfab-46d2-a5e9-bd54057f83bd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "square",
+      "wall_mm": 8,
+      "price_per_m_cut": 10,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    },
+    {
+      "id": "0e48a79d-5f53-4142-b1ce-56b2ce3777ff",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "profile_family": "rectangular",
+      "wall_mm": 8,
+      "price_per_m_cut": 10,
+      "handling_per_part": 1.5,
+      "setup": 10,
+      "placeholder": true
+    }
+  ],
+  "bend": [
+    {
+      "id": "7f4ef0cc-3758-4c86-9cf4-99691bdee3bc",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "c5980b7d-3345-434c-bcfb-2dc0913bbe90",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "0b3c9e05-e912-4946-988e-1ba8e692f23a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "951170ea-77b3-4fbc-b258-c5dff73e20d4",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "9ec118ba-4175-4b26-93b4-75da4729a1d8",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "159a8678-6727-4ba3-916e-e63eab33a030",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "646bc4f0-e917-4955-9fc3-af42f277200d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "b67bfccd-264e-46d2-b851-d4e4276fcea9",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "6b3bb0cd-6c45-4e6f-91c3-3b114fd0df0c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "d2d7a2eb-56ae-4077-ae0e-a4e3ccd91875",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "55fa5dc1-058e-4847-bd10-7447cd52a850",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "0a980fbd-f861-4382-be23-66edc881e88c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "1f426ba9-9bf6-44e7-b21a-6ca6fdcb9a39",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "6b34e6b3-6641-4933-8280-ea78df755ea1",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "93fcc305-3f71-4f34-8e49-26a90fca3964",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "d75bf878-3198-43cf-9ed1-1b9072a12b3e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "length_class_mm": 500,
+      "price_per_bend": 0.9,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "95680e6e-c68c-4d48-9baf-fc0494a37dfd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "length_class_mm": 1500,
+      "price_per_bend": 1.6,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "b96585bc-e5eb-4dce-9d76-70e8e19052c1",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "length_class_mm": 4420,
+      "price_per_bend": 3,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "bec8c649-86b5-4e8a-b759-e22c32fa49ef",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 8,
+      "length_class_mm": 500,
+      "price_per_bend": 1.35,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "83a7e114-e78d-4f0b-8ff4-2d946d9d782c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 8,
+      "length_class_mm": 1500,
+      "price_per_bend": 2.4,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "13e79c9d-2007-4d3a-b322-8886204580b2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 8,
+      "length_class_mm": 4420,
+      "price_per_bend": 4.5,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "8f1a41b2-acbe-4459-a9ff-788fc46ef3d5",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 10,
+      "length_class_mm": 500,
+      "price_per_bend": 1.35,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "c8c16108-0ca8-4bd2-abdc-fb6395550cfd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 10,
+      "length_class_mm": 1500,
+      "price_per_bend": 2.4,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "b009fbe8-02d0-44bd-a817-93b75a5a4935",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 10,
+      "length_class_mm": 4420,
+      "price_per_bend": 4.5,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "2fdd29a0-4ae6-4480-bf40-48bb7ed14b93",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 12,
+      "length_class_mm": 500,
+      "price_per_bend": 1.35,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "bb60b899-ba49-47fd-8195-b2775a4f4c26",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 12,
+      "length_class_mm": 1500,
+      "price_per_bend": 2.4,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "99241b0b-b07e-4814-986a-8864a0425484",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 12,
+      "length_class_mm": 4420,
+      "price_per_bend": 4.5,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "a03bf468-7e10-4154-82c6-1976d452ab6c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 15,
+      "length_class_mm": 500,
+      "price_per_bend": 1.35,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "351aafd9-39c4-4513-a2bd-8dbad158bb09",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 15,
+      "length_class_mm": 1500,
+      "price_per_bend": 2.4,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    },
+    {
+      "id": "7bfe1b42-cf1e-4d82-a851-73c115e8aa08",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 15,
+      "length_class_mm": 4420,
+      "price_per_bend": 4.5,
+      "setup_per_part_type": 8,
+      "placeholder": true
+    }
+  ],
+  "roll": [
+    {
+      "id": "7f37f8ae-0dc4-47ce-b00b-d681f47ad4d7",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "84b8a697-9497-4a8d-bf84-b3592d494d44",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "c393e8c3-6198-43f9-9605-1fc0fa77c814",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "cd6308ed-64fe-45f5-b39f-3895f68c87ee",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 1,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "db685b76-2e92-4656-9e53-2e450a2ef3ac",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "75021321-6e29-4afd-a612-0929fae59d19",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "e1f501db-85b0-441f-b866-e929a35d4d1d",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "efa84217-41be-41da-a65a-dd7cc123cf87",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 2,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "be4e13be-ebfd-4c7c-b1f7-ab75551e5f08",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "2a58c98e-4ed4-45b8-8fbf-b8e87d8cfbd5",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "b808f269-efdf-4315-b068-4c52b9df2c8a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "32b21532-30bf-4283-81bf-16b552f5d6ea",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 3,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "b977420d-554f-49a2-88de-42bbeebffaea",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "ea28994e-6c18-46e7-8204-a3f47fea74a7",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "6718c15d-172c-4e4f-834c-bf17cc8e4637",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "2e902ccd-4c87-47e0-a10a-1be10b73f601",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 4,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "cde0c143-bb26-4967-ad05-c8f2e7cfd5dd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "c73bb392-6771-434d-9c50-a046e92710f4",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "222f5566-af85-4bd3-a0a5-93894d264f6b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "68ae92c1-c985-4a30-bf82-42458d045fbc",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 5,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "92a5b482-7e56-4b19-9092-6f26fdb9a1cf",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "radius_class_mm": 200,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "27d0a533-2043-4eff-b11e-fb3c45eacd7e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "radius_class_mm": 500,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "dc0caf2f-cb79-48f3-9fe2-83831141f149",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "radius_class_mm": 1000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    },
+    {
+      "id": "e52cccdc-9773-4095-a30b-0fd88ef02916",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "thickness_mm": 6,
+      "radius_class_mm": 3000,
+      "price_per_m": 12,
+      "setup": 25,
+      "placeholder": true
+    }
+  ],
+  "weld": [
+    {
+      "id": "37a4a60f-1c38-4a20-a401-e0744427c2dd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mig_mag",
+      "bead_mm": 3,
+      "price_per_mm": 0.045,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "887da568-dff6-4cff-934a-bbd049649b75",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mig_mag",
+      "bead_mm": 4,
+      "price_per_mm": 0.045,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "42d100b7-61b0-4566-8f9d-e64f79ed956b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mig_mag",
+      "bead_mm": 6,
+      "price_per_mm": 0.045,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "0f55e672-8a2e-4a6b-aee8-919e1e8100e2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mig_mag",
+      "bead_mm": 8,
+      "price_per_mm": 0.045,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "8aa8d4a4-3f64-4172-9853-540188f8fda2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "tig",
+      "bead_mm": 3,
+      "price_per_mm": 0.09,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "5df4c097-d5e2-4a30-bbf6-0083dd625cc7",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "tig",
+      "bead_mm": 4,
+      "price_per_mm": 0.09,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "31253fcf-81ff-436d-8b4b-f12b8d5a18be",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "tig",
+      "bead_mm": 6,
+      "price_per_mm": 0.09,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "a19dee93-ce3b-4173-96de-1d208920ae69",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "tig",
+      "bead_mm": 8,
+      "price_per_mm": 0.09,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "9db3c858-5577-4f2a-977c-b9573009982f",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "laser",
+      "bead_mm": 3,
+      "price_per_mm": 0.06,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "a443c30b-ddea-4037-b934-9e59b5ac9117",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "laser",
+      "bead_mm": 4,
+      "price_per_mm": 0.06,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "ada23c6e-eee2-4344-a73d-57e02dd91611",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "laser",
+      "bead_mm": 6,
+      "price_per_mm": 0.06,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "e38d5d6c-67b6-4573-867a-54437f9fe8d0",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "laser",
+      "bead_mm": 8,
+      "price_per_mm": 0.06,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "a0ffda22-24bb-4051-b5d0-67f32427d7e8",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mma",
+      "bead_mm": 3,
+      "price_per_mm": 0.07,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "89bde88d-cf6e-4cfa-8bed-2e35b6c04158",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mma",
+      "bead_mm": 4,
+      "price_per_mm": 0.07,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "e4b93eb1-55b9-4057-9014-b7832cc7d186",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mma",
+      "bead_mm": 6,
+      "price_per_mm": 0.07,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    },
+    {
+      "id": "e73fb504-c549-4fc3-982c-0f70da572bfd",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "process": "mma",
+      "bead_mm": 8,
+      "price_per_mm": 0.07,
+      "setup": 15,
+      "min_order": 60,
+      "placeholder": true
+    }
+  ],
+  "thread": [
+    {
+      "id": "7e395c94-80f4-41b4-b729-516f8937803c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M3",
+      "price_each": 0.6,
+      "placeholder": true
+    },
+    {
+      "id": "c7deeadb-7161-49c8-a9fd-004583f2a0e0",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M4",
+      "price_each": 0.65,
+      "placeholder": true
+    },
+    {
+      "id": "25fcb062-00fd-4ebd-9d1c-07a61232df0b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M5",
+      "price_each": 0.7,
+      "placeholder": true
+    },
+    {
+      "id": "05c14bb1-0042-479d-ad58-0c65fdaa3be5",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M6",
+      "price_each": 0.8,
+      "placeholder": true
+    },
+    {
+      "id": "306906b0-765a-4e48-9fef-3bd44fc04200",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M8",
+      "price_each": 0.9,
+      "placeholder": true
+    },
+    {
+      "id": "d38b8204-2d33-4b76-935f-a890b2f2eb2c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M10",
+      "price_each": 1,
+      "placeholder": true
+    },
+    {
+      "id": "b0ce0d79-f793-4585-8dfe-5210b78cf205",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M10x1",
+      "price_each": 1.05,
+      "placeholder": true
+    },
+    {
+      "id": "476e23c6-1acf-4be6-a091-737262ec4c8a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M12",
+      "price_each": 1.2,
+      "placeholder": true
+    },
+    {
+      "id": "65697b07-3ef4-4c70-82b7-8361d9b819a0",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M12x1.5",
+      "price_each": 1.25,
+      "placeholder": true
+    },
+    {
+      "id": "03e584c0-06c9-4e81-9783-0c15758f8a8e",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M16",
+      "price_each": 1.4,
+      "placeholder": true
+    },
+    {
+      "id": "7349edfd-ca0b-4212-ba87-43ace3e4608b",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "size": "M20",
+      "price_each": 1.5,
+      "placeholder": true
+    }
+  ],
+  "feature": [
+    {
+      "id": "20757d9d-ef77-4fbc-99f4-f2534cdf6bf5",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "countersink",
+      "name": "Countersink",
+      "price_each": 0.8,
+      "placeholder": true
+    },
+    {
+      "id": "a8ef4fc9-b2a8-4979-8418-d3faaa2b7b3f",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "counterbore",
+      "name": "Counterbore",
+      "price_each": 1.2,
+      "placeholder": true
+    },
+    {
+      "id": "3f1cd5fe-a4f6-40a4-866d-ebc0247cfa7c",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "bore_h7",
+      "name": "H7 bore",
+      "price_each": 4,
+      "placeholder": true
+    },
+    {
+      "id": "15b316ab-3ad8-41ef-aed5-86231e7c4509",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "insert",
+      "name": "Threaded insert",
+      "price_each": 1.5,
+      "placeholder": true
+    },
+    {
+      "id": "b1150715-036d-461b-9018-bb6142333aa2",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "stud",
+      "name": "Weld stud",
+      "price_each": 1,
+      "placeholder": true
+    }
+  ],
+  "finish": [
+    {
+      "id": "06a7116a-cd23-4bd7-9768-14c40016a949",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "powder",
+      "name": "Powder coating",
+      "unit": "m2",
+      "price": 14,
+      "minimum": 25,
+      "placeholder": true,
+      "setup_per_order_eur": 0,
+      "min_part_mm": null
+    },
+    {
+      "id": "8369601a-5a50-4e9d-a504-ab715674336a",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "zinc",
+      "name": "Zinc plating",
+      "unit": "kg",
+      "price": 1.2,
+      "minimum": 30,
+      "placeholder": true,
+      "setup_per_order_eur": 0,
+      "min_part_mm": null
+    },
+    {
+      "id": "2b122795-a884-457e-a7a9-98a9ab3dace9",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "deburr",
+      "name": "Edge breaking both sides",
+      "unit": "m",
+      "price": 1.2903,
+      "minimum": 0,
+      "placeholder": false,
+      "setup_per_order_eur": 36.828,
+      "min_part_mm": "steel 250x60 or 600x50; aluminium/stainless 50x50"
+    },
+    {
+      "id": "0e0ffb44-fc44-49b8-889f-b665dd3190ae",
+      "rate_version_id": "00000000-0000-4000-8000-000000000001",
+      "code": "engrave",
+      "name": "Engrave part name",
+      "unit": "part",
+      "price": 0.418,
+      "minimum": 0,
+      "placeholder": false,
+      "setup_per_order_eur": 0,
+      "min_part_mm": null
+    }
+  ],
+  "leadtime": [
+    {
+      "working_days": 4,
+      "multiplier": 1.711,
+      "placeholder": false
+    },
+    {
+      "working_days": 7,
+      "multiplier": 1.14,
+      "placeholder": false
+    },
+    {
+      "working_days": 11,
+      "multiplier": 1,
+      "placeholder": false
+    }
+  ],
+  "machines": [
+    {
+      "code": "trufiber-12001",
+      "name": "TRUMPF TruFiber 12001 (12 kW)",
+      "kind": "flat_laser",
+      "limits": {
+        "zMm": 120,
+        "bedWidthMm": 1500,
+        "bedLengthMm": 3000,
+        "edgeMarginMm": 10,
+        "maxThicknessMm": {
+          "brass": 6,
+          "copper": 6,
+          "aluminium": 6,
+          "stainless": 12.7,
+          "mild_steel": 12.7
+        }
+      },
+      "updated_by": null,
+      "updated_at": "2026-09-25T22:58:44.729816+00:00"
+    },
+    {
+      "code": "tube-laser-12kw",
+      "name": "TRUMPF tube laser (12 kW)",
+      "kind": "tube_laser",
+      "limits": {
+        "maxKgPerM": 40,
+        "maxLengthMm": 6500,
+        "maxRectSideMm": 254,
+        "maxRawWeightKg": 260,
+        "wallThicknessMm": {
+          "brass": [
+            5,
+            5
+          ],
+          "copper": [
+            5,
+            5
+          ],
+          "aluminium": [
+            12.5,
+            8
+          ],
+          "stainless": [
+            12.5,
+            8
+          ],
+          "mild_steel": [
+            14,
+            10
+          ]
+        },
+        "maxCircumscribedMm": 290,
+        "maxRoundDiameterMm": 273
+      },
+      "updated_by": null,
+      "updated_at": "2026-09-25T22:58:44.729816+00:00"
+    },
+    {
+      "code": "press-brake-3200",
+      "name": "Press brake 3200 kN / 4420 mm",
+      "kind": "press_brake",
+      "limits": {
+        "forceKN": 3200,
+        "dieFactor": 8,
+        "bendLengthMm": 4420,
+        "openHeightMm": 615,
+        "betweenColumnsMm": 3680
+      },
+      "updated_by": null,
+      "updated_at": "2026-09-25T22:58:44.729816+00:00"
+    },
+    {
+      "code": "roll-3200",
+      "name": "Plate roll 3200 mm",
+      "kind": "roll",
+      "limits": {
+        "maxWidthMm": 3200,
+        "minRadiusMm": 200,
+        "maxThicknessMm": 6
+      },
+      "updated_by": null,
+      "updated_at": "2026-09-25T22:58:44.729816+00:00"
+    },
+    {
+      "code": "welding",
+      "name": "Welding (MIG/MAG, TIG, laser, MMA)",
+      "kind": "weld",
+      "limits": {
+        "processes": [
+          "mig_mag",
+          "tig",
+          "laser",
+          "mma"
+        ]
+      },
+      "updated_by": null,
+      "updated_at": "2026-09-25T22:58:44.729816+00:00"
+    }
+  ]
+}
