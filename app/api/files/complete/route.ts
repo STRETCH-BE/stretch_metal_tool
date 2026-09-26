@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
       sha256: hash,
       kind: sniffed.kind,
       uploadedBy: session.user.id,
+      quoteId,
     });
     fileRowId = row.id;
     const result = await processUploadedFile({

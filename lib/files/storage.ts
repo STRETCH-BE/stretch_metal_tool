@@ -13,14 +13,12 @@
  * requireQuoteWriter.
  *
  * Object keys: quotes/<quoteId>/<fileId>/<safeName>, so a key encodes
- * which quote it belongs to (files rows carry no quote_id) and the
- * complete route can verify a client-supplied path belongs to the quote
- * and the ticket it was issued for. The prefix is a convention, not a
- * guarantee: files_insert and the storage insert policy only check
- * can_write(), so readers of "the files of quote X" must also check the
- * uploader may edit X (lib/parts/quote-editor.ts). Schema follow-up for
- * the migration owner: files.quote_id + RLS on can_edit_quote(quote_id),
- * storage insert limited to the signed-upload flow.
+ * which quote it belongs to and the complete route can verify a
+ * client-supplied path belongs to the quote and the ticket it was issued
+ * for. Since migration 20260926000100 the files row also carries
+ * quote_id, and RLS (files_insert, storage quote_files_insert via
+ * storage_quote_id(name)) refuses inserts for quotes the user cannot
+ * edit; quote-scoped lookups use the column, not the path prefix.
  */
 
 import { createHash, randomUUID } from "node:crypto";
@@ -95,6 +93,8 @@ export type InsertFileInput = {
   sha256: string;
   kind: FileKind;
   uploadedBy: string;
+  /** Quote the file belongs to — RLS refuses quotes the user cannot edit. */
+  quoteId?: string | null;
 };
 
 /**
@@ -114,6 +114,7 @@ export async function insertFileRow(client: ServerSupabase | AdminSupabase, inpu
       sha256: input.sha256,
       kind: input.kind,
       uploaded_by: input.uploadedBy,
+      quote_id: input.quoteId ?? null,
     })
     .select("*")
     .single();

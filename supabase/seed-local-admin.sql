@@ -28,9 +28,10 @@
 --     fails with "converting NULL to string is unsupported" on sign-in.
 --   * auth.identities.provider_id is NOT NULL and equals the user id for the
 --     e-mail provider; identity_data needs "sub" and "email".
---   * public.handle_new_user() (migration) turns raw_user_meta_data.role /
---     locale / full_name into the profile row, so the profile is born as
---     admin; the final UPDATE only covers a pre-existing profile.
+--   * public.handle_new_user() (migration) reads the role from
+--     raw_APP_meta_data only (user metadata is client-controlled), so the
+--     profile is born as admin; the final UPDATE covers a pre-existing
+--     profile.
 --   * The local stub schema used by `test/db` has no token columns and no
 --     auth.identities, so this file is not exercised by the vitest suite.
 -- ============================================================================
@@ -72,8 +73,8 @@ begin
       v_email,
       extensions.crypt(v_password, extensions.gen_salt('bf')),
       now(),
-      '{"provider": "email", "providers": ["email"]}'::jsonb,
-      '{"full_name": "Local admin", "role": "admin", "locale": "en"}'::jsonb,
+      '{"provider": "email", "providers": ["email"], "role": "admin", "locale": "en"}'::jsonb,
+      '{"full_name": "Local admin", "locale": "en"}'::jsonb,
       now(),
       now(),
       '',
@@ -118,9 +119,10 @@ end $$;
 -- 1. Dashboard → Authentication → Users → "Invite user" (or "Add user" with a
 --    password). The user accepts the invite and sets a password; the
 --    on_auth_user_created trigger creates public.profiles with role 'sales'.
---    To create the user as admin straight away, invite via the Admin API with
---    user metadata {"role": "admin", "locale": "en", "full_name": "…"} —
---    handle_new_user() reads raw_user_meta_data.
+--    The FIRST account ever created becomes admin automatically. The role
+--    can never come from user metadata (handle_new_user() only reads
+--    raw_app_meta_data, which the service role alone can set); the in-app
+--    invite writes profiles.role directly.
 -- 2. Otherwise promote the profile afterwards in the SQL editor:
 --
 --    update public.profiles set role = 'admin' where email = 'michael@stretchmetal.pl';  -- [CONFIRM] admin e-mail

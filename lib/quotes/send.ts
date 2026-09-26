@@ -139,6 +139,7 @@ export async function sendQuote(quoteId: string, options: SendQuoteOptions = {})
     sha256: createHash("sha256").update(pdf).digest("hex"),
     kind: "quote_pdf",
     uploaded_by: session.user.id,
+    quote_id: quoteId,
   });
   if (fileError) throw new Error(`sendQuote/files: ${fileError.message}`);
 

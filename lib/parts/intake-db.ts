@@ -108,7 +108,7 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
         .from("files")
         .select("id, original_name, storage_path, sha256, uploaded_by, created_at")
         .eq("kind", "pdf")
-        .like("storage_path", `quotes/${quoteId}/%`)
+        .eq("quote_id", quoteId)
         .order("created_at", { ascending: false });
       if (error) throw new Error(`files by name: ${error.message}`);
       const matching = (data ?? []).filter((f) => baseNamesMatch(f.original_name, base) && f.uploaded_by !== null);

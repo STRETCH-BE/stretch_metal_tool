@@ -207,6 +207,8 @@ export type FileRow = {
   sha256: string;
   kind: FileKind;
   uploaded_by: string | null;
+  /** Quote the file belongs to (RLS: insert only into quotes the user can edit). */
+  quote_id: string | null;
   created_at: string;
 };
 
