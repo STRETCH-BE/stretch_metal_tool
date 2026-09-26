@@ -57,6 +57,7 @@ describe("header-state", () => {
       fxRate: 4.3,
       marginPct: 30,
       validityDays: 30,
+      leadTimeDays: 11,
       leadTimeText: "",
       paymentTermsText: "Przelew 14 dni",
       notes: "n",

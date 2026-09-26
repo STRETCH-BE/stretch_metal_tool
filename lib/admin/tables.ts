@@ -1,5 +1,5 @@
 /**
- * Rate-table registry — the ONE description of the ten versioned rate
+ * Rate-table registry — the ONE description of the eleven versioned rate
  * tables that the admin editor, the CSV import/export, the diff view and
  * the row validation all read from.
  * File path: /lib/admin/tables.ts
@@ -39,6 +39,7 @@ export const RATE_TABLE_NAMES = [
   "thread",
   "feature",
   "finish",
+  "leadtime",
 ] as const;
 
 export type RateTableName = (typeof RATE_TABLE_NAMES)[number];
@@ -53,11 +54,12 @@ export type RateDbTable =
   | "rate_weld"
   | "rate_thread"
   | "rate_feature"
-  | "rate_finish";
+  | "rate_finish"
+  | "rate_leadtime";
 
 export type ColumnKind = "number" | "text" | "select" | "bool" | "json";
 export type JsonKind = "priceBands" | "sheetFormats" | "marginByClass";
-export type OptionGroup = "mode" | "gas" | "process" | "unit" | "family" | "profileFamily";
+export type OptionGroup = "mode" | "gas" | "process" | "unit" | "family" | "profileFamily" | "pricingMode";
 
 export type ColumnDef = {
   name: string;
@@ -95,7 +97,8 @@ export const LASER_MODES = ["time", "per_m"] as const;
 export const LASER_GASES = ["O2", "N2", "air"] as const;
 export const TUBE_PROFILE_FAMILIES = ["round", "square", "rectangular", "open"] as const;
 export const WELD_PROCESSES = ["mig_mag", "tig", "laser", "mma"] as const;
-export const FINISH_UNITS = ["m2", "kg", "m", "each"] as const;
+export const FINISH_UNITS = ["m2", "kg", "m", "each", "part"] as const;
+export const PRICING_MODES = ["cost", "market"] as const;
 
 /* ─── Field schemas (messages are codes) ─────────────────── */
 
@@ -120,7 +123,13 @@ export function isMarginPctValid(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value < MARGIN_PCT_LIMIT;
 }
 
-function numberField(options: { nullable?: boolean; min?: number; below?: number; belowCode?: string } = {}) {
+/**
+ * `fallback`: value used when the cell is empty / absent. Columns added by a
+ * later migration (setup_eur, setup_per_order_eur, the market charges) use
+ * it so rows and CSV files written before the column existed still
+ * validate — the database default is the same value.
+ */
+function numberField(options: { nullable?: boolean; min?: number; below?: number; belowCode?: string; fallback?: number } = {}) {
   const min = options.min ?? 0;
   const below = options.below;
   const base = z
@@ -130,7 +139,11 @@ function numberField(options: { nullable?: boolean; min?: number; below?: number
     .refine((n) => Number.isFinite(n), "invalidNumber")
     .refine((n) => n >= min, "negative")
     .refine((n) => below === undefined || n < below, options.belowCode ?? "invalid");
-  return z.preprocess(toNumberInput, options.nullable ? base.nullable() : base);
+  const withFallback = (value: unknown): unknown => {
+    const parsed = toNumberInput(value);
+    return parsed === null && options.fallback !== undefined ? options.fallback : parsed;
+  };
+  return z.preprocess(withFallback, options.nullable ? base.nullable() : base);
 }
 
 const marginPctField = () => numberField({ below: MARGIN_PCT_LIMIT, belowCode: "marginTooHigh" });
@@ -159,8 +172,11 @@ function textField(options: { nullable?: boolean; max?: number } = {}) {
   );
 }
 
-function selectField(options: readonly string[], nullable = false) {
+function selectField(options: readonly string[], nullable = false, fallback?: string) {
   const base = z.enum(options as [string, ...string[]], "invalidOption");
+  if (fallback !== undefined) {
+    return z.preprocess((v) => (v === "" || v === null || v === undefined ? fallback : typeof v === "string" ? v.trim() : v), base);
+  }
   if (!nullable) return z.preprocess((v) => (typeof v === "string" ? v.trim() : v), base);
   return z.preprocess(
     (v) => (v === "" || v === null || v === undefined ? null : typeof v === "string" ? v.trim() : v),
@@ -215,6 +231,10 @@ const GENERAL_COLUMNS: readonly ColumnDef[] = [
   { name: "handling_mass_limit_kg", kind: "number", decimals: 2 },
   { name: "handling_surcharge_eur", kind: "number", decimals: 2 },
   { name: "weld_handling_per_part", kind: "number", decimals: 2 },
+  { name: "pricing_mode", kind: "select", options: PRICING_MODES, optionGroup: "pricingMode" },
+  { name: "order_charge_eur", kind: "number", decimals: 2 },
+  { name: "packaging_box_eur", kind: "number", decimals: 2 },
+  { name: "packaging_pallet_eur", kind: "number", decimals: 2 },
 ];
 
 const MATERIAL_COLUMNS: readonly ColumnDef[] = [
@@ -240,6 +260,7 @@ const LASER_COLUMNS: readonly ColumnDef[] = [
   { name: "gas", kind: "select", nullable: true, options: LASER_GASES, optionGroup: "gas" },
   { name: "min_contour_mm", kind: "number", nullable: true, decimals: 2 },
   { name: "supplier", kind: "text", nullable: true, maxLength: 120 },
+  { name: "setup_eur", kind: "number", decimals: 2 },
 ];
 
 const TUBE_LASER_COLUMNS: readonly ColumnDef[] = [
@@ -289,6 +310,13 @@ const FINISH_COLUMNS: readonly ColumnDef[] = [
   { name: "unit", kind: "select", options: FINISH_UNITS, optionGroup: "unit" },
   { name: "price", kind: "number", decimals: 4 },
   { name: "minimum", kind: "number", decimals: 4 },
+  { name: "setup_per_order_eur", kind: "number", decimals: 2 },
+  { name: "min_part_mm", kind: "text", nullable: true, maxLength: 200 },
+];
+
+const LEADTIME_COLUMNS: readonly ColumnDef[] = [
+  { name: "working_days", kind: "number", key: true, decimals: 0, min: 1 },
+  { name: "multiplier", kind: "number", decimals: 4 },
 ];
 
 /* ─── Row schemas ─────────────────────────────────────────── */
@@ -310,6 +338,10 @@ const generalSchema = rowSchema({
   handling_mass_limit_kg: numberField(),
   handling_surcharge_eur: numberField(),
   weld_handling_per_part: numberField(),
+  pricing_mode: selectField(PRICING_MODES, false, "cost"),
+  order_charge_eur: numberField({ fallback: 0 }),
+  packaging_box_eur: numberField({ fallback: 0 }),
+  packaging_pallet_eur: numberField({ fallback: 0 }),
 });
 
 const materialSchema = rowSchema({
@@ -335,6 +367,7 @@ const laserSchema = rowSchema({
   gas: selectField(LASER_GASES, true),
   min_contour_mm: numberField({ nullable: true }),
   supplier: textField({ nullable: true, max: 120 }),
+  setup_eur: numberField({ fallback: 0 }),
 });
 
 const tubeLaserSchema = rowSchema({
@@ -384,6 +417,13 @@ const finishSchema = rowSchema({
   unit: selectField(FINISH_UNITS),
   price: numberField(),
   minimum: numberField(),
+  setup_per_order_eur: numberField({ fallback: 0 }),
+  min_part_mm: textField({ nullable: true, max: 200 }),
+});
+
+const leadtimeSchema = rowSchema({
+  working_days: numberField({ min: 1 }),
+  multiplier: numberField(),
 });
 
 /* ─── Registry ────────────────────────────────────────────── */
@@ -417,6 +457,7 @@ export const RATE_TABLES: Record<RateTableName, RateTableDef> = {
   thread: def("thread", "rate_thread", THREAD_COLUMNS, threadSchema),
   feature: def("feature", "rate_feature", FEATURE_COLUMNS, featureSchema),
   finish: def("finish", "rate_finish", FINISH_COLUMNS, finishSchema),
+  leadtime: def("leadtime", "rate_leadtime", LEADTIME_COLUMNS, leadtimeSchema),
 };
 
 export function isRateTableName(value: unknown): value is RateTableName {

@@ -85,7 +85,7 @@ export type PdfViewModel = {
   rows: PdfPartRow[];
   showOperations: boolean;
   welding: { rows: PdfWeldingRow[]; total: string; minOrderApplied: boolean } | null;
-  totals: { partsSubtotal: string | null; weldingSubtotal: string | null; net: string; netNotice: string };
+  totals: { partsSubtotal: string | null; weldingSubtotal: string | null; packaging: string | null; net: string; netNotice: string };
   terms: { validity: string; leadTime: string | null; payment: string | null; notes: string | null; generic: string };
   footer: { bank: string; iban: string; swift: string; website: string; generated: string; confirmNote: string | null };
 };
@@ -224,10 +224,18 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
     welding = { rows: separateRows, total: money(movedWeldEur), minOrderApplied: false };
   }
 
+  // Market mode: packaging is the one quote-level line shown on its own
+  // (setups and the order charge sit inside the part prices, as 247 does).
+  const packagingEur = (pricing?.quoteLines ?? []).filter((l) => l.type === "packaging").reduce((sum, l) => sum + l.unitCost, 0);
   const netEur = pricing ? pricing.subtotalPrice : partsSubtotalEur + (weldingSubtotalEur ?? 0);
   const numberLabel = quoteNumberLabel(quote);
   const sender = options.preparedBy ?? null;
-  const leadTime = quote.lead_time_text?.trim() || null;
+  const leadDays = Number(quote.lead_time_days);
+  const leadTime =
+    quote.lead_time_text?.trim() ||
+    (pricing?.pricingMode === "market" && Number.isFinite(leadDays) && leadDays > 0
+      ? interpolate(t.terms.leadTimeDays, { days: formatNumber(leadDays, locale) })
+      : null);
   const payment = quote.payment_terms_text?.trim() || null;
   const legal = siteConfig.legal;
   const hasPlaceholders = legal.nip.startsWith("000") || legal.ibanPln.startsWith("PL00");
@@ -266,8 +274,9 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
     showOperations,
     welding,
     totals: {
-      partsSubtotal: welding ? money(partsSubtotalEur) : null,
+      partsSubtotal: welding || packagingEur > 0 ? money(partsSubtotalEur) : null,
       weldingSubtotal: welding && weldingSubtotalEur !== null ? money(weldingSubtotalEur) : null,
+      packaging: packagingEur > 0 ? money(packagingEur) : null,
       net: money(netEur),
       netNotice: t.totals.netNotice,
     },

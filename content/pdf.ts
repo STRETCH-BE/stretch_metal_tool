@@ -67,11 +67,14 @@ export type PdfContent = {
     netNotice: string;
     partsSubtotal: string;
     weldingSubtotal: string;
+    packaging: string;
   };
   terms: {
     heading: string;
     validity: string;
     leadTime: string;
+    /** `{days}` placeholder — the lead-time value when only working days are known. */
+    leadTimeDays: string;
     payment: string;
     notes: string;
     generic: string;
@@ -172,11 +175,13 @@ export const pdf: PdfContent = {
     netNotice: "Ceny netto, bez podatku VAT.", // [CONFIRM] VAT wording (23 % PL)
     partsSubtotal: "Części razem",
     weldingSubtotal: "Spawanie razem",
+    packaging: "Opakowanie",
   },
   terms: {
     heading: "Warunki",
     validity: "Oferta ważna do {date}.",
     leadTime: "Termin realizacji: {leadTime}.",
+    leadTimeDays: "{days} dni roboczych od potwierdzenia zamówienia",
     payment: "Warunki płatności: {terms}",
     notes: "Uwagi",
     generic: "Oferta nie stanowi oferty handlowej w rozumieniu art. 66 Kodeksu cywilnego; wiążące jest potwierdzenie zamówienia.", // [CONFIRM] legal wording

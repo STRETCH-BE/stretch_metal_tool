@@ -191,6 +191,7 @@ export function makeBundle(options: BundleOptions = {}): QuoteBundle {
     operations: [],
     overrides: options.overrides ?? [],
     rateVersionLabel: RATE_SNAPSHOT_V1.label,
+    costRateVersionLabel: null,
     pricing: priced,
     flags,
     weldingOnly: null,

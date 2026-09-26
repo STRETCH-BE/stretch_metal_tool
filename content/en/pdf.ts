@@ -83,11 +83,13 @@ export const pdf: PdfContent = {
     netNotice: "Prices are net, VAT excluded.", // [CONFIRM] VAT wording (23 % PL)
     partsSubtotal: "Parts subtotal",
     weldingSubtotal: "Welding subtotal",
+    packaging: "Packaging",
   },
   terms: {
     heading: "Terms",
     validity: "This quotation is valid until {date}.",
     leadTime: "Lead time: {leadTime}.",
+    leadTimeDays: "{days} working days from order confirmation",
     payment: "Payment terms: {terms}",
     notes: "Notes",
     generic: "This quotation is not a binding offer; the order confirmation is binding.", // [CONFIRM] legal wording

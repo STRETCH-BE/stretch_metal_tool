@@ -47,6 +47,7 @@ describe("validateRateRow", () => {
       gas: null,
       min_contour_mm: null,
       supplier: null,
+      setup_eur: 0,
     });
     expect("id" in result.values).toBe(false);
     expect("placeholder" in result.values).toBe(false);
@@ -170,6 +171,7 @@ describe("validateRateRow", () => {
       thread: { size: "M8", price_each: 1 },
       feature: { code: "X", name: "X", price_each: 1 },
       finish: { code: "X", name: "X", price: 1, minimum: 0 },
+      leadtime: { working_days: 1, multiplier: 1 },
     };
     for (const table of RATE_TABLE_NAMES) {
       const result = validateRateRow(table, { ...blankRateRow(table), ...fill[table] });

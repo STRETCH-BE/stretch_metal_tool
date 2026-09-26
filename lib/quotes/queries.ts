@@ -138,7 +138,7 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
   if (error) throw new Error(`loadQuoteBundle: ${error.message}`);
   if (!quote) return null;
 
-  const [customer, items, parts, overrides, version] = await Promise.all([
+  const [customer, items, parts, overrides, version, costVersion] = await Promise.all([
     quote.customer_id
       ? client
           .from("customers")
@@ -167,6 +167,14 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
           .maybeSingle()
           .then(({ data }) => (data as { label: string } | null)?.label ?? null)
       : Promise.resolve(null),
+    quote.cost_rate_version_id
+      ? client
+          .from("rate_versions")
+          .select("label")
+          .eq("id", quote.cost_rate_version_id)
+          .maybeSingle()
+          .then(({ data }) => (data as { label: string } | null)?.label ?? null)
+      : Promise.resolve(null),
   ]);
 
   const itemIds = items.map((i) => i.id);
@@ -185,6 +193,7 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
     operations,
     overrides,
     rateVersionLabel: version,
+    costRateVersionLabel: costVersion,
     pricing: parsePricing(quote.pricing),
     flags: parseFlags(quote.flags),
     weldingOnly: parseWeldingOnly(quote.welding_only),

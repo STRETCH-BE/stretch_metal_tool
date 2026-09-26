@@ -14,6 +14,7 @@ const header: QuoteHeaderInput = {
   fxRate: 4.35,
   marginPct: 30,
   validityDays: 30,
+  leadTimeDays: 11,
   leadTimeText: "",
   paymentTermsText: "",
   notes: "",

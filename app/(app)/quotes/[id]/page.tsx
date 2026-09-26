@@ -26,7 +26,7 @@ import { getLocale } from "@/lib/i18n";
 import { getContent } from "@/content";
 import { createClient } from "@/lib/supabase/server";
 import { isMailConfigured } from "@/lib/email";
-import { loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
+import { loadCostRateVersionId, loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
 import type { MachinePark, RateSnapshot } from "@/lib/pricing/types";
 import { routes } from "@/lib/routes";
 import { defaultFxEurPln } from "@/lib/site-config";
@@ -68,6 +68,15 @@ export default async function QuotePage({ params }: { params: Params }) {
   } catch {
     rates = null;
   }
+  let costRates: RateSnapshot | null = null;
+  if (rates?.general.pricingMode === "market") {
+    try {
+      const costId = bundle.quote.cost_rate_version_id ?? (await loadCostRateVersionId(supabase, null));
+      costRates = costId ? await loadRateSnapshot(supabase, costId) : null;
+    } catch {
+      costRates = null;
+    }
+  }
   const [customers, audit] = await Promise.all([listCustomerOptions(), listQuoteAudit(session, bundle.quote)]);
 
   const canEdit = Boolean(session && hasRole(session, WRITE_ROLES) && isQuoteEditor(session.profile.role, session.user.id, bundle.quote));
@@ -96,6 +105,7 @@ export default async function QuotePage({ params }: { params: Params }) {
       <QuoteBuilder
         bundle={bundle}
         rates={rates}
+        costRates={costRates}
         machines={machines}
         customers={customers}
         audit={canSeeQuoteAudit(session, bundle.quote) ? audit : null}

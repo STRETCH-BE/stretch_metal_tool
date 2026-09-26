@@ -319,6 +319,12 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
               <Text style={s.totalsValue}>{model.totals.weldingSubtotal}</Text>
             </View>
           )}
+          {model.totals.packaging && (
+            <View style={s.totalsRow}>
+              <Text style={s.totalsLabel}>{t.totals.packaging}</Text>
+              <Text style={s.totalsValue}>{model.totals.packaging}</Text>
+            </View>
+          )}
           <View style={[s.totalsRow, s.netRow]}>
             <Text style={s.netLabel}>{t.totals.net}</Text>
             <Text style={s.netValue}>{model.totals.net}</Text>

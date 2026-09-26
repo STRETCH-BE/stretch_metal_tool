@@ -127,6 +127,7 @@ export const admin: AdminContent = {
       thread: "Threads",
       feature: "Features",
       finish: "Finishing",
+      leadtime: "Lead time",
     },
     columns: {
       general: {
@@ -142,6 +143,10 @@ export const admin: AdminContent = {
         handling_mass_limit_kg: "Single-person mass limit (kg)",
         handling_surcharge_eur: "Handling surcharge (€/part)",
         weld_handling_per_part: "Welding-only handling (€/part)",
+        pricing_mode: "Pricing mode",
+        order_charge_eur: "Order charge (€)",
+        packaging_box_eur: "Packaging — box (€)",
+        packaging_pallet_eur: "Packaging — pallet (€)",
       },
       materials: {
         code: "Code",
@@ -165,6 +170,7 @@ export const admin: AdminContent = {
         gas: "Gas",
         min_contour_mm: "Min. contour (mm)",
         supplier: "Supplier",
+        setup_eur: "Setup (€ per material + thickness)",
       },
       tube_laser: {
         profile_family: "Profile",
@@ -200,7 +206,10 @@ export const admin: AdminContent = {
         unit: "Unit",
         price: "Price (€/unit)",
         minimum: "Minimum (€)",
+        setup_per_order_eur: "Setup per order (€)",
+        min_part_mm: "Minimum part size (mm)",
       },
+      leadtime: { working_days: "Working days", multiplier: "Price multiplier" },
     },
     options: {
       mode: { time: "time", per_m: "per metre" },
@@ -215,6 +224,7 @@ export const admin: AdminContent = {
         copper: "copper",
       },
       profileFamily: { round: "round", square: "square", rectangular: "rectangular", open: "open" },
+      pricingMode: { cost: "cost (rates + margin)", market: "market (selling prices)" },
     },
     grid: {
       addRow: "Add row",

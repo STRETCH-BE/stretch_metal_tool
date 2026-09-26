@@ -58,6 +58,7 @@ const LASER_VALUES = {
   gas: "O2",
   min_contour_mm: 30,
   supplier: null,
+  setup_eur: 0,
 };
 
 function form(entries: Record<string, string>): FormData {

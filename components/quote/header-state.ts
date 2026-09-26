@@ -27,6 +27,8 @@ export type HeaderState = {
   fxRate: number;
   marginPct: number;
   validityDays: number;
+  /** Promised lead time in working days (drives the market lead-time multiplier). */
+  leadTimeDays: number;
   leadTimeText: string;
   paymentTermsText: string;
   notes: string;
@@ -48,6 +50,7 @@ export function headerFromBundle(bundle: QuoteBundle, fxEurPln: number): HeaderS
     fxRate: seedFxRate(q.fx_rate, fxEurPln),
     marginPct: Number(q.margin_pct) || 0,
     validityDays: Number(q.validity_days) || 30,
+    leadTimeDays: Number(q.lead_time_days) > 0 ? Number(q.lead_time_days) : 11, // [CONFIRM] default promised lead time
     leadTimeText: q.lead_time_text ?? "",
     paymentTermsText: q.payment_terms_text ?? "",
     notes: q.notes ?? "",
@@ -73,6 +76,7 @@ export function headerToInput(header: HeaderState): QuoteHeaderInput {
     fxRate: effectiveFxRate(header),
     marginPct: header.marginPct,
     validityDays: header.validityDays,
+    leadTimeDays: header.leadTimeDays,
     leadTimeText: header.leadTimeText,
     paymentTermsText: header.paymentTermsText,
     notes: header.notes,

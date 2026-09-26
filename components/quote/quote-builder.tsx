@@ -81,6 +81,8 @@ import { WeldingSeamsEditor } from "./welding-seams-editor";
 export type QuoteBuilderProps = {
   bundle: QuoteBundle;
   rates: RateSnapshot | null;
+  /** Market mode: the cost version's snapshot for the live margin preview (null in cost mode or when none exists). */
+  costRates: RateSnapshot | null;
   machines: MachinePark;
   customers: CustomerOption[];
   /** Audit excerpt, or null when this viewer may not see it (panel hidden). */
@@ -93,13 +95,14 @@ export type QuoteBuilderProps = {
   fxEurPln: number;
 };
 
-export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck, fxEurPln }: QuoteBuilderProps) {
+export function QuoteBuilder({ bundle, rates, costRates, machines, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck, fxEurPln }: QuoteBuilderProps) {
   const c = useContent();
   const b = c.quote.builder;
   const { toast } = useToast();
   const [pending, startTransition] = useTransition();
   const quote = bundle.quote;
   const editable = canEdit && isQuoteEditable(quote.status);
+  const marketMode = rates?.general.pricingMode === "market";
   const bundleKey = `${quote.updated_at}|${quote.priced_at ?? ""}|${bundle.items.map((i) => `${i.id}:${i.qty}:${i.position}`).join(",")}`;
 
   const [draft, setDraft] = useState<QuoteDraft>(() => draftFromBundle(bundle));
@@ -116,7 +119,7 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   }, [bundleKey]);
 
   const dirty = isDraftDirty(draft, bundle);
-  const preview = useMemo(() => computePreview(bundle, rates, machines, draft), [bundle, rates, machines, draft]);
+  const preview = useMemo(() => computePreview(bundle, rates, machines, draft, costRates), [bundle, rates, machines, draft, costRates]);
   const priced = dirty && preview.priced ? preview.priced : bundle.pricing;
   const showingPreview = dirty && preview.priced !== null;
   const money = useMemo(() => makeMoney(draft.currency, draft.fxRate, c.locale), [draft.currency, draft.fxRate, c.locale]);
@@ -135,7 +138,7 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
   const patchHeader = (patch: Partial<HeaderState>) => {
     const next = { ...header, ...patch };
     setHeader(next);
-    setDraft((d) => ({ ...d, marginPct: next.marginPct, currency: next.currency, fxRate: effectiveFxRate(next) }));
+    setDraft((d) => ({ ...d, marginPct: next.marginPct, leadTimeDays: next.leadTimeDays, currency: next.currency, fxRate: effectiveFxRate(next) }));
   };
   const fxInvalid = headerFxInvalid(header);
   const saveHeader = () => {
@@ -239,6 +242,7 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
               <QuoteStatusChip status={quote.status} content={c} />
               <span className="text-[12px] text-text-muted">
                 {b.header.rateVersion}: {bundle.rateVersionLabel ?? b.header.noRateVersion}
+                {marketMode && ` · ${b.header.costVersion}: ${bundle.costRateVersionLabel ?? b.header.noRateVersion}`}
               </span>
             </>
           }
@@ -288,11 +292,12 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
             <Field
               label={b.header.margin}
               htmlFor="q-margin"
-              help={interpolate(b.header.markup, { markup: formatPercent(marginToMarkup(header.marginPct), c.locale) })}
+              help={marketMode ? b.header.marginMarketHelp : interpolate(b.header.markup, { markup: formatPercent(marginToMarkup(header.marginPct), c.locale) })}
             >
               <NumberInput
                 id="q-margin"
                 dense
+                disabled={marketMode}
                 value={header.marginPct}
                 onValueChange={(v) => v !== null && patchHeader({ marginPct: v })}
                 decimals={2}
@@ -306,6 +311,17 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
                 dense
                 value={header.validityDays}
                 onValueChange={(v) => v !== null && patchHeader({ validityDays: Math.max(1, Math.round(v)) })}
+                decimals={0}
+                min={1}
+                max={365}
+              />
+            </Field>
+            <Field label={b.header.leadTimeDays} htmlFor="q-lead-days" help={b.header.leadTimeDaysHelp}>
+              <NumberInput
+                id="q-lead-days"
+                dense
+                value={header.leadTimeDays}
+                onValueChange={(v) => v !== null && patchHeader({ leadTimeDays: Math.max(1, Math.round(v)) })}
                 decimals={0}
                 min={1}
                 max={365}
@@ -513,6 +529,20 @@ export function QuoteBuilder({ bundle, rates, machines, customers, audit, canEdi
                 <dt className="text-text-muted">{b.totals.marginAmount}</dt>
                 <dd className="num money">{money(marginAmount)}</dd>
               </dl>
+              {priced.pricingMode === "market" && (
+                <p className="mt-2 text-[11.5px] text-text-faint">
+                  {interpolate(b.totals.marketNote, {
+                    version: bundle.costRateVersionLabel ?? b.header.noRateVersion,
+                    days: formatNumber(priced.leadTimeDays ?? draft.leadTimeDays, c.locale),
+                    multiplier: formatNumber(priced.leadTimeMultiplier, c.locale, { maximumFractionDigits: 3 }),
+                  })}
+                </p>
+              )}
+              {priced.flags.some((f) => f.code === "market.margin_below_default") && (
+                <p className="mt-2 text-[12px] font-bold text-red">
+                  {interpolate(b.totals.marginBelow, { minPct: formatPercent(rates?.general.defaultMarginPct ?? 0, c.locale) })}
+                </p>
+              )}
               {draft.currency === "PLN" && (
                 <p className="mt-2 text-[11.5px] text-text-faint">
                   {interpolate(b.totals.fxNote, { currency: draft.currency, fx: formatNumber(draft.fxRate, c.locale, { maximumFractionDigits: 4 }) })}

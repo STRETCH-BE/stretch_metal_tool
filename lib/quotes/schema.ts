@@ -270,7 +270,16 @@ const pricingGuard = z.looseObject({
 export function parsePricing(json: Json | null | undefined): PricedQuote | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
   const result = pricingGuard.safeParse(json);
-  return result.success ? (result.data as unknown as PricedQuote) : null;
+  if (!result.success) return null;
+  // Snapshots stored before market mode existed carry none of these fields.
+  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines"> = {
+    pricingMode: "cost",
+    costRateVersionId: null,
+    leadTimeDays: null,
+    leadTimeMultiplier: 1,
+    quoteLines: [],
+  };
+  return { ...defaults, ...(result.data as unknown as PricedQuote) };
 }
 
 const flagGuard = z.looseObject({
@@ -316,6 +325,8 @@ export const quoteHeaderSchema = z
     fxRate: finite.gt(0, "invalidFx").max(1000, "invalidFx"),
     marginPct: finite.min(0, "invalidMargin").lt(100, "invalidMargin"),
     validityDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
+    /** Promised lead time in working days (market mode: rate_leadtime multiplier). */
+    leadTimeDays: z.number().int("invalidNumber").min(1, "invalidNumber").max(365, "invalidNumber"),
     leadTimeText: optionalText(200),
     paymentTermsText: optionalText(2000),
     notes: optionalText(4000),

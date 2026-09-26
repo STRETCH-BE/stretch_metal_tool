@@ -22,6 +22,8 @@ import type { QuoteBundle, WeldingOnlyBlock } from "@/lib/quotes/types";
 
 export type QuoteDraft = {
   marginPct: number;
+  /** Promised lead time (working days) — market mode multiplier. */
+  leadTimeDays: number;
   currency: "PLN" | "EUR";
   fxRate: number;
   qtyById: Record<string, number>;
@@ -41,6 +43,7 @@ export function draftFromBundle(bundle: QuoteBundle): QuoteDraft {
   }
   return {
     marginPct: Number(bundle.quote.margin_pct),
+    leadTimeDays: Number(bundle.quote.lead_time_days) > 0 ? Number(bundle.quote.lead_time_days) : 11, // [CONFIRM] default promised lead time
     currency: bundle.quote.currency,
     fxRate: Number(bundle.quote.fx_rate) || 1,
     qtyById,
@@ -61,7 +64,8 @@ export function computePreview(
   bundle: QuoteBundle,
   rates: RateSnapshot | null,
   machines: MachinePark,
-  draft: QuoteDraft
+  draft: QuoteDraft,
+  costRates: RateSnapshot | null = null
 ): PreviewResult {
   if (!rates) return { priced: null, error: null };
   const items: QuoteItemRow[] = bundle.items.map((item) => ({
@@ -73,12 +77,13 @@ export function computePreview(
   const quote = {
     type: bundle.quote.type,
     margin_pct: draft.marginPct,
+    lead_time_days: draft.leadTimeDays,
     welding_only: draft.welding ? toJson(draft.welding) : null,
   };
   try {
     const input = buildQuoteInput({ quote, customer: bundle.customer, items, parts: bundle.parts, rates });
     if (!hasPriceableContent(input)) return { priced: null, error: null };
-    return { priced: priceQuote(input, rates, machines), error: null };
+    return { priced: priceQuote(input, rates, machines, { costRates }), error: null };
   } catch (error) {
     if (isPricingError(error)) return { priced: null, error: error.message };
     return { priced: null, error: error instanceof Error ? error.message : String(error) };

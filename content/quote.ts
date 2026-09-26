@@ -276,6 +276,12 @@ export type QuoteBuilderContent = {
     validityDays: string;
     validUntil: string;
     leadTime: string;
+    /** Promised lead time in working days (market multiplier). */
+    leadTimeDays: string;
+    leadTimeDaysHelp: string;
+    costVersion: string;
+    /** Help under the margin field when the version is a market (selling-price) version. */
+    marginMarketHelp: string;
     paymentTerms: string;
     notes: string;
     showOperationsOnPdf: string;
@@ -351,6 +357,10 @@ export type QuoteBuilderContent = {
     notPriced: string;
     recalculate: string;
     placeholderRates: string;
+    /** `{version}`, `{days}`, `{multiplier}` placeholders. */
+    marketNote: string;
+    /** `{minPct}` placeholder. */
+    marginBelow: string;
   };
   /** Feasibility flags panel. */
   flags: {
@@ -558,6 +568,10 @@ const builderPl: QuoteBuilderContent = {
     validityDays: "Ważność (dni)",
     validUntil: "ważna do {date}",
     leadTime: "Termin realizacji",
+    leadTimeDays: "Termin (dni robocze)",
+    leadTimeDaysHelp: "Obiecany termin — w cenniku rynkowym steruje mnożnikiem ceny.",
+    costVersion: "Cennik kosztowy",
+    marginMarketHelp: "Cennik rynkowy: ceny są cenami sprzedaży, marża wynika z porównania z cennikiem kosztowym.",
     paymentTerms: "Warunki płatności",
     notes: "Uwagi wewnętrzne",
     showOperationsOnPdf: "Pokaż operacje na PDF",
@@ -688,6 +702,8 @@ const builderPl: QuoteBuilderContent = {
     notPriced: "Jeszcze nie wyceniono — dodaj części lub spoiny.",
     recalculate: "Przelicz",
     placeholderRates: "Użyto stawek tymczasowych [CONFIRM] — administrator musi je potwierdzić.",
+    marketNote: "Cennik rynkowy (ceny sprzedaży). Koszt wg: {version}. Termin {days} dni → mnożnik {multiplier}.",
+    marginBelow: "Marża poniżej progu {minPct} — wycena zablokowana do decyzji.",
   },
   flags: {
     title: "Flagi wykonalności",

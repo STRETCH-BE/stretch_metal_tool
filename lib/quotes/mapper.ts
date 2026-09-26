@@ -130,7 +130,7 @@ export function itemRowToPricingItem(row: QuoteItemRow): PricingItem {
 }
 
 export type QuoteInputSource = {
-  quote: Pick<QuoteRow, "type" | "margin_pct" | "welding_only">;
+  quote: Pick<QuoteRow, "type" | "margin_pct" | "welding_only" | "lead_time_days">;
   customer: Pick<CustomerRow, "customer_class"> | null;
   items: QuoteItemRow[];
   parts: PartRow[];
@@ -155,6 +155,7 @@ export function buildQuoteInput(source: QuoteInputSource): QuoteInput {
     items,
     parts,
     weldingOnly: source.quote.type === "welding_only" ? weldingOnly ?? { seams: [], partsCount: 0 } : weldingOnly,
+    leadTimeDays: num(source.quote.lead_time_days),
   };
 }
 

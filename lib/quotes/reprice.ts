@@ -35,7 +35,9 @@
  *
  * Rate version: quotes.rate_version_id is pinned to the active version the
  * first time a quote is priced and never changed afterwards (old quotes
- * keep their old prices; "duplicate as new version" re-pins).
+ * keep their old prices; "duplicate as new version" re-pins). A market
+ * version additionally pins quotes.cost_rate_version_id (the cost version
+ * the margin is computed against, lib/rates/load.ts loadCostRateVersionId).
  *
  * Money: engine amounts (EUR) go to quotes.pricing, quote_items.unit_*,
  * operations.unit_cost; quotes.subtotal_cost/_price are stored in the
@@ -50,9 +52,9 @@
 import { getCurrentUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadActiveRateVersionId, loadMachinePark, loadRateSnapshot, type RatesClient } from "@/lib/rates/load";
+import { loadActiveRateVersionId, loadCostRateVersionId, loadMachinePark, loadRateSnapshot, type RatesClient } from "@/lib/rates/load";
 import { priceQuote } from "@/lib/pricing/price-quote";
-import type { PricedQuote } from "@/lib/pricing/types";
+import type { PricedQuote, RateSnapshot } from "@/lib/pricing/types";
 import { QuoteAccessError } from "./access";
 import { buildQuoteInput, emptyPersistence, hasPriceableContent, pricedToPersistence } from "./mapper";
 import { loadQuoteBundle } from "./queries";
@@ -93,6 +95,21 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   }
 
   const [rates, machines] = await Promise.all([loadRateSnapshot(reader, versionId), loadMachinePark(reader)]);
+
+  // Market mode: the margin is measured against a cost version, pinned on
+  // the quote next to the price version the first time (same rule as
+  // rate_version_id — old quotes keep their comparison basis).
+  let costRates: RateSnapshot | null = null;
+  if (rates.general.pricingMode === "market") {
+    const costId = await loadCostRateVersionId(reader, bundle.quote.cost_rate_version_id);
+    if (costId) {
+      if (costId !== bundle.quote.cost_rate_version_id) {
+        const { error } = await admin.from("quotes").update({ cost_rate_version_id: costId }).eq("id", quoteId);
+        if (error) throw new Error(`repriceQuote/pin-cost: ${error.message}`);
+      }
+      costRates = await loadRateSnapshot(reader, costId);
+    }
+  }
   const input = buildQuoteInput({
     quote: bundle.quote,
     customer: bundle.customer,
@@ -113,7 +130,7 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
     return null;
   }
 
-  const priced = priceQuote(input, rates, machines);
+  const priced = priceQuote(input, rates, machines, { costRates });
   const persistence = pricedToPersistence(priced, bundle.quote);
 
   for (const item of persistence.items) {

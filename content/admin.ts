@@ -17,6 +17,7 @@ import type {
   MachineKindDb,
   MaterialFamilyDb,
   OverrideStatus,
+  PricingModeDb,
   TubeProfileFamilyDb,
   WeldProcessDb,
 } from "@/lib/db/types";
@@ -31,7 +32,8 @@ type RateTableKey =
   | "weld"
   | "thread"
   | "feature"
-  | "finish";
+  | "finish"
+  | "leadtime";
 
 export type RateErrorCode =
   | "forbidden"
@@ -158,6 +160,10 @@ export type AdminContent = {
         handling_mass_limit_kg: string;
         handling_surcharge_eur: string;
         weld_handling_per_part: string;
+        pricing_mode: string;
+        order_charge_eur: string;
+        packaging_box_eur: string;
+        packaging_pallet_eur: string;
       };
       materials: {
         code: string;
@@ -181,6 +187,7 @@ export type AdminContent = {
         gas: string;
         min_contour_mm: string;
         supplier: string;
+        setup_eur: string;
       };
       tube_laser: {
         profile_family: string;
@@ -194,7 +201,8 @@ export type AdminContent = {
       weld: { process: string; bead_mm: string; price_per_mm: string; setup: string; min_order: string };
       thread: { size: string; price_each: string };
       feature: { code: string; name: string; price_each: string };
-      finish: { code: string; name: string; unit: string; price: string; minimum: string };
+      finish: { code: string; name: string; unit: string; price: string; minimum: string; setup_per_order_eur: string; min_part_mm: string };
+      leadtime: { working_days: string; multiplier: string };
     };
     options: {
       mode: Record<LaserModeDb, string>;
@@ -203,6 +211,7 @@ export type AdminContent = {
       unit: Record<FinishUnitDb, string>;
       family: Record<MaterialFamilyDb, string>;
       profileFamily: Record<TubeProfileFamilyDb, string>;
+      pricingMode: Record<PricingModeDb, string>;
     };
     grid: {
       addRow: string;
@@ -597,6 +606,7 @@ export const admin: AdminContent = {
       thread: "Gwinty",
       feature: "Cechy",
       finish: "Wykończenie",
+      leadtime: "Termin realizacji",
     },
     columns: {
       general: {
@@ -612,6 +622,10 @@ export const admin: AdminContent = {
         handling_mass_limit_kg: "Limit masy dla jednej osoby (kg)",
         handling_surcharge_eur: "Dopłata za manipulację (€/szt.)",
         weld_handling_per_part: "Manipulacja przy spawaniu (€/szt.)",
+        pricing_mode: "Tryb cennika",
+        order_charge_eur: "Opłata za zamówienie (€)",
+        packaging_box_eur: "Opakowanie — karton (€)",
+        packaging_pallet_eur: "Opakowanie — paleta (€)",
       },
       materials: {
         code: "Kod",
@@ -635,6 +649,7 @@ export const admin: AdminContent = {
         gas: "Gaz",
         min_contour_mm: "Min. kontur (mm)",
         supplier: "Dostawca",
+        setup_eur: "Przezbrojenie (€ / materiał+grubość)",
       },
       tube_laser: {
         profile_family: "Profil",
@@ -670,7 +685,10 @@ export const admin: AdminContent = {
         unit: "Jednostka",
         price: "Cena (€/jedn.)",
         minimum: "Minimum (€)",
+        setup_per_order_eur: "Przezbrojenie na zamówienie (€)",
+        min_part_mm: "Minimalny rozmiar części (mm)",
       },
+      leadtime: { working_days: "Dni robocze", multiplier: "Mnożnik ceny" },
     },
     options: {
       mode: { time: "czas", per_m: "za metr" },
@@ -685,6 +703,7 @@ export const admin: AdminContent = {
         copper: "miedź",
       },
       profileFamily: { round: "okrągły", square: "kwadratowy", rectangular: "prostokątny", open: "otwarty" },
+      pricingMode: { cost: "kosztowy (stawki + marża)", market: "rynkowy (ceny sprzedaży)" },
     },
     grid: {
       addRow: "Dodaj wiersz",
