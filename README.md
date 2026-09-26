@@ -35,10 +35,11 @@ Sign in at `/login` with `admin@stretchmetal.local` / `stretchmetal`. `supabase 
 
 ### Cloud Supabase (first-time setup)
 
-1. Create a project (region EU), then apply the schema: `supabase link --project-ref <ref>` and `supabase db push`, or paste `supabase/migrations/20260925000000_init.sql` into the SQL editor.
+1. Create a project (region EU), then apply the schema: `supabase link --project-ref <ref>` and `supabase db push`, or paste every file in `supabase/migrations/` (in name order) into the SQL editor.
 2. Run `supabase/seed.sql` once in the SQL editor — it loads the machine park and the placeholder rate version `v1` (every value tagged `[CONFIRM]`, shown with a yellow badge in the admin rate editor until edited).
-3. Create your account in Authentication → Users → "Add user" (auto-confirm). **The first account ever created becomes the admin**; every later account is `sales` until an admin changes it under Users.
-4. Optional, for magic-link sign-in: Authentication → URL configuration → Site URL `https://quote.stretchmetal.pl`, redirect URL `https://quote.stretchmetal.pl/auth/callback`.
+3. Create your account in Authentication → Users → "Add user" (auto-confirm). **The first account ever created becomes the admin**; every later account is `sales` until an admin changes it under Users. A role can never be set through sign-up metadata (the profile trigger only reads app metadata, which the service role alone can write).
+4. Authentication → Sign In / Providers → Email: switch **"Allow new users to sign up" off**. Accounts are created by an admin (Admin → Users → invite) or in the dashboard; public sign-up would let anyone create a `sales` account.
+5. Optional, for magic-link sign-in: Authentication → URL configuration → Site URL `https://quote.stretchmetal.pl`, redirect URL `https://quote.stretchmetal.pl/auth/callback`.
 
 ## Environment variables
 
@@ -143,6 +144,6 @@ That covers the company data printed on the PDF (`lib/site-config.ts`: legal nam
 2. Apply the migration and seed to the cloud Supabase project and create the first (admin) account — see "Cloud Supabase" above.
 3. Add the domain `quote.stretchmetal.pl` under Project Settings → Domains and create the CNAME (`quote` → `cname.vercel-dns.com`) at the DNS provider of `stretchmetal.pl`; Vercel issues the certificate. Set `NEXT_PUBLIC_SITE_URL` to `https://quote.stretchmetal.pl` and redeploy.
 4. Vercel "Deployment Protection" blocks the `*.vercel.app` URLs for people without a Vercel login — colleagues use the custom domain, or disable the protection for production.
-5. In Supabase → Authentication → URL configuration set the site URL and the `/auth/callback` redirect if magic links are wanted.
+5. In Supabase → Authentication: switch public sign-ups off (see "Cloud Supabase" step 4) and, if magic links are wanted, set the site URL and the `/auth/callback` redirect under URL configuration.
 6. Confirm every `[CONFIRM]` value with the owner, then walk the admin rate editor: clone `v1`, enter the real rates (TRUMPF cutting data, supplier tariffs, machine-hour calculator result), activate the new version.
 7. Optional: `ANTHROPIC_API_KEY` for the PDF pre-fill, `MS_GRAPH_*` + `QUOTE_FROM_ADDRESS` for sending quotes by e-mail.

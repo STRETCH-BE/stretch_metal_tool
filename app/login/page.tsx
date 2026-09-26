@@ -78,7 +78,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Search
       <div className="container-sm section grid flex-1 items-center gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         <div>
           <Eyebrow number="01">{t.eyebrow}</Eyebrow>
-          <h1 className="h1">{t.title}</h1>
+          <h1 className="h2 break-words">{t.title}</h1>
           <p className="lead mt-8 max-w-lg">{t.lead}</p>
           <p className="mt-6 max-w-lg text-[13.5px] text-on-dark-muted">{t.help}</p>
         </div>
