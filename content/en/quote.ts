@@ -142,6 +142,9 @@ const builderEn: QuoteBuilderContent = {
       handling: "Handling",
       setup: "Setup",
       other: "Other",
+      order: "Order charge",
+      packaging: "Packaging",
+      leadtime: "Lead time",
     },
     labels: {
       laser_cut: "Laser cutting",
@@ -160,6 +163,13 @@ const builderEn: QuoteBuilderContent = {
       engrave: "Engraving",
       tube_cut: "Profile cutting",
       handling: "Handling",
+      laser_setup: "Setup — cutting (material/thickness)",
+      deburr_setup: "Setup — deburring",
+      deburr: "Deburring (both sides)",
+      order_charge: "Order charge (line share)",
+      packaging_box: "Packaging — box",
+      packaging_pallet: "Packaging — pallet",
+      lead_time: "Lead time (multiplier)",
     },
     units: {
       m: "m",

@@ -327,6 +327,7 @@ function toLaserRate(r: LaserRow): LaserRate {
     inHouse: r.in_house,
     supplier: r.supplier,
     placeholder: r.placeholder,
+    setupEur: 0,
   };
 }
 
@@ -344,6 +345,7 @@ function laserOnlySnapshot(laser: LaserRate[]): RateSnapshot {
     thread: [],
     feature: [],
     finish: [],
+    leadtime: [],
     general: {
       machineRateEurH: 0,
       labourRateEurH: 0,
@@ -357,6 +359,10 @@ function laserOnlySnapshot(laser: LaserRate[]): RateSnapshot {
       handlingSurchargeEur: 0,
       weldHandlingPerPart: 0,
       placeholder: true,
+      orderChargeEur: 0,
+      packagingBoxEur: 0,
+      packagingPalletEur: 0,
+      pricingMode: "cost",
     },
   };
 }

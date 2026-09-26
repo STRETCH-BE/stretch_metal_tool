@@ -299,6 +299,18 @@ export const flags: FlagsContent = {
       label: "Minimum partii wykończenia",
       message: "Wykończenie {code}: koszt partii {batchBefore} € podniesiono do minimum {minimum} € ({batchCost} €).",
     },
+    "finish.part_too_small": {
+      label: "Część za mała do gratowania",
+      message: "Gratowanie odrzucone: część {widthMm} × {heightMm} mm jest poniżej minimum {minimum} mm dla tego materiału.",
+    },
+    "market.margin_below_default": {
+      label: "Marża poniżej progu",
+      message: "Marża rynkowa {marginPct} % (cena {price} €, koszt {cost} €) jest poniżej domyślnej {minPct} %.",
+    },
+    "market.no_cost_version": {
+      label: "Brak cennika kosztowego",
+      message: "Cennik rynkowy bez wersji kosztowej — nie można policzyć marży. Wskaż wersję kosztową w administracji.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

@@ -124,7 +124,36 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `feature.no_rate_row` | red | feature extra without a row | `code`, `index` |
 | `finish.no_rate_row` | red | finish extra without a row, or engraving without an `engrave` row | `code`, `index` |
 | `finish.minimum_applied` | green | batch minimum raised the unit cost | `code`, `minimum`, `batchCost`, `batchBefore`, `index` |
+| `finish.part_too_small` | red | market mode: deburring refused, the bbox is below the rate's `min_part_mm` rule (no line is priced) | `code`, `widthMm`, `heightMm`, `minimum`, `family` |
+| `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` | `marginPct`, `minPct`, `price`, `cost` |
+| `market.no_cost_version` | amber | market mode priced without a cost version — no margin could be computed | — |
 | `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder | `count` |
+
+## Market mode (`market.ts`, `market-rules.ts`)
+
+`rate_general.pricing_mode = 'market'` means the version's tables are SELLING prices
+(e.g. 247TailorSteel × 1.10). `priceQuote()` then delegates to `priceMarketQuote()`:
+
+| Line | Rule |
+|---|---|
+| material | net mass (`netAreaMm2 × t × density`) × €/kg — no blank rectangle, no scrap |
+| laser_cut | cut length × `price_per_m` + pierces × `price_per_pierce` (per-metre row; no slow-contour factor) |
+| setup (`laser_setup`) | `rate_laser.setup_eur` once per distinct (material, thickness) in the quote, split equally over the part LINES of that group; per line, so unitCost = share ÷ qty |
+| order (`order_charge`) | `rate_general.order_charge_eur` split equally over all part lines |
+| setup (`deburr_setup`) + finish_deburr | when the item carries the finish extra `deburr`: `setup_per_order_eur` split over the lines with deburring, plus €/m × the part's total cut length; refused (red `finish.part_too_small`) when the bbox is below `min_part_mm` |
+| engrave | the `engrave` rate's price per part (unit `part`/`each`) when selected as an extra or drawn; an `m` rate falls back to length pricing |
+| leadtime (`lead_time`) | per part: (multiplier − 1) × Σ its other lines; the multiplier comes from `rate_leadtime` (linear between rows, capped at the shortest row, held at the longest); absent when it is 1 |
+| packaging (quote level, `quoteLines`) | box when every part fits 600 mm and the total net mass ≤ 25 kg (`PACKAGING_BOX_*` constants [CONFIRM]), else pallet — `packaging_box_eur` / `packaging_pallet_eur` |
+| bends, rolls, welds, threads, features, machining, tubes, other finishes | the cost-mode builders on the version's rows |
+
+No margin is added: `unitPrice = Σ lines`. `unitCost` / `subtotalCost` come from
+pricing the SAME input with the cost version (`options.costRates`, the machine-hour
+model); `marginPct = 1 − cost ÷ price`, red `market.margin_below_default` below the
+market version's `default_margin_pct`, amber `market.no_cost_version` without a cost
+version. `totalsByType` carries the market price and the cost version's cost per
+bucket. Welding-only blocks keep cost semantics (weld rows are costs): price =
+cost ÷ (1 − default margin). `PricedQuote.pricingMode`, `costRateVersionId`,
+`leadTimeDays`, `leadTimeMultiplier` and `quoteLines` record all of this.
 
 ## Operation lines
 

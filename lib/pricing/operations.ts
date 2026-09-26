@@ -3,6 +3,10 @@
  * the part's feasibility flags), build prompt Step 9 / spec §6.
  * File path: /lib/pricing/operations.ts
  *
+ * The line builders are exported for lib/pricing/market.ts, which reuses
+ * them where market mode prices the same way (bends, rolls, welds, threads,
+ * extras) and for the per-metre laser line.
+ *
  * Line order is deterministic: laser (or subcontract cutting), material,
  * one line per bend + one bend setup, roll, one line per weld seam + one
  * weld setup per process, confirmed threads (one line per size), the
@@ -96,7 +100,7 @@ type LineInput = {
   details?: OperationLine["details"];
 };
 
-function makeLine(ctx: PartContext, input: LineInput): OperationLine {
+export function makeLine(ctx: PartContext, input: LineInput): OperationLine {
   return {
     id: `${ctx.item.id}:${input.suffix}`,
     type: input.type,
@@ -114,7 +118,7 @@ function makeLine(ctx: PartContext, input: LineInput): OperationLine {
 
 /* ─── Laser / subcontract cutting ─────────────────────────── */
 
-function laserLine(ctx: PartContext): OperationLine | null {
+export function laserLine(ctx: PartContext): OperationLine | null {
   const { laser, thicknessMm, material, geometry, rates } = ctx;
   if (!laser?.row || thicknessMm === null || !material) return null;
   const m = geometry.measures;
@@ -260,7 +264,7 @@ function bendRateRef(row: BendRate): RateRef {
   };
 }
 
-function bendLines(ctx: PartContext): OperationLine[] {
+export function bendLines(ctx: PartContext): OperationLine[] {
   const { bends, thicknessMm: t, rates, item, material } = ctx;
   if (bends.length === 0 || t === null) return [];
   const lines: OperationLine[] = [];
@@ -315,7 +319,7 @@ function bendLines(ctx: PartContext): OperationLine[] {
 
 /* ─── Rolling ─────────────────────────────────────────────── */
 
-function rollLine(ctx: PartContext): OperationLine | null {
+export function rollLine(ctx: PartContext): OperationLine | null {
   const roll = ctx.annotations.roll;
   const { thicknessMm: t, rates, item } = ctx;
   if (!roll || t === null) return null;
@@ -372,7 +376,7 @@ export function weldRateRef(row: WeldRate): RateRef {
   };
 }
 
-function weldLines(ctx: PartContext): OperationLine[] {
+export function weldLines(ctx: PartContext): OperationLine[] {
   const { annotations, rates, item } = ctx;
   if (annotations.welds.length === 0) return [];
   const lines: OperationLine[] = [];
@@ -428,7 +432,7 @@ function weldLines(ctx: PartContext): OperationLine[] {
 
 /* ─── Threads ─────────────────────────────────────────────── */
 
-function threadLines(ctx: PartContext): OperationLine[] {
+export function threadLines(ctx: PartContext): OperationLine[] {
   const lines: OperationLine[] = [];
   for (const group of ctx.confirmedThreads) {
     const row = findThreadRate(ctx.rates, group.size);
@@ -456,7 +460,12 @@ function threadLines(ctx: PartContext): OperationLine[] {
 
 /* ─── Extras (user-added) ─────────────────────────────────── */
 
-function extraLines(ctx: PartContext): OperationLine[] {
+export type ExtraLinesOptions = {
+  /** Finish codes (lower-case) priced elsewhere — market mode handles deburr and engrave itself. */
+  skipFinishCodes?: ReadonlySet<string>;
+};
+
+export function extraLines(ctx: PartContext, options: ExtraLinesOptions = {}): OperationLine[] {
   const { item, rates, geometry } = ctx;
   const general = rates.general;
   const lines: OperationLine[] = [];
@@ -506,6 +515,7 @@ function extraLines(ctx: PartContext): OperationLine[] {
         return;
       }
       case "finish": {
+        if (options.skipFinishCodes?.has(extra.code.trim().toLowerCase())) return;
         const rate = findFinishRate(rates, extra.code);
         if (!rate) return;
         const finish = computeFinish(
@@ -654,7 +664,7 @@ function extraLines(ctx: PartContext): OperationLine[] {
 
 /* ─── Engraving ───────────────────────────────────────────── */
 
-function engraveLine(ctx: PartContext): OperationLine | null {
+export function engraveLine(ctx: PartContext): OperationLine | null {
   const lengthMm = ctx.geometry.measures.engraveLengthMm;
   if (lengthMm <= 0) return null;
   const rate = findFinishRate(ctx.rates, OPERATION_LABELS.engrave);

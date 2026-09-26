@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { getContent } from "@/content";
 import type { FlagCode } from "@/lib/pricing/types";
 
-/** The catalogue of lib/pricing/README.md (32 codes). */
+/** The catalogue of lib/pricing/README.md (35 codes). */
 const FLAG_CODES: FlagCode[] = [
   "geometry.manual",
   "geometry.triage_amber",
@@ -42,6 +42,9 @@ const FLAG_CODES: FlagCode[] = [
   "feature.no_rate_row",
   "finish.no_rate_row",
   "finish.minimum_applied",
+  "finish.part_too_small",
+  "market.margin_below_default",
+  "market.no_cost_version",
   "rates.placeholder",
 ];
 

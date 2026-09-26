@@ -51,6 +51,7 @@ function timeRows(materialCode: string, factor: number, maxT: number): LaserRate
     inHouse: true,
     supplier: null,
     placeholder: true,
+    setupEur: 0,
   }));
 }
 
@@ -68,6 +69,7 @@ const supplierRows: LaserRate[] = [
     inHouse: false,
     supplier: "Plasma subcontractor [CONFIRM]",
     placeholder: true,
+    setupEur: 0,
   },
   {
     materialCode: "S355",
@@ -82,6 +84,7 @@ const supplierRows: LaserRate[] = [
     inHouse: false,
     supplier: "Plasma subcontractor [CONFIRM]",
     placeholder: true,
+    setupEur: 0,
   },
 ];
 
@@ -206,11 +209,12 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
     { code: "stud", name: "Welded stud", priceEach: 1.5, placeholder: true }, // [CONFIRM]
   ],
   finish: [
-    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true },
-    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true },
-    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true },
-    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true }, // [CONFIRM]
+    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
+    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
+    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
+    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true, setupPerOrderEur: 0, minPartMm: null }, // [CONFIRM]
   ],
+  leadtime: [],
   general: {
     machineRateEurH: 70,
     labourRateEurH: 35, // [CONFIRM] not in the build prompt
@@ -224,6 +228,10 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
     handlingSurchargeEur: 10, // [CONFIRM]
     weldHandlingPerPart: 5, // [CONFIRM]
     placeholder: true,
+    orderChargeEur: 0,
+    packagingBoxEur: 0,
+    packagingPalletEur: 0,
+    pricingMode: "cost",
   },
 };
 
@@ -311,6 +319,7 @@ import type {
   RateFinishRow,
   RateGeneralRow,
   RateLaserRow,
+  RateLeadtimeRow,
   RateRollRow,
   RateThreadRow,
   RateTubeLaserRow,
@@ -338,10 +347,10 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     handling_surcharge_eur: snapshot.general.handlingSurchargeEur,
     weld_handling_per_part: snapshot.general.weldHandlingPerPart,
     placeholder: snapshot.general.placeholder,
-    order_charge_eur: 0,
-    packaging_box_eur: 0,
-    packaging_pallet_eur: 0,
-    pricing_mode: "cost",
+    order_charge_eur: snapshot.general.orderChargeEur,
+    packaging_box_eur: snapshot.general.packagingBoxEur,
+    packaging_pallet_eur: snapshot.general.packagingPalletEur,
+    pricing_mode: snapshot.general.pricingMode,
   };
   const materials: MaterialRow[] = snapshot.materials.map((m) => ({
     rate_version_id: v,
@@ -370,7 +379,7 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     in_house: r.inHouse,
     supplier: r.supplier,
     placeholder: r.placeholder,
-    setup_eur: 0,
+    setup_eur: r.setupEur,
   }));
   const tubeLaser: RateTubeLaserRow[] = snapshot.tubeLaser.map((r) => ({
     id: id(),
@@ -434,8 +443,15 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     price: r.price,
     minimum: r.minimum,
     placeholder: r.placeholder,
-    setup_per_order_eur: 0,
-    min_part_mm: null,
+    setup_per_order_eur: r.setupPerOrderEur,
+    min_part_mm: r.minPartMm,
+  }));
+  const leadtime: RateLeadtimeRow[] = snapshot.leadtime.map((r) => ({
+    id: id(),
+    rate_version_id: v,
+    working_days: r.workingDays,
+    multiplier: r.multiplier,
+    placeholder: r.placeholder,
   }));
   return {
     version: { id: v, label: snapshot.label },
@@ -449,6 +465,7 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     thread,
     feature,
     finish,
+    leadtime,
   };
 }
 

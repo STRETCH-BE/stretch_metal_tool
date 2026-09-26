@@ -706,6 +706,9 @@ const FLAG_CODES = {
   "feature.no_rate_row": true,
   "finish.no_rate_row": true,
   "finish.minimum_applied": true,
+  "finish.part_too_small": true,
+  "market.margin_below_default": true,
+  "market.no_cost_version": true,
   "rates.placeholder": true,
 } satisfies Record<FlagCode, true>;
 

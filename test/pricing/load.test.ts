@@ -94,7 +94,7 @@ describe("loadRateSnapshot", () => {
     expect(snapshot.general).toEqual(RATE_SNAPSHOT_V1.general);
     const rateTables = calls.filter((c) => c.table !== "rate_versions");
     expect(rateTables.map((c) => c.table).sort()).toEqual(
-      ["materials", "rate_bend", "rate_feature", "rate_finish", "rate_general", "rate_laser", "rate_roll", "rate_thread", "rate_tube_laser", "rate_weld"].sort()
+      ["materials", "rate_bend", "rate_feature", "rate_finish", "rate_general", "rate_laser", "rate_leadtime", "rate_roll", "rate_thread", "rate_tube_laser", "rate_weld"].sort()
     );
     for (const c of rateTables) {
       expect(c.filters).toContainEqual(["rate_version_id", RATE_VERSION_ID]);

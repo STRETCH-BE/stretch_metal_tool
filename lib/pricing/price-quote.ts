@@ -25,16 +25,19 @@
  * an item whose part is missing, and (validate.ts) any NaN / Infinity /
  * negative user number in an extra, an annotation or a welding-only seam.
  * No rounding anywhere.
+ *
+ * Pricing mode: everything above is COST mode (rates.general.pricingMode
+ * "cost"). A version in "market" mode (its tables are selling prices)
+ * is delegated to lib/pricing/market.ts, which reuses this cost pricer on
+ * options.costRates to compute the margin. The welding-only block lives in
+ * welding-block.ts, shared by both.
  */
 
-import type { WeldProcess } from "../geometry/types";
 import { PricingError } from "./errors";
 import { evaluateQuoteFlags } from "./feasibility";
-import { setupShare as spreadSetup, weldCost, weldEffectiveLengthMm } from "./formulas";
-import { OPERATION_LABELS } from "./labels";
-import { findWeldRate } from "./lookup";
-import { buildItemOperations, weldRateRef } from "./operations";
-import { validateWeldingOnly } from "./validate";
+import { priceMarketQuote } from "./market";
+import { buildItemOperations } from "./operations";
+import { priceWeldingOnly } from "./welding-block";
 import {
   marginToMarkup,
   priceFromCost,
@@ -44,10 +47,10 @@ import {
   type OperationType,
   type PricedItem,
   type PricedQuote,
+  type PriceQuoteOptions,
   type QuoteInput,
   type RateSnapshot,
   type TotalsByType,
-  type WeldRate,
 } from "./types";
 
 /** Explicit override → customer-class margin → default margin. */
@@ -72,151 +75,6 @@ function assertMargin(marginPct: number): void {
   }
 }
 
-type WeldingBlock = NonNullable<PricedQuote["welding"]> & { flags: Flag[] };
-
-function lotLine(
-  id: string,
-  type: OperationType,
-  label: string,
-  driverQty: number,
-  driverUnit: OperationLine["driverUnit"],
-  rateRef: OperationLine["rateRef"],
-  unitCost: number,
-  setupShare: number,
-  details: OperationLine["details"]
-): OperationLine {
-  return { id, type, label, driverQty, driverUnit, rateRef, unitCost, setupShare, auto: true, notes: null, details };
-}
-
-function priceWeldingOnly(
-  block: NonNullable<QuoteInput["weldingOnly"]>,
-  rates: RateSnapshot,
-  marginPct: number
-): WeldingBlock {
-  validateWeldingOnly(block);
-  const general = rates.general;
-  const operations: OperationLine[] = [];
-  const flags: Flag[] = [];
-  const processRows = new Map<WeldProcess, WeldRate>();
-
-  for (const seam of block.seams) {
-    const row = findWeldRate(rates, seam.process, seam.beadMm);
-    if (!row) {
-      flags.push({
-        code: "weld.no_rate_row",
-        severity: "red",
-        partId: null,
-        itemId: null,
-        params: { seamId: seam.id, process: seam.process, beadMm: seam.beadMm },
-        overridable: false,
-      });
-      continue;
-    }
-    const stitch = seam.pattern === "stitch" ? (seam.stitch ?? general.defaultStitch) : null;
-    const perSeam = weldEffectiveLengthMm(seam.lengthMm, seam.pattern, stitch, seam.sides);
-    const effective = perSeam * seam.qty;
-    if (!processRows.has(seam.process)) processRows.set(seam.process, row);
-    operations.push(
-      lotLine(
-        `welding:${seam.id}`,
-        "weld",
-        seam.label || OPERATION_LABELS.weld,
-        effective,
-        "mm",
-        weldRateRef(row),
-        weldCost(effective, row.pricePerMm),
-        0,
-        {
-          seamId: seam.id,
-          process: seam.process,
-          beadMm: seam.beadMm,
-          pattern: seam.pattern,
-          beadLengthMm: stitch?.beadLengthMm ?? null,
-          pitchMm: stitch?.pitchMm ?? null,
-          sides: seam.sides,
-          lengthMm: seam.lengthMm,
-          qty: seam.qty,
-          effectivePerSeamMm: perSeam,
-          effectiveLengthMm: effective,
-        }
-      )
-    );
-  }
-
-  for (const [process, row] of processRows) {
-    operations.push(
-      lotLine(
-        `welding-setup:${process}`,
-        "setup",
-        OPERATION_LABELS.weldSetup,
-        1,
-        "lot",
-        weldRateRef(row),
-        spreadSetup(row.setup, 1),
-        row.setup,
-        { process, setup: row.setup }
-      )
-    );
-  }
-
-  if (block.partsCount > 0 && operations.length > 0) {
-    operations.push(
-      lotLine(
-        "welding-handling",
-        "handling",
-        OPERATION_LABELS.weldHandling,
-        block.partsCount,
-        "part",
-        {
-          table: "rate_general",
-          key: "weld_handling_per_part",
-          values: { weldHandlingPerPart: general.weldHandlingPerPart, placeholder: general.placeholder },
-        },
-        general.weldHandlingPerPart * block.partsCount,
-        0,
-        { partsCount: block.partsCount, perPart: general.weldHandlingPerPart }
-      )
-    );
-  }
-
-  let cost = operations.reduce((sum, op) => sum + op.unitCost, 0);
-  let minOrderApplied = false;
-  if (processRows.size > 0) {
-    let minOrder = 0;
-    let minRow: WeldRate | null = null;
-    for (const row of processRows.values()) {
-      if (row.minOrder > minOrder) {
-        minOrder = row.minOrder;
-        minRow = row;
-      }
-    }
-    if (minRow && cost < minOrder) {
-      const shortfall = minOrder - cost;
-      operations.push(
-        lotLine(
-          "welding-min-order",
-          "weld",
-          OPERATION_LABELS.weldMinOrder,
-          1,
-          "lot",
-          {
-            table: "rate_weld",
-            key: `${minRow.process}/${minRow.beadMm}/min_order`,
-            values: { process: minRow.process, beadMm: minRow.beadMm, minOrder, placeholder: minRow.placeholder },
-          },
-          shortfall,
-          0,
-          { minOrder, totalBefore: cost, shortfall }
-        )
-      );
-      cost = minOrder;
-      minOrderApplied = true;
-    }
-  }
-
-  return { operations, cost, price: priceFromCost(cost, marginPct), minOrderApplied, flags };
-}
-
 function addTotal(totals: TotalsByType, type: OperationType, cost: number, marginPct: number): void {
   const bucket = totals[type] ?? { cost: 0, price: 0 };
   bucket.cost += cost;
@@ -237,8 +95,24 @@ function accumulate(totals: TotalsByType, operations: OperationLine[], qty: numb
   }
 }
 
-/** Price a whole quote from its parts, items, rate snapshot and machine park. */
-export function priceQuote(input: QuoteInput, rates: RateSnapshot, machines: MachinePark): PricedQuote {
+/**
+ * Price a whole quote from its parts, items, rate snapshot and machine
+ * park. Cost mode unless the version says "market" (see file header).
+ */
+export function priceQuote(
+  input: QuoteInput,
+  rates: RateSnapshot,
+  machines: MachinePark,
+  options: PriceQuoteOptions = {}
+): PricedQuote {
+  if (rates.general.pricingMode === "market") {
+    return priceMarketQuote(input, rates, machines, { costRates: options.costRates ?? null, priceCost: priceCostQuote });
+  }
+  return priceCostQuote(input, rates, machines);
+}
+
+/** The cost-mode pricer: unitCost = Σ operations, unitPrice = cost ÷ (1 − margin). */
+export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines: MachinePark): PricedQuote {
   const marginPct = input.marginPct;
   assertMargin(marginPct);
   const partsById = new Map(input.parts.map((p) => [p.id, p] as const));
@@ -310,5 +184,10 @@ export function priceQuote(input: QuoteInput, rates: RateSnapshot, machines: Mac
     flags,
     usesPlaceholderRates,
     rateVersionId: rates.versionId,
+    pricingMode: "cost",
+    costRateVersionId: null,
+    leadTimeDays: input.leadTimeDays ?? null,
+    leadTimeMultiplier: 1,
+    quoteLines: [],
   };
 }

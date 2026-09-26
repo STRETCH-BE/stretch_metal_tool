@@ -24,6 +24,13 @@ export const OPERATION_LABELS = {
   engrave: "engrave",
   tubeCut: "tube_cut",
   handling: "handling",
+  laserSetup: "laser_setup",
+  deburrSetup: "deburr_setup",
+  orderCharge: "order_charge",
+  packagingBox: "packaging_box",
+  packagingPallet: "packaging_pallet",
+  leadTime: "lead_time",
+  deburr: "deburr",
 } as const;
 
 export type OperationLabelKey = (typeof OPERATION_LABELS)[keyof typeof OPERATION_LABELS];

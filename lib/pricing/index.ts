@@ -34,7 +34,23 @@ export {
 export { computeFinish, finishTypeFor, type FinishComputation, type FinishDrivers } from "./finish";
 export { evaluateContextFlags, evaluatePartFlags, evaluateQuoteFlags } from "./feasibility";
 export { buildContextOperations, buildItemOperations, weldRateRef, type ItemOperations } from "./operations";
-export { priceQuote, resolveMarginPct } from "./price-quote";
+export { priceCostQuote, priceQuote, resolveMarginPct } from "./price-quote";
+export { priceMarketQuote, laserSetupGroupKey, type MarketPricingOptions } from "./market";
+export {
+  PACKAGING_BOX_MAX_MASS_KG,
+  PACKAGING_BOX_MAX_SIDE_MM,
+  applicableMinPartRules,
+  decidePackaging,
+  describeMinPartSizes,
+  meetsMinPartSize,
+  parseMinPartRule,
+  resolveLeadTimeMultiplier,
+  type LeadTimeResolution,
+  type MinPartRule,
+  type PackagingDecision,
+  type PackagingKind,
+} from "./market-rules";
+export { lotLine, priceWeldingOnly, type WeldingBlock } from "./welding-block";
 export {
   flatLaserLimitsSchema,
   machineFromRow,

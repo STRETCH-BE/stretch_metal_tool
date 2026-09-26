@@ -245,6 +245,18 @@ export const flags: FlagsContent = {
       label: "Finish batch minimum",
       message: "Finish {code}: batch cost {batchBefore} € raised to the minimum {minimum} € ({batchCost} €).",
     },
+    "finish.part_too_small": {
+      label: "Part too small for deburring",
+      message: "Deburring refused: the part {widthMm} × {heightMm} mm is below the minimum {minimum} mm for this material.",
+    },
+    "market.margin_below_default": {
+      label: "Margin below threshold",
+      message: "Market margin {marginPct} % (price {price} €, cost {cost} €) is below the default {minPct} %.",
+    },
+    "market.no_cost_version": {
+      label: "No cost version",
+      message: "Market rate version without a cost version — the margin cannot be computed. Pick a cost version in Admin.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

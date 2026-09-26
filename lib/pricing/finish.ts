@@ -5,7 +5,7 @@
  * File path: /lib/pricing/finish.ts
  *
  * Unit → driver: m2 → net area × 2 faces (powder), kg → part net mass
- * (zinc), m → cut length (deburr), each → 1 per part. Masking minutes ×
+ * (zinc), m → cut length (deburr), each / part → 1 per part. Masking minutes ×
  * labour rate are added for every unit (masking is entered per finish).
  * The rate's `minimum` is a BATCH minimum: unit cost is raised so that
  * unitCost × qty = minimum when the batch would fall below it.
@@ -81,9 +81,10 @@ export function computeFinish(
       base = deburrCost(driverQty, rate.price);
       break;
     }
-    case "each": {
+    case "each":
+    case "part": {
       driverQty = 1;
-      driverUnit = "each";
+      driverUnit = "part";
       base = rate.price;
       break;
     }

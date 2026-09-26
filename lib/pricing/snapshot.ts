@@ -27,6 +27,7 @@ import type {
   RateFinishRow,
   RateGeneralRow,
   RateLaserRow,
+  RateLeadtimeRow,
   RateRollRow,
   RateThreadRow,
   RateTubeLaserRow,
@@ -41,12 +42,14 @@ import type {
   FlatLaserLimits,
   GeneralRate,
   LaserRate,
+  LeadtimeRate,
   Machine,
   MachineKind,
   MachinePark,
   MaterialFamily,
   MaterialRate,
   PressBrakeLimits,
+  PricingMode,
   RateSnapshot,
   RollLimits,
   RollRate,
@@ -80,6 +83,8 @@ export type RateRows = {
   thread: Loose<RateThreadRow>[];
   feature: Loose<RateFeatureRow>[];
   finish: Loose<RateFinishRow>[];
+  /** Absent in rows written before the market-pricing migration → no lead-time curve. */
+  leadtime?: Loose<RateLeadtimeRow>[];
 };
 
 /* ─── Number coercion ─────────────────────────────────────── */
@@ -104,6 +109,11 @@ export function numOrNull(value: number | string | null | undefined, field: stri
   return value === null || value === undefined ? null : num(value, field);
 }
 
+/** Columns added by later migrations may be absent in fixtures / older rows: default instead of failing. */
+function numOr(value: number | string | null | undefined, field: string, fallback: number): number {
+  return value === null || value === undefined ? fallback : num(value, field);
+}
+
 /* ─── zod: JSON columns ───────────────────────────────────── */
 
 /** Number that also accepts a non-empty numeric string ("1.20" from a CSV import). */
@@ -123,7 +133,8 @@ const materialFamilySchema = z.enum(MATERIAL_FAMILIES);
 const laserModeSchema = z.enum(["time", "per_m"]);
 const tubeProfileFamilySchema = z.enum(["round", "square", "rectangular", "open"]);
 const weldProcessSchema = z.enum(["mig_mag", "tig", "laser", "mma"]);
-const finishUnitSchema = z.enum(["m2", "kg", "m", "each"]);
+const finishUnitSchema = z.enum(["m2", "kg", "m", "each", "part"]);
+const pricingModeSchema = z.enum(["cost", "market"]);
 
 function issuesText(error: z.ZodError): string {
   return error.issues
@@ -246,6 +257,7 @@ function mapLaser(row: Loose<RateLaserRow>): LaserRate {
     inHouse: Boolean(row.in_house),
     supplier: row.supplier,
     placeholder: Boolean(row.placeholder),
+    setupEur: numOr(row.setup_eur, `${context}.setup_eur`, 0),
   };
 }
 
@@ -321,6 +333,17 @@ function mapFinish(row: Loose<RateFinishRow>): FinishRate {
     price: num(row.price, `${context}.price`),
     minimum: num(row.minimum, `${context}.minimum`),
     placeholder: Boolean(row.placeholder),
+    setupPerOrderEur: numOr(row.setup_per_order_eur, `${context}.setup_per_order_eur`, 0),
+    minPartMm: typeof row.min_part_mm === "string" && row.min_part_mm.trim() !== "" ? row.min_part_mm : null,
+  };
+}
+
+function mapLeadtime(row: Loose<RateLeadtimeRow>): LeadtimeRate {
+  const context = `rate_leadtime[${String(row.working_days)}]`;
+  return {
+    workingDays: num(row.working_days, `${context}.working_days`),
+    multiplier: num(row.multiplier, `${context}.multiplier`),
+    placeholder: Boolean(row.placeholder),
   };
 }
 
@@ -342,6 +365,13 @@ function mapGeneral(row: Loose<RateGeneralRow>): GeneralRate {
     handlingSurchargeEur: num(row.handling_surcharge_eur, `${c}.handling_surcharge_eur`),
     weldHandlingPerPart: num(row.weld_handling_per_part, `${c}.weld_handling_per_part`),
     placeholder: Boolean(row.placeholder),
+    orderChargeEur: numOr(row.order_charge_eur, `${c}.order_charge_eur`, 0),
+    packagingBoxEur: numOr(row.packaging_box_eur, `${c}.packaging_box_eur`, 0),
+    packagingPalletEur: numOr(row.packaging_pallet_eur, `${c}.packaging_pallet_eur`, 0),
+    pricingMode:
+      row.pricing_mode === null || row.pricing_mode === undefined
+        ? "cost"
+        : (parseJson(pricingModeSchema, row.pricing_mode, `${c}.pricing_mode`) as PricingMode),
   };
 }
 
@@ -373,6 +403,7 @@ export function rowsToRateSnapshot(rows: RateRows): RateSnapshot {
     thread: rows.thread.map(mapThread).sort((a, b) => byString(a.size, b.size)),
     feature: rows.feature.map(mapFeature).sort((a, b) => byString(a.code, b.code)),
     finish: rows.finish.map(mapFinish).sort((a, b) => byString(a.code, b.code)),
+    leadtime: (rows.leadtime ?? []).map(mapLeadtime).sort((a, b) => a.workingDays - b.workingDays),
     general: mapGeneral(rows.general),
   };
 }

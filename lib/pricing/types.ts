@@ -64,6 +64,8 @@ export type LaserRate = {
   inHouse: boolean;
   supplier: string | null;
   placeholder: boolean;
+  /** Market mode: charged once per distinct (material, thickness) in a quote, split over the part lines. */
+  setupEur: number;
 };
 
 export type TubeLaserRate = {
@@ -117,7 +119,8 @@ export type FeatureRate = {
   placeholder: boolean;
 };
 
-export type FinishUnit = "m2" | "kg" | "m" | "each";
+/** "part" = a price per part (market engraving); "each" is the older synonym kept for existing rows. */
+export type FinishUnit = "m2" | "kg" | "m" | "each" | "part";
 
 export type FinishRate = {
   /** "powder", "zinc", "deburr", … */
@@ -127,7 +130,25 @@ export type FinishRate = {
   price: number;
   minimum: number;
   placeholder: boolean;
+  /** Market mode: setup charged once per order, split over the lines that carry this finish. */
+  setupPerOrderEur: number;
+  /** Free-text minimum part size rule (lib/pricing/market-rules.ts parseMinPartRule). */
+  minPartMm: string | null;
 };
+
+/** rate_leadtime row: a promised lead time (working days) and its price multiplier. */
+export type LeadtimeRate = {
+  workingDays: number;
+  multiplier: number;
+  placeholder: boolean;
+};
+
+/**
+ * "cost": the rate tables are our costs (machine-hour model) and the quote
+ * margin is added on top. "market": the tables are SELLING prices (e.g.
+ * 247TailorSteel × 1.10); the margin is computed against a cost version.
+ */
+export type PricingMode = "cost" | "market";
 
 export type GeneralRate = {
   machineRateEurH: number;
@@ -147,6 +168,11 @@ export type GeneralRate = {
   /** Welding-only quotes: handling cost per customer-supplied part. */
   weldHandlingPerPart: number;
   placeholder: boolean;
+  /** Market mode: one order charge per quote, split equally over the part lines (EUR). */
+  orderChargeEur: number;
+  packagingBoxEur: number;
+  packagingPalletEur: number;
+  pricingMode: PricingMode;
 };
 
 export type RateSnapshot = {
@@ -161,6 +187,7 @@ export type RateSnapshot = {
   thread: ThreadRate[];
   feature: FeatureRate[];
   finish: FinishRate[];
+  leadtime: LeadtimeRate[];
   general: GeneralRate;
 };
 
@@ -294,6 +321,17 @@ export type QuoteInput = {
     seams: WeldingOnlySeam[];
     partsCount: number;
   } | null;
+  /** Promised lead time in working days (market mode: drives the rate_leadtime multiplier). */
+  leadTimeDays?: number | null;
+};
+
+/** Optional inputs of priceQuote. */
+export type PriceQuoteOptions = {
+  /**
+   * Market mode: the cost version (machine-hour model) the same quote is
+   * priced with to compute the margin. Ignored in cost mode.
+   */
+  costRates?: RateSnapshot | null;
 };
 
 /* ─── Output ──────────────────────────────────────────────── */
@@ -316,6 +354,9 @@ export type OperationType =
   | "engrave"
   | "handling"
   | "setup"
+  | "order"
+  | "packaging"
+  | "leadtime"
   | "other";
 
 export type DriverUnit =
@@ -342,6 +383,7 @@ export type RateRef = {
     | "rate_thread"
     | "rate_feature"
     | "rate_finish"
+    | "rate_leadtime"
     | "rate_general"
     | "manual";
   /** Key of the row used, e.g. "S355/15" or "mig_mag/4". */
@@ -402,6 +444,9 @@ export type FlagCode =
   | "feature.no_rate_row"
   | "finish.no_rate_row"
   | "finish.minimum_applied"
+  | "finish.part_too_small"
+  | "market.margin_below_default"
+  | "market.no_cost_version"
   | "rates.placeholder";
 
 export type Flag = {
@@ -450,6 +495,14 @@ export type PricedQuote = {
   /** True when any rate used is still a placeholder ([CONFIRM]). */
   usesPlaceholderRates: boolean;
   rateVersionId: string;
+  pricingMode: PricingMode;
+  /** Market mode: the cost version the margin was computed against (null in cost mode / when none was given). */
+  costRateVersionId: string | null;
+  /** Promised lead time the multiplier was resolved for (null = list price). */
+  leadTimeDays: number | null;
+  leadTimeMultiplier: number;
+  /** Quote-level lot lines (market packaging); included in subtotalPrice. */
+  quoteLines: OperationLine[];
 };
 
 /* ─── Helpers shared by engine + UI ───────────────────────── */

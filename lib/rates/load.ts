@@ -21,6 +21,7 @@ import type {
   RateFinishRow,
   RateGeneralRow,
   RateLaserRow,
+  RateLeadtimeRow,
   RateRollRow,
   RateThreadRow,
   RateTubeLaserRow,
@@ -82,7 +83,7 @@ export async function loadRateSnapshot(
   const byVersion = <T extends { eq: (column: "rate_version_id", value: string) => T }>(q: T): T =>
     q.eq("rate_version_id", id);
 
-  const [version, general, materials, laser, tubeLaser, bend, roll, weld, thread, feature, finish] =
+  const [version, general, materials, laser, tubeLaser, bend, roll, weld, thread, feature, finish, leadtime] =
     await Promise.all([
       single<Pick<RateVersionRow, "id" | "label">>(
         supabase.from("rate_versions").select("id, label").eq("id", id).maybeSingle(),
@@ -110,6 +111,10 @@ export async function loadRateSnapshot(
       rows<Loose<RateThreadRow>>(byVersion(supabase.from("rate_thread").select("*")).order("size"), "rate_thread"),
       rows<Loose<RateFeatureRow>>(byVersion(supabase.from("rate_feature").select("*")).order("code"), "rate_feature"),
       rows<Loose<RateFinishRow>>(byVersion(supabase.from("rate_finish").select("*")).order("code"), "rate_finish"),
+      rows<Loose<RateLeadtimeRow>>(
+        byVersion(supabase.from("rate_leadtime").select("*")).order("working_days"),
+        "rate_leadtime"
+      ),
     ]);
 
   if (!version) {
@@ -133,8 +138,29 @@ export async function loadRateSnapshot(
     thread,
     feature,
     finish,
+    leadtime,
   };
   return rowsToRateSnapshot(rateRows);
+}
+
+/**
+ * The cost version a market-priced quote is compared against: `preferred`
+ * when it is a cost-mode version, else the active version when it is in
+ * cost mode, else the newest cost-mode version; null when none exists.
+ */
+export async function loadCostRateVersionId(supabase: RatesClient, preferred?: string | null): Promise<string | null> {
+  const generals = await rows<Pick<RateGeneralRow, "rate_version_id" | "pricing_mode">>(
+    supabase.from("rate_general").select("rate_version_id, pricing_mode").eq("pricing_mode", "cost"),
+    "rate_general"
+  );
+  const costIds = new Set(generals.map((g) => g.rate_version_id));
+  if (costIds.size === 0) return null;
+  if (preferred && costIds.has(preferred)) return preferred;
+  const versions = await rows<Pick<RateVersionRow, "id" | "active" | "created_at">>(
+    supabase.from("rate_versions").select("id, active, created_at").in("id", [...costIds]).order("created_at", { ascending: false }),
+    "rate_versions"
+  );
+  return versions.find((v) => v.active)?.id ?? versions[0]?.id ?? null;
 }
 
 /** The machine park with validated limits (throws on malformed limits JSON). */

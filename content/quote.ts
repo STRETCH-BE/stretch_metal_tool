@@ -145,6 +145,9 @@ export type OperationTypeCode =
   | "engrave"
   | "handling"
   | "setup"
+  | "order"
+  | "packaging"
+  | "leadtime"
   | "other";
 export type OperationLabelCode =
   | "laser_cut"
@@ -162,7 +165,14 @@ export type OperationLabelCode =
   | "machining"
   | "engrave"
   | "tube_cut"
-  | "handling";
+  | "handling"
+  | "laser_setup"
+  | "deburr_setup"
+  | "deburr"
+  | "order_charge"
+  | "packaging_box"
+  | "packaging_pallet"
+  | "lead_time";
 export type DriverUnitCode = "m" | "mm" | "pierce" | "kg" | "bend" | "min" | "m2" | "each" | "part" | "lot";
 export type WeldProcessCode = "mig_mag" | "tig" | "laser" | "mma";
 export type SendReasonCode =
@@ -617,6 +627,9 @@ const builderPl: QuoteBuilderContent = {
       handling: "Manipulacja",
       setup: "Przezbrojenie",
       other: "Inne",
+      order: "Opłata za zamówienie",
+      packaging: "Opakowanie",
+      leadtime: "Termin realizacji",
     },
     labels: {
       laser_cut: "Cięcie laserem",
@@ -635,6 +648,13 @@ const builderPl: QuoteBuilderContent = {
       engrave: "Grawerowanie",
       tube_cut: "Cięcie profilu",
       handling: "Manipulacja",
+      laser_setup: "Przezbrojenie — cięcie (materiał/grubość)",
+      deburr_setup: "Przezbrojenie — gratowanie",
+      deburr: "Gratowanie (obie strony)",
+      order_charge: "Opłata za zamówienie (udział linii)",
+      packaging_box: "Opakowanie — karton",
+      packaging_pallet: "Opakowanie — paleta",
+      lead_time: "Termin realizacji (mnożnik)",
     },
     units: {
       m: "m",
