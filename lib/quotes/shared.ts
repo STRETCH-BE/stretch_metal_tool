@@ -128,3 +128,18 @@ export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
+
+/** Mirror of the can_edit_quote() SQL function: admin, or a writer who owns the quote. */
+export function isQuoteEditor(
+  role: "admin" | "sales" | "viewer",
+  userId: string,
+  quote: { created_by: string | null }
+): boolean {
+  if (role === "admin") return true;
+  return role === "sales" && quote.created_by === userId;
+}
+
+/** Quotes that may still be edited: drafts and quotes waiting for an override decision. */
+export function isQuoteEditable(status: "draft" | "pending_override" | "sent" | "won" | "lost"): boolean {
+  return status === "draft" || status === "pending_override";
+}

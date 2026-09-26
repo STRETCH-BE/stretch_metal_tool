@@ -1,0 +1,9 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderQuotePdf > renders EN in EUR with number, customer and a formatted price > pages-en-EUR 1`] = `1`;
+
+exports[`renderQuotePdf > renders EN in PLN with number, customer and a formatted price > pages-en-PLN 1`] = `1`;
+
+exports[`renderQuotePdf > renders PL in EUR with number, customer and a formatted price > pages-pl-EUR 1`] = `1`;
+
+exports[`renderQuotePdf > renders PL in PLN with number, customer and a formatted price > pages-pl-PLN 1`] = `1`;
