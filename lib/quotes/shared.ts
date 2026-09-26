@@ -16,6 +16,10 @@
  *     the UI but not part of the match — one part = one item per quote.
  *   - The default PDF/e-mail locale is the customer's preference, else
  *     Polish (the company's home market).
+ *   - Stale pricing: quotes.pricing remembers the rate version it was
+ *     computed with. When that differs from quotes.rate_version_id (a draft
+ *     re-pinned to a newly activated version) the stored numbers are stale
+ *     and the builder re-prices the draft on open (isPricingStale).
  */
 
 import type { UserLocale } from "@/lib/db/types";
@@ -142,4 +146,16 @@ export function isQuoteEditor(
 /** Quotes that may still be edited: drafts and quotes waiting for an override decision. */
 export function isQuoteEditable(status: "draft" | "pending_override" | "sent" | "won" | "lost"): boolean {
   return status === "draft" || status === "pending_override";
+}
+
+/**
+ * The stored pricing was computed with a different rate version than the
+ * one the quote is pinned to now. Unpriced quotes and quotes without a
+ * pinned version are never stale (the first pricing run pins them).
+ */
+export function isPricingStale(
+  quote: { rate_version_id: string | null },
+  pricing: { rateVersionId: string } | null
+): boolean {
+  return pricing !== null && quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id;
 }

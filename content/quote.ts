@@ -290,6 +290,7 @@ export type QuoteBuilderContent = {
     saved: string;
     readOnly: string;
     locked: string;
+    staleRates: string;
   };
   /** Parts / items table. */
   parts: {
@@ -580,6 +581,7 @@ const builderPl: QuoteBuilderContent = {
     saved: "Nagłówek zapisany, ceny przeliczone.",
     readOnly: "Tylko podgląd — ta wycena należy do innego użytkownika.",
     locked: "Wycena została wysłana — nagłówek i części są zablokowane. Utwórz nową wersję, aby zmienić.",
+    staleRates: "Zapisane ceny pochodzą z innej wersji stawek niż ta, do której przypięta jest wycena — przeliczanie na serwerze…",
   },
   parts: {
     title: "Części",

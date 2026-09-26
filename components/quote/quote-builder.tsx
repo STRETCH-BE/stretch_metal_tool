@@ -35,7 +35,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useMemo, useState, useTransition, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent } from "react";
 import { BulkMaterialModal } from "@/components/intake/bulk-material-modal";
 import { useContent } from "@/components/providers/locale";
 import { ConfirmButton } from "@/components/ui/confirm-button";
@@ -67,7 +67,7 @@ import {
 import type { CustomerOption } from "@/lib/quotes/queries";
 import { CURRENCIES, type ItemUpdateInput, type QuoteActionResult } from "@/lib/quotes/schema";
 import { canSend } from "@/lib/quotes/send-guard";
-import { OPERATION_TYPE_ORDER, isQuoteEditable, quoteNumberLabel, quotePdfFileName, validUntilDate } from "@/lib/quotes/shared";
+import { OPERATION_TYPE_ORDER, isPricingStale, isQuoteEditable, quoteNumberLabel, quotePdfFileName, validUntilDate } from "@/lib/quotes/shared";
 import type { QuoteAuditRow, QuoteBundle, SendCheck } from "@/lib/quotes/types";
 import { effectiveFxRate, headerFromBundle, headerFxInvalid, headerToInput, type HeaderState } from "./header-state";
 import { makeMoney } from "./money";
@@ -133,6 +133,21 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
     startTransition(async () => {
       report(await fn(), success);
     });
+
+  // Stored prices from a rate version the quote is no longer pinned to
+  // (a draft re-pinned after a version switch): re-price once on open, so
+  // the screen never shows numbers from the old version. Keyed by quote +
+  // version so a failed run is not retried in a loop.
+  const staleRates = editable && isPricingStale(quote, bundle.pricing);
+  const staleRepriced = useRef<string | null>(null);
+  useEffect(() => {
+    if (!staleRates) return;
+    const key = `${quote.id}|${quote.rate_version_id ?? ""}`;
+    if (staleRepriced.current === key) return;
+    staleRepriced.current = key;
+    run(() => repriceQuoteAction(quote.id), b.actions.recalculated);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staleRates, quote.id, quote.rate_version_id]);
 
   /* ─── Header ─────────────────────────────────────────────── */
   const patchHeader = (patch: Partial<HeaderState>) => {
@@ -232,6 +247,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
       <div className="flex min-w-0 flex-col gap-6">
         {!canEdit && <Notice tone="info">{b.header.readOnly}</Notice>}
         {canEdit && !editable && <Notice tone="info">{b.header.locked}</Notice>}
+        {staleRates && <Notice tone="info">{b.header.staleRates}</Notice>}
         {preview.error && <Notice tone="error">{interpolate(b.errors.pricing, { message: preview.error })}</Notice>}
 
         {/* Header */}
