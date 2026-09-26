@@ -22,8 +22,10 @@ export type QuoteStatus = "draft" | "pending_override" | "sent" | "won" | "lost"
 export type CurrencyCode = "PLN" | "EUR";
 export type PartSourceDb = "dxf" | "pdf" | "step" | "manual" | "welding_drawing";
 export type LaserModeDb = "time" | "per_m";
+/** rate_general.pricing_mode: "cost" = machine-hour costs + margin, "market" = the tables are selling prices. */
+export type PricingModeDb = "cost" | "market";
 export type WeldProcessDb = "mig_mag" | "tig" | "laser" | "mma";
-export type FinishUnitDb = "m2" | "kg" | "m" | "each";
+export type FinishUnitDb = "m2" | "kg" | "m" | "each" | "part";
 export type MachineKindDb = "flat_laser" | "tube_laser" | "press_brake" | "roll" | "weld";
 export type OverrideStatus = "pending" | "approved" | "rejected";
 export type MaterialFamilyDb = "mild_steel" | "stainless" | "aluminium" | "brass" | "copper";
@@ -87,6 +89,11 @@ export type RateGeneralRow = {
   handling_surcharge_eur: number;
   weld_handling_per_part: number;
   placeholder: boolean;
+  /** Market mode: one order charge per quote, split over the part lines (EUR). */
+  order_charge_eur: number;
+  packaging_box_eur: number;
+  packaging_pallet_eur: number;
+  pricing_mode: PricingModeDb;
 };
 
 export type MaterialRow = {
@@ -117,6 +124,8 @@ export type RateLaserRow = {
   in_house: boolean;
   supplier: string | null;
   placeholder: boolean;
+  /** Market mode: setup charged once per distinct (material, thickness) in a quote (EUR). */
+  setup_eur: number;
 };
 
 export type RateTubeLaserRow = {
@@ -187,6 +196,19 @@ export type RateFinishRow = {
   price: number;
   minimum: number;
   placeholder: boolean;
+  /** Market mode: setup charged once per order, split over the lines with this finish (EUR). */
+  setup_per_order_eur: number;
+  /** Free-text minimum part size rule, e.g. "steel 250x60 or 600x50; aluminium/stainless 50x50". */
+  min_part_mm: string | null;
+};
+
+export type RateLeadtimeRow = {
+  id: string;
+  rate_version_id: string;
+  working_days: number;
+  /** Price multiplier for a promised lead time of `working_days` (1 = list price). */
+  multiplier: number;
+  placeholder: boolean;
 };
 
 export type MachineRow = {
@@ -228,6 +250,10 @@ export type QuoteRow = {
   lead_time_text: string | null;
   payment_terms_text: string | null;
   rate_version_id: string | null;
+  /** Market mode: the cost version the margin was computed against (pinned with the price version). */
+  cost_rate_version_id: string | null;
+  /** Promised lead time in working days (drives the rate_leadtime multiplier in market mode). */
+  lead_time_days: number;
   geometry_locked: boolean;
   subtotal_cost: number;
   subtotal_price: number;
@@ -388,6 +414,11 @@ export type Database = {
         RateFinishRow,
         Insertable<RateFinishRow, "rate_version_id" | "code" | "name" | "unit" | "price">,
         Partial<RateFinishRow>
+      >;
+      rate_leadtime: Table<
+        RateLeadtimeRow,
+        Insertable<RateLeadtimeRow, "rate_version_id" | "working_days" | "multiplier">,
+        Partial<RateLeadtimeRow>
       >;
       machines: Table<MachineRow, Insertable<MachineRow, "code" | "name" | "kind">, Partial<MachineRow>>;
       files: Table<

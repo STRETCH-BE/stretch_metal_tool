@@ -56,6 +56,8 @@ export function makeQuoteRow(over: Partial<QuoteRow> = {}): QuoteRow {
     lead_time_text: "10–15 dni roboczych",
     payment_terms_text: "Przelew 14 dni",
     rate_version_id: RATE_VERSION_ID,
+    cost_rate_version_id: null,
+    lead_time_days: 11,
     geometry_locked: false,
     subtotal_cost: 0,
     subtotal_price: 0,

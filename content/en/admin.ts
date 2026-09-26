@@ -206,7 +206,7 @@ export const admin: AdminContent = {
       mode: { time: "time", per_m: "per metre" },
       gas: { O2: "O₂", N2: "N₂", air: "air" },
       process: { mig_mag: "MIG/MAG", tig: "TIG", laser: "laser", mma: "MMA (stick)" },
-      unit: { m2: "m²", kg: "kg", m: "m", each: "each" },
+      unit: { m2: "m²", kg: "kg", m: "m", each: "each", part: "per part" },
       family: {
         mild_steel: "mild steel",
         stainless: "stainless",

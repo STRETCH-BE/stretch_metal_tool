@@ -338,6 +338,10 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     handling_surcharge_eur: snapshot.general.handlingSurchargeEur,
     weld_handling_per_part: snapshot.general.weldHandlingPerPart,
     placeholder: snapshot.general.placeholder,
+    order_charge_eur: 0,
+    packaging_box_eur: 0,
+    packaging_pallet_eur: 0,
+    pricing_mode: "cost",
   };
   const materials: MaterialRow[] = snapshot.materials.map((m) => ({
     rate_version_id: v,
@@ -366,6 +370,7 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     in_house: r.inHouse,
     supplier: r.supplier,
     placeholder: r.placeholder,
+    setup_eur: 0,
   }));
   const tubeLaser: RateTubeLaserRow[] = snapshot.tubeLaser.map((r) => ({
     id: id(),
@@ -429,6 +434,8 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     price: r.price,
     minimum: r.minimum,
     placeholder: r.placeholder,
+    setup_per_order_eur: 0,
+    min_part_mm: null,
   }));
   return {
     version: { id: v, label: snapshot.label },

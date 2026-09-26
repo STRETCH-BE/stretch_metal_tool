@@ -676,7 +676,7 @@ export const admin: AdminContent = {
       mode: { time: "czas", per_m: "za metr" },
       gas: { O2: "O₂", N2: "N₂", air: "powietrze" },
       process: { mig_mag: "MIG/MAG", tig: "TIG", laser: "laser", mma: "MMA (elektroda)" },
-      unit: { m2: "m²", kg: "kg", m: "m", each: "szt." },
+      unit: { m2: "m²", kg: "kg", m: "m", each: "szt.", part: "za część" },
       family: {
         mild_steel: "stal czarna",
         stainless: "stal nierdzewna",
