@@ -21,6 +21,13 @@
  * PDF forming hint) else keep the files row — a DXF uploaded later picks
  * it up. STEP: part with source step, no geometry (manual entry prompt).
  *
+ * The PDF re-triage goes through lib/parts/reanalyse.ts: parts.geometry
+ * is the ANNOTATED geometry and applyAnnotations is not idempotent for
+ * scale / mirror, so the base is re-derived (stored geometry when the
+ * annotations are base-equivalent, else the file is parsed again) and the
+ * annotations are applied once. Companion PDFs are only trusted when
+ * their uploader may edit the quote (lib/parts/quote-editor.ts).
+ *
  * Nothing from the AI is ever applied: suggestions are stored on the
  * part and shown as amber chips.
  */
@@ -36,9 +43,11 @@ import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
 import type { Suggestions } from "@/lib/ai/types";
 import { baseName } from "@/lib/files/sniff";
+import { isBaseEquivalent, reanalysePart, THUMBNAIL_SIZE, type ReanalyseDeps } from "./reanalyse";
+
+export { THUMBNAIL_SIZE };
 
 export const INTAKE_TOLERANCE_MM = 0.01;
-export const THUMBNAIL_SIZE = { width: 160, height: 120 } as const;
 
 export type IntakeKind = "dxf" | "pdf" | "step";
 
@@ -75,14 +84,21 @@ export type ExistingPart = {
   annotations: PartAnnotations;
   thicknessMm: number | null;
   materialCode: string | null;
+  /** Storage key of the part's DXF (re-parsed when the annotations scale / mirror / delete). */
+  storagePath: string | null;
+  fileHash: string | null;
 };
 
 export type IntakeDb = {
-  /** Latest non-empty annotations of any part with this file hash. */
+  /** Latest non-empty annotations of any DXF part (source = dxf only) with this file hash. */
   findAnnotationsByHash(fileHash: string): Promise<PartAnnotations | null>;
   /** Newest DXF part of the quote whose name equals the base name (case-insensitive). */
   findPartByBaseName(quoteId: string, base: string): Promise<ExistingPart | null>;
-  /** Newest PDF uploaded to the quote whose base name matches. */
+  /**
+   * Newest PDF filed under the quote whose base name matches AND whose
+   * uploader may edit the quote (admin or its sales owner) — see
+   * lib/parts/quote-editor.ts.
+   */
   findPdfByBaseName(quoteId: string, base: string): Promise<IntakeFile | null>;
   insertPart(row: PartInsert): Promise<{ id: string }>;
   updatePart(id: string, patch: PartPatch): Promise<void>;
@@ -286,20 +302,14 @@ async function processPdf(input: IntakeInput): Promise<Extract<IntakeResult, { k
   const suggestions = await suggestionsFor(deps, input.buffer, text, name);
   const patch: PartPatch = { pdfFileId: file.id, pdfText: text, aiSuggestions: suggestions };
 
-  // The forming hint from the PDF is part of triage — re-run it.
+  // The forming hint from the PDF is part of triage — re-run it on the BASE
+  // geometry (never on the stored, already annotated one).
   if (part.geometry) {
     try {
-      const geometry = await deps.applyAnnotations(part.geometry, part.annotations, {
-        toleranceMm: part.geometry.healing.toleranceMm,
-        blankMarginMm: deps.blankMarginMm,
-        thicknessMm: part.thicknessMm,
-        densityKgM3: deps.densityFor(part.materialCode),
-        name: part.name,
-        pdfText: text,
-      });
-      patch.geometry = geometry;
-      patch.triage = geometry.triage;
-      patch.thumbnailSvg = deps.toSvg(geometry, part.annotations);
+      const result = await retriageWithPdf(deps, { ...part, geometry: part.geometry }, text);
+      patch.geometry = result.geometry;
+      patch.triage = result.geometry.triage;
+      patch.thumbnailSvg = result.thumbnailSvg;
     } catch (error) {
       console.error("[intake] re-triage after pdf attach failed", part.id, error);
     }
@@ -315,6 +325,39 @@ async function processPdf(input: IntakeInput): Promise<Extract<IntakeResult, { k
     hasText: text.length > 0,
     suggestionsSource: suggestions.source,
   };
+}
+
+/**
+ * reanalysePart over the intake deps. The "cache" is the part itself: when
+ * its annotations are base-equivalent (no scale / mirror / deletions) the
+ * stored geometry IS the base and the file is not parsed again; otherwise
+ * the DXF is downloaded and analysed with the stored healing tolerance.
+ */
+async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry: PartGeometry }, pdfText: string) {
+  const reanalyseDeps: ReanalyseDeps = {
+    analyse: deps.analyse,
+    applyAnnotations: deps.applyAnnotations,
+    toSvg: (geometry, annotations) => deps.toSvg(geometry, annotations),
+    download: deps.download,
+    findCachedGeometry: async () => (isBaseEquivalent(part.annotations) ? part.geometry : null),
+  };
+  return reanalysePart(
+    {
+      id: part.id,
+      source: "dxf",
+      name: part.name,
+      storagePath: part.storagePath,
+      fileHash: part.fileHash,
+      geometry: part.geometry,
+      annotations: part.annotations,
+      pdfText,
+      thicknessMm: part.thicknessMm,
+      densityKgM3: deps.densityFor(part.materialCode),
+    },
+    part.annotations,
+    { toleranceMm: part.geometry.healing.toleranceMm, blankMarginMm: deps.blankMarginMm },
+    reanalyseDeps
+  );
 }
 
 async function processStep(input: IntakeInput): Promise<Extract<IntakeResult, { kind: "step" }>> {

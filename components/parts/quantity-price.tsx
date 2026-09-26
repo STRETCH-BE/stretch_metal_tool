@@ -5,6 +5,10 @@
  * and the server-priced unit cost / unit price / batch price in the
  * quote currency (toQuoteCurrency with the quote's stored fx rate).
  * File path: /components/parts/quantity-price.tsx
+ *
+ * Keyed on the server qty (lib/parts/server-key.ts) so an accepted
+ * quantity suggestion remounts the form with the new value instead of
+ * leaving the old one editable and "dirty".
  */
 
 import { useId, useState } from "react";
@@ -13,6 +17,7 @@ import { Panel } from "@/components/ui/panel";
 import { Field } from "@/components/ui/field";
 import { NumberInput } from "@/components/ui/number-input";
 import { formatMoney, interpolate, toQuoteCurrency } from "@/lib/format";
+import { serverKey } from "@/lib/parts/server-key";
 
 export type QuantityPriceProps = {
   qty: number;
@@ -25,7 +30,11 @@ export type QuantityPriceProps = {
   onQtyChange: (qty: number) => void;
 };
 
-export function QuantityPrice({ qty, unitCostEur, unitPriceEur, currency, fxRate, priced, disabled = false, onQtyChange }: QuantityPriceProps) {
+export function QuantityPrice(props: QuantityPriceProps) {
+  return <QuantityForm key={serverKey(props.qty)} {...props} />;
+}
+
+function QuantityForm({ qty, unitCostEur, unitPriceEur, currency, fxRate, priced, disabled = false, onQtyChange }: QuantityPriceProps) {
   const c = useContent();
   const locale = useLocale();
   const t = c.upload.part.quantity;

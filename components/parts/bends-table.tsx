@@ -8,7 +8,9 @@
  *
  * Rows come from lib/parts/annotation-edits materialiseBends so the
  * table shows exactly what will be priced. Enter inside a row's inputs
- * saves the row (form per row).
+ * saves the row (form per row). Rows are keyed on id + server values
+ * (lib/parts/server-key.ts): an accepted bend suggestion or an edit from
+ * the viewer remounts the row with the new angle / radius / direction.
  */
 
 import { useId, useState } from "react";
@@ -19,6 +21,7 @@ import { Table, TableWrap, Td, Th } from "@/components/ui/table";
 import { formatMm } from "@/lib/format";
 import type { BendAnnotation, BendLine } from "@/lib/geometry/types";
 import type { BendParams } from "@/lib/parts/schema";
+import { serverKey } from "@/lib/parts/server-key";
 
 export type BendRow = BendAnnotation & { source: BendLine["source"] | "annotation" };
 
@@ -51,7 +54,7 @@ export function BendsTable({ bends, thicknessMm, disabled = false, onSave }: Ben
             </thead>
             <tbody>
               {bends.map((bend, index) => (
-                <BendRowView key={bend.id} index={index} bend={bend} thicknessMm={thicknessMm} disabled={disabled} onSave={onSave} />
+                <BendRowView key={serverKey(bend.id, bend.direction, bend.angleDeg, bend.radiusMm)} index={index} bend={bend} thicknessMm={thicknessMm} disabled={disabled} onSave={onSave} />
               ))}
             </tbody>
           </Table>

@@ -15,7 +15,12 @@
  * Object keys: quotes/<quoteId>/<fileId>/<safeName>, so a key encodes
  * which quote it belongs to (files rows carry no quote_id) and the
  * complete route can verify a client-supplied path belongs to the quote
- * and the ticket it was issued for.
+ * and the ticket it was issued for. The prefix is a convention, not a
+ * guarantee: files_insert and the storage insert policy only check
+ * can_write(), so readers of "the files of quote X" must also check the
+ * uploader may edit X (lib/parts/quote-editor.ts). Schema follow-up for
+ * the migration owner: files.quote_id + RLS on can_edit_quote(quote_id),
+ * storage insert limited to the signed-upload flow.
  */
 
 import { createHash, randomUUID } from "node:crypto";

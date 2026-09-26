@@ -376,6 +376,7 @@ export const upload: UploadContent = {
     invalid_body: "Invalid request.",
     invalid_path: "Invalid file path.",
     not_uploaded: "The file did not reach storage. Try again.",
+    conflict: "This file was already registered. Upload it again.",
     network: "Connection error. Check the network and try again.",
     upload_failed: "The upload failed.",
     unauthenticated: "Your session expired — sign in again.",

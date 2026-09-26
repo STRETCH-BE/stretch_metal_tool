@@ -5,6 +5,11 @@
  * and thickness input with the flat-laser family limit hint; Save posts
  * setPartMaterial (re-measures mass / slow contours, re-prices).
  * File path: /components/parts/material-panel.tsx
+ *
+ * The form is keyed on the server values (lib/parts/server-key.ts): when
+ * another panel changes material / thickness (accepting an AI suggestion)
+ * the refreshed props remount it, so it never offers to save the stale
+ * value back.
  */
 
 import { useId, useState } from "react";
@@ -16,6 +21,7 @@ import { Notice } from "@/components/ui/notice";
 import { formatMm, interpolate } from "@/lib/format";
 import { familyThicknessLimitMm } from "@/lib/pricing/lookup";
 import type { RatesInfo } from "@/lib/parts/queries";
+import { serverKey } from "@/lib/parts/server-key";
 
 export type MaterialPanelProps = {
   materialCode: string | null;
@@ -25,7 +31,11 @@ export type MaterialPanelProps = {
   onSave: (input: { materialCode: string | null; thicknessMm: number | null }) => void;
 };
 
-export function MaterialPanel({ materialCode, thicknessMm, rates, disabled = false, onSave }: MaterialPanelProps) {
+export function MaterialPanel(props: MaterialPanelProps) {
+  return <MaterialForm key={serverKey(props.materialCode, props.thicknessMm)} {...props} />;
+}
+
+function MaterialForm({ materialCode, thicknessMm, rates, disabled = false, onSave }: MaterialPanelProps) {
   const c = useContent();
   const locale = useLocale();
   const t = c.upload.part.material;

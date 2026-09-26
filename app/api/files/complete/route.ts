@@ -10,8 +10,11 @@
  * id (lib/files/storage.ts parseStoragePath), so a client cannot point
  * the intake at someone else's object. Rejected files (DWG, binary DXF,
  * unknown bytes, extension/bytes mismatch, oversize) are removed from
- * Storage and answered with 415 { error: code }. Everything else runs
- * through lib/parts/intake.ts with the real deps.
+ * Storage and answered with 415 { error: code }. A files row that already
+ * exists for this id or path was not written by this flow (the id is the
+ * fresh ticket's) and answers 409 { error: "conflict" } without touching
+ * it. Everything else runs through lib/parts/intake.ts with the real
+ * deps.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
@@ -91,6 +94,16 @@ export async function POST(request: NextRequest) {
     blankMarginMm: rates.blankMarginMm,
     locale: session.profile.locale,
   };
+
+  const [byId, byPath] = await Promise.all([
+    supabase.from("files").select("id").eq("id", fileId).maybeSingle(),
+    supabase.from("files").select("id").eq("storage_path", path).maybeSingle(),
+  ]);
+  if (byId.error || byPath.error) {
+    console.error("[files/complete] files lookup failed", byId.error ?? byPath.error);
+    return NextResponse.json({ error: "generic" }, { status: 500 });
+  }
+  if (byId.data || byPath.data) return NextResponse.json({ error: "conflict" }, { status: 409 });
 
   let fileRowId: string | null = null;
   try {

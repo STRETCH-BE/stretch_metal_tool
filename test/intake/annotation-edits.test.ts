@@ -1,12 +1,15 @@
 /**
  * Pure annotation reducers (lib/parts/annotation-edits.ts): triage
  * answers, thread confirmation, bend parameters (materialising every
- * bend line), accepting PDF thread / bend / finish suggestions.
+ * bend line), accepting PDF thread / bend / finish suggestions, and the
+ * candidate answer keeping annotations.bends in step with what
+ * lib/pricing resolveBends prices.
  * File path: /test/intake/annotation-edits.test.ts
  */
 import { describe, expect, it } from "vitest";
-import { EMPTY_ANNOTATIONS, type PartAnnotations } from "@/lib/geometry/types";
-import type { ExtraOperation } from "@/lib/pricing/types";
+import { EMPTY_ANNOTATIONS, type GeometryEntity, type PartAnnotations, type PartGeometry } from "@/lib/geometry/types";
+import { resolveBends } from "@/lib/pricing";
+import type { ExtraOperation, PricingPart } from "@/lib/pricing/types";
 import { make200005Like, make200164Like } from "../helpers/parts";
 import {
   acceptBendSuggestion,
@@ -32,6 +35,94 @@ describe("applyTriageAnswer", () => {
     expect(applyTriageAnswer(base, null, { kind: "units", confirmed: true }).unitsConfirmed).toBe(true);
     expect(applyTriageAnswer(base, null, { kind: "forming", value: "rolled" }).forming).toBe("rolled");
     expect(tagCandidates({ ...base, entities: { x: { role: "weld" } } }, ["e1"], "cut").entities).toEqual({ x: { role: "weld" }, e1: { role: "cut" } });
+  });
+});
+
+/** 200164-like geometry plus three unnamed interior lines the triage would list as candidates. */
+function withCandidates(): { geometry: PartGeometry; ids: string[] } {
+  const geometry = make200164Like();
+  const ids = ["cand-1", "cand-2", "cand-3"];
+  const xs = [-300, -250, -200];
+  const entities: GeometryEntity[] = ids.map((id, i) => ({
+    id,
+    layer: "0",
+    originalType: "LINE",
+    segments: [{ kind: "line", start: { x: xs[i], y: -60 }, end: { x: xs[i], y: 0 } }],
+    closed: false,
+    lengthMm: 60,
+    bbox: { minX: xs[i], minY: -60, maxX: xs[i], maxY: 0, width: 0, height: 60 },
+    roleFromLayer: null,
+    role: "unknown",
+    loopId: null,
+  }));
+  return { geometry: { ...geometry, entities: [...geometry.entities, ...entities] }, ids };
+}
+
+function pricingPart(geometry: PartGeometry, annotations: PartAnnotations): PricingPart {
+  return { id: "p", name: "200164", source: "dxf", materialCode: "DC01", thicknessMm: 2, geometry, annotations };
+}
+
+describe("candidate answers vs annotations.bends (pricing reads bends exclusively once non-empty)", () => {
+  const { geometry, ids } = withCandidates();
+  const triage = { candidateEntityIds: ids };
+  const materialised = setBendParams(base, geometry, "bend-down-2", { angleDeg: 120, radiusMm: 3, direction: "down" }, 2)!;
+
+  it("appends a bend annotation per tagged candidate when bend annotations already exist", () => {
+    expect(materialised.bends).toHaveLength(4);
+    const tagged = applyTriageAnswer(materialised, triage, { kind: "candidates", role: "bend_up" }, geometry, 2);
+    expect(tagged.entities).toEqual({ "cand-1": { role: "bend_up" }, "cand-2": { role: "bend_up" }, "cand-3": { role: "bend_up" } });
+    expect(tagged.bends).toHaveLength(7);
+    const fresh = tagged.bends.filter((b) => ids.includes(b.entityId ?? ""));
+    expect(fresh.map((b) => b.id)).toEqual(["bend-1", "bend-2", "bend-3"]);
+    for (const b of fresh) {
+      expect(b).toMatchObject({ angleDeg: 90, radiusMm: 2, direction: "up", dieVMm: null, lengthMm: 60 });
+      expect(b.start).toEqual({ x: expect.any(Number), y: -60 });
+      expect(b.end).toEqual({ x: b.start.x, y: 0 });
+    }
+    // The four materialised bends are untouched (including the edited one).
+    expect(tagged.bends.find((b) => b.id === "bend-down-2")).toMatchObject({ angleDeg: 120, radiusMm: 3 });
+    // And the pricing engine sees all seven.
+    const priced = resolveBends(pricingPart(geometry, tagged), 2, null);
+    expect(priced).toHaveLength(7);
+    expect(priced.filter((b) => b.direction === "up")).toHaveLength(4);
+    expect(priced.every((b) => b.origin === "annotation")).toBe(true);
+    // Input untouched.
+    expect(materialised.bends).toHaveLength(4);
+  });
+
+  it("uses the role's direction and replaces an earlier answer instead of duplicating", () => {
+    const up = applyTriageAnswer(materialised, triage, { kind: "candidates", role: "bend_up" }, geometry, 2);
+    const down = applyTriageAnswer(up, triage, { kind: "candidates", role: "bend_down" }, geometry, 2);
+    expect(down.bends).toHaveLength(7);
+    expect(down.bends.filter((b) => ids.includes(b.entityId ?? "")).every((b) => b.direction === "down")).toBe(true);
+    expect(resolveBends(pricingPart(geometry, down), 2, null)).toHaveLength(7);
+  });
+
+  it("removes the tagged bends again on ignore / cut", () => {
+    const up = applyTriageAnswer(materialised, triage, { kind: "candidates", role: "bend_up" }, geometry, 2);
+    const ignored = applyTriageAnswer(up, triage, { kind: "candidates", role: "ignore" }, geometry, 2);
+    expect(ignored.bends).toHaveLength(4);
+    expect(ignored.entities["cand-1"]).toEqual({ role: "ignore" });
+    expect(resolveBends(pricingPart(geometry, ignored), 2, null)).toHaveLength(4);
+    const cut = tagCandidates(up, ids, "cut", geometry, 2);
+    expect(cut.bends).toHaveLength(4);
+  });
+
+  it("writes only role overrides while no bend annotation exists (the engine's bend lines are priced)", () => {
+    const tagged = applyTriageAnswer(base, triage, { kind: "candidates", role: "bend_down" }, geometry, 2);
+    expect(tagged.bends).toEqual([]);
+    expect(Object.keys(tagged.entities)).toEqual(ids);
+    // Geometry path: the four layer bend lines are priced from measures.
+    expect(resolveBends(pricingPart(geometry, tagged), 2, null)).toHaveLength(4);
+  });
+
+  it("skips ids without an entity and works without geometry", () => {
+    const tagged = tagCandidates(materialised, ["nope", "cand-1"], "bend_up", geometry, 2);
+    expect(tagged.bends).toHaveLength(5);
+    expect(tagged.entities.nope).toEqual({ role: "bend_up" });
+    const blind = tagCandidates(materialised, ids, "bend_up");
+    expect(blind.bends).toHaveLength(4);
+    expect(blind.entities["cand-2"]).toEqual({ role: "bend_up" });
   });
 });
 

@@ -30,6 +30,7 @@ export type UploadErrorCode =
   | "invalid_body"
   | "invalid_path"
   | "not_uploaded"
+  | "conflict"
   | "network"
   | "upload_failed";
 
@@ -730,6 +731,7 @@ export const upload: UploadContent = {
     invalid_body: "Nieprawidłowe żądanie.",
     invalid_path: "Nieprawidłowa ścieżka pliku.",
     not_uploaded: "Plik nie dotarł do magazynu. Spróbuj ponownie.",
+    conflict: "Ten plik został już zarejestrowany. Wgraj go ponownie.",
     network: "Błąd połączenia. Sprawdź sieć i spróbuj ponownie.",
     upload_failed: "Wgrywanie nie powiodło się.",
     unauthenticated: "Sesja wygasła — zaloguj się ponownie.",

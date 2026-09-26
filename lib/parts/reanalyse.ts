@@ -21,7 +21,9 @@
 
 import type { AnalyzeOptions, PartAnnotations, PartGeometry } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
-import { THUMBNAIL_SIZE } from "./intake";
+
+/** Light-theme thumbnail stored on parts.thumbnail_svg (lists, PDF). */
+export const THUMBNAIL_SIZE = { width: 160, height: 120 } as const;
 
 export type ReanalyseDeps = {
   analyse(text: string, options: AnalyzeOptions): Promise<PartGeometry>;

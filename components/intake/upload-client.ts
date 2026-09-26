@@ -35,7 +35,7 @@ export type CompleteResponse = IntakeResult & { fileId: string };
 
 const KNOWN_CODES = new Set<string>([
   "extension", "size", "dwg", "empty", "binary_dxf", "unknown_type", "type_mismatch",
-  "invalid_body", "invalid_path", "not_uploaded", "network", "upload_failed",
+  "invalid_body", "invalid_path", "not_uploaded", "conflict", "network", "upload_failed",
   "unauthenticated", "forbidden", "not_found", "locked", "invalid_id",
   "validation", "no_geometry", "no_rates", "bend_not_found", "no_bends", "nothing_to_apply", "no_pdf", "no_item", "generic",
 ]);

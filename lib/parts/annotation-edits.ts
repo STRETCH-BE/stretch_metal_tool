@@ -9,7 +9,14 @@
  * result. Decisions:
  * - "These N lines: bend up / down / ignore / cut" writes a role override
  *   for every id in `triage.candidateEntityIds` (all candidates at once —
- *   individual tagging is the viewer's job).
+ *   individual tagging is the viewer's job). Because lib/pricing
+ *   resolveBends reads `annotations.bends` EXCLUSIVELY once it is
+ *   non-empty, a bend answer given while bend annotations exist also
+ *   appends a BendAnnotation per tagged entity (90°, radius = thickness,
+ *   direction from the role — what the viewer's tagEntities does), and
+ *   any other answer removes the bend annotations tagged on those
+ *   entities. With an empty list the role override alone is enough: the
+ *   engine turns the tagged lines into bend lines the pricing reads.
  * - Bend parameters live on BendAnnotations. lib/pricing resolves bends
  *   from `annotations.bends` when that list is non-empty, else from the
  *   layer bend lines, so editing ONE bend materialises EVERY current bend
@@ -24,6 +31,7 @@
 import type {
   BendAnnotation,
   BendLine,
+  GeometryEntity,
   HoleInfo,
   PartAnnotations,
   PartGeometry,
@@ -35,14 +43,19 @@ import type { ThreadSuggestion as AiThreadSuggestion, BendSuggestion, FinishCode
 import type { ExtraOperation } from "@/lib/pricing/types";
 import type { BendParams, CandidateRole, TriageAnswer } from "./schema";
 
+/** Geometry the candidate answer needs to materialise bends (entities of the STORED geometry). */
+export type CandidateGeometry = Pick<PartGeometry, "entities">;
+
 export function applyTriageAnswer(
   annotations: PartAnnotations,
   triage: Pick<Triage, "candidateEntityIds"> | null,
-  answer: TriageAnswer
+  answer: TriageAnswer,
+  geometry: CandidateGeometry | null = null,
+  thicknessMm: number | null = null
 ): PartAnnotations {
   switch (answer.kind) {
     case "candidates":
-      return tagCandidates(annotations, triage?.candidateEntityIds ?? [], answer.role);
+      return tagCandidates(annotations, triage?.candidateEntityIds ?? [], answer.role, geometry, thicknessMm);
     case "units":
       return { ...annotations, unitsConfirmed: true };
     case "forming":
@@ -50,10 +63,58 @@ export function applyTriageAnswer(
   }
 }
 
-export function tagCandidates(annotations: PartAnnotations, ids: string[], role: CandidateRole): PartAnnotations {
+/** Next `bend-N` id, the viewer's scheme (lib/viewer/tools nextId). */
+function nextBendId(existing: readonly { id: string }[]): string {
+  let max = 0;
+  for (const item of existing) {
+    const m = /^bend-(\d+)$/.exec(item.id);
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `bend-${max + 1}`;
+}
+
+function bendFromEntity(entity: GeometryEntity, id: string, direction: "up" | "down", thicknessMm: number | null): BendAnnotation | null {
+  const first = entity.segments[0];
+  const last = entity.segments[entity.segments.length - 1];
+  if (!first || !last) return null;
+  const start = first.kind === "circle" ? first.center : first.start;
+  const end = last.kind === "circle" ? last.center : last.end;
+  return {
+    id,
+    entityId: entity.id,
+    start: { ...start },
+    end: { ...end },
+    lengthMm: entity.lengthMm,
+    angleDeg: 90,
+    radiusMm: thicknessMm,
+    direction,
+    dieVMm: null,
+  };
+}
+
+export function tagCandidates(
+  annotations: PartAnnotations,
+  ids: string[],
+  role: CandidateRole,
+  geometry: CandidateGeometry | null = null,
+  thicknessMm: number | null = null
+): PartAnnotations {
+  const idSet = new Set(ids);
   const entities = { ...annotations.entities };
   for (const id of ids) entities[id] = { role };
-  return { ...annotations, entities };
+  if (annotations.bends.length === 0) return { ...annotations, entities };
+
+  // Bend annotations win over geometry bend lines in pricing: keep them in step.
+  let bends = annotations.bends.filter((b) => !(b.entityId && idSet.has(b.entityId)));
+  if ((role === "bend_up" || role === "bend_down") && geometry) {
+    const direction = role === "bend_up" ? "up" : "down";
+    for (const id of ids) {
+      const entity = geometry.entities.find((e) => e.id === id);
+      const bend = entity ? bendFromEntity(entity, nextBendId(bends), direction, thicknessMm) : null;
+      if (bend) bends = [...bends, bend];
+    }
+  }
+  return { ...annotations, entities, bends };
 }
 
 /** Confirm (size) or reject (null) the thread on one hole loop. */

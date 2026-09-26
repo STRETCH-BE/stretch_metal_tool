@@ -19,7 +19,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { geometryToSvg, quickPart } from "@/lib/geometry";
 import type { PartAnnotations, PartGeometry, Triage } from "@/lib/geometry/types";
 import { normalizeThreadSize } from "@/lib/ai/threads";
 import type { ExtraOperation } from "@/lib/pricing/types";
@@ -43,8 +42,9 @@ import {
   setBendParams as setBendParamsEdit,
 } from "./annotation-edits";
 import { parseStoredGeometry, toJson } from "./intake-db";
-import { THUMBNAIL_SIZE } from "./intake";
 import { prefillPartSuggestions } from "./prefill";
+import { buildQuickPartColumns } from "./quick-part-columns";
+import { canEditQuoteAs } from "./quote-editor";
 import { loadRatesInfo, parseStoredSuggestions, parseStoredTriage, type RatesInfo } from "./queries";
 import { reanalysePart as reanalyseCore, type ReanalysePart } from "./reanalyse";
 import { makeReanalyseDeps } from "./server-deps";
@@ -57,7 +57,6 @@ import {
   partNameSchema,
   qtySchema,
   quickPartFormSchema,
-  quickPartInputFrom,
   suggestionFieldSchema,
   threadSizeSchema,
   toleranceSchema,
@@ -121,6 +120,14 @@ async function fileRowOf(supabase: ServerSupabase, fileId: string | null): Promi
 }
 
 type Ctx = PartWriter & { rates: RatesInfo; file: FileRow | null; geometry: PartGeometry | null; annotations: PartAnnotations };
+
+/** A files row is only trusted for this quote when its uploader may edit the quote (lib/parts/quote-editor.ts). */
+async function uploaderMayEditQuote(ctx: Ctx, file: FileRow): Promise<boolean> {
+  if (!file.uploaded_by) return false;
+  const { data, error } = await ctx.supabase.from("profiles").select("id, role").eq("id", file.uploaded_by).maybeSingle();
+  if (error) throw new Error(`profiles select: ${error.message}`);
+  return canEditQuoteAs(ctx.quote, data ?? null);
+}
 
 async function context(partId: string): Promise<Ctx> {
   const writer = await requirePartWriter(partId);
@@ -239,7 +246,8 @@ export async function answerTriage(partId: string, answerInput: TriageAnswer): P
     const parsed = triageAnswerSchema.safeParse(answerInput);
     if (!parsed.success) fail("validation");
     const ctx = await context(partId);
-    const next = applyTriageAnswer(ctx.annotations, currentTriage(ctx), parsed.data);
+    // Stored (annotated) geometry: its entity coordinates are the space bend annotations live in.
+    const next = applyTriageAnswer(ctx.annotations, currentTriage(ctx), parsed.data, ctx.geometry, thicknessOf(ctx.part));
     const { geometry } = await applyAndStore(ctx, next);
     await afterChange(ctx.quote.id, partId);
     return { triage: geometry.triage };
@@ -384,19 +392,9 @@ export async function createQuickPart(
     const rates = await loadRatesInfo(writer.supabase, writer.quote.rate_version_id);
     const code = parsed.data.materialCode;
     const material = code ? (rates.materials.find((m) => m.code.toLowerCase() === code.toLowerCase()) ?? null) : null;
-    const input = quickPartInputFrom(parsed.data, material?.densityKgM3 ?? null, rates.blankMarginMm);
-    const { geometry, annotations } = quickPart(input);
-    const thumbnailSvg = geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" });
-    const columns = {
-      name: parsed.data.name,
-      source: "manual" as const,
-      material_code: material?.code ?? code,
-      thickness_mm: parsed.data.thicknessMm,
-      geometry: toJson(geometry),
-      annotations: toJson(annotations),
-      triage: toJson(geometry.triage),
-      thumbnail_svg: thumbnailSvg,
-    };
+    // Replace: source manual, file_id kept, file_hash NULLED so the synthetic
+    // annotations never restore onto a later upload of the same DXF.
+    const { columns } = buildQuickPartColumns(parsed.data, material, rates.blankMarginMm, replacePartId ? "replace" : "create");
 
     let partId: string;
     if (replacePartId) {
@@ -529,6 +527,8 @@ export async function attachPdf(partId: string, fileId: string): Promise<ActionR
     if (!pdf || pdf.kind !== "pdf") fail("no_pdf");
     const parsedPath = parseStoragePath(pdf.storage_path);
     if (!parsedPath || parsedPath.quoteId !== ctx.quote.id.toLowerCase()) fail("forbidden");
+    // Same rule as the intake companion lookup: the uploader must be allowed to edit this quote.
+    if (!(await uploaderMayEditQuote(ctx, pdf))) fail("forbidden");
     const { error } = await ctx.supabase.from("parts").update({ pdf_file_id: pdf.id, pdf_text: null }).eq("id", partId);
     if (error) throw new Error(`parts update (pdf): ${error.message}`);
     const outcome = await prefillPartSuggestions(ctx.supabase, { ...ctx.part, pdf_file_id: pdf.id, pdf_text: null }, pdf, ctx.session.profile.locale);
