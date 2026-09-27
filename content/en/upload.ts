@@ -127,8 +127,8 @@ export const upload: UploadContent = {
       pdfAttached: "PDF attached to part {part}.",
       restored: "Earlier annotations for this file were restored.",
       stepManual:
-        "STEP model read, but it is not a flat sheet (thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}). Enter the flat pattern as a quick part.",
-      stepFlat: "STEP model read: flat part, thickness {thickness} mm — flat pattern built from the model.",
+        "STEP model read, but it could not be unfolded (thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}). Enter the flat pattern as a quick part.",
+      stepFlat: "STEP model read: thickness {thickness} mm, flat pattern built from the model (bends as bend lines).",
       multiPart: "The file holds {count} parts — the largest is priced.",
       healingLabel: "Healing",
       suggestionsAi: "AI suggestions from the PDF",
@@ -226,9 +226,9 @@ export const upload: UploadContent = {
     noGeometryTitle: "No geometry",
     noGeometryBody: "This file has no flat pattern to show.",
     stepBody:
-      "The STEP model is not a flat sheet — the flat pattern has to be entered by hand. Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm. Thickness and size are pre-filled in the quick part.",
+      "The STEP model could not be unfolded automatically — the flat pattern has to be entered by hand. Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm. Thickness and size are pre-filled in the quick part.",
     stepLegacyBody:
-      "This STEP model was uploaded before the tool could read it. Read it now: a flat part becomes a flat pattern, a bent part gets its thickness and size.",
+      "This STEP model was uploaded before the tool could read it. Read it now: a flat or bent part becomes a flat pattern with bend lines.",
     analyseStep: "Read the STEP model",
     enterQuickPart: "Enter as a quick part",
     saved: "Annotations saved.",

@@ -20,8 +20,14 @@
  *     the result goes through the same normalise → heal → loops →
  *     classify → measure → triage pipeline as a DXF, so pricing, the
  *     viewer and the thumbnail treat it as a 1:1 flat pattern.
- *   - everything else (bent parts, assemblies with several bodies, files
- *     without a readable solid) becomes a geometry with no entities and
+ *   - BENT parts made of planar flanges joined by cylindrical bends are
+ *     unfolded (unfold.ts): flange outlines and holes laid out flat with a
+ *     bend allowance between them and bend lines on the BEND layers, then
+ *     the same pipeline. Bends are priced from those lines (90°, inner
+ *     radius = thickness by default; the bends table adjusts).
+ *   - everything else (joints that are not plain cylinders, assemblies
+ *     with several bodies, files without a readable solid) becomes a
+ *     geometry with no entities and
  *     triage state red_step_manual whose details carry the thickness,
  *     bend count, bounding box and body count, so the quick-part dialog
  *     can be pre-filled and the message says what to enter by hand.
@@ -43,27 +49,14 @@
  */
 
 import type { AnalyzeOptions, DxfHeaderInfo, PartGeometry, Point, Triage, TriageReasonCode } from "../types";
-import type { ParsedDxf, RawEntity } from "../parse";
+import type { ParsedDxf } from "../parse";
 import { runPipeline, GEOMETRY_VERSION } from "../pipeline";
 import { clampTolerance, emptyHealingReport } from "../heal";
 import { measure } from "../measure";
-import { DEFAULT_CHORD_ERROR_MM, angleDeg, makeArc, makeCircle, makeLine, pointsEqual } from "../math";
+import { DEFAULT_CHORD_ERROR_MM } from "../math";
 import { parseStep, StepFormatError, isStepText, decodeStepBytes } from "./part21";
-import {
-  evaluateBrep,
-  loopPolyline,
-  sampleEdge,
-  dot3,
-  sub3,
-  scale3,
-  dist3,
-  type Body3,
-  type BrepModel,
-  type Face3,
-  type Loop3,
-  type Placement,
-  type Vec3,
-} from "./brep";
+import { evaluateBrep, loopPolyline, dot3, sub3, scale3, type Body3, type BrepModel, type Face3, type Loop3, type Placement, type Vec3 } from "./brep";
+import { bendGroups, extentsOf, loopToEntities, polygonArea, unfoldBody, type Flattening, type FlatMap } from "./unfold";
 
 export { StepFormatError, isStepText, decodeStepBytes };
 
@@ -112,15 +105,6 @@ function project(p: Placement, v: Vec3): Point {
   return { x: dot3(d, p.ref), y: dot3(d, p.y) };
 }
 
-function polygonArea(pts: Point[]): number {
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const p = pts[i];
-    const q = pts[(i + 1) % pts.length];
-    a += p.x * q.y - q.x * p.y;
-  }
-  return Math.abs(a) / 2;
-}
 
 function planarFace(face: Face3, chordError: number): PlanarFace | null {
   if (face.surface.kind !== "plane") return null;
@@ -131,21 +115,6 @@ function planarFace(face: Face3, chordError: number): PlanarFace | null {
   let area = polygonArea(outer2);
   for (const hole of inner2) area -= polygonArea(hole);
   return { face, normal, offset: dot3(normal, placement.origin), area: Math.max(0, area), placement, outer2, inner2 };
-}
-
-type Cylinder = { axis: Vec3; axisPoint: Vec3; radius: number; face: Face3 };
-
-function cylinderOf(face: Face3): Cylinder | null {
-  if (face.surface.kind !== "cylinder") return null;
-  const p = face.surface.placement;
-  // A point on the axis line independent of where the placement origin sits along it.
-  const axisPoint = sub3(p.origin, scale3(p.axis, dot3(p.origin, p.axis)));
-  return { axis: p.axis, axisPoint, radius: face.surface.radius, face };
-}
-
-function coaxial(a: Cylinder, b: Cylinder): boolean {
-  if (Math.abs(dot3(a.axis, b.axis)) < PARALLEL) return false;
-  return dist3(a.axisPoint, b.axisPoint) < 0.05;
 }
 
 /* ─── Body analysis ─────────────────────────────────────────── */
@@ -219,38 +188,12 @@ function thicknessOf(planar: PlanarFace[]): { thicknessMm: number; normal: Vec3 
   return { thicknessMm: Math.round(chosen.value * 100) / 100, normal: chosen.normal };
 }
 
+
 function countBends(body: Body3, thicknessMm: number | null): { bendCount: number; bendFaces: Set<Face3> } {
+  const groups = bendGroups(body, thicknessMm);
   const bendFaces = new Set<Face3>();
-  if (thicknessMm === null) return { bendCount: 0, bendFaces };
-  const cylinders: Cylinder[] = [];
-  for (const face of body.faces) {
-    const c = cylinderOf(face);
-    if (c) cylinders.push(c);
-  }
-  const groups: Cylinder[][] = [];
-  for (const c of cylinders) {
-    const group = groups.find((g) => coaxial(g[0], c));
-    if (group) group.push(c);
-    else groups.push([c]);
-  }
-  let bendCount = 0;
-  for (const group of groups) {
-    const radii = Array.from(new Set(group.map((c) => Math.round(c.radius * 100) / 100))).sort((a, b) => a - b);
-    let isBend = false;
-    for (let i = 0; i < radii.length && !isBend; i++) {
-      for (let j = i + 1; j < radii.length; j++) {
-        if (Math.abs(radii[j] - radii[i] - thicknessMm) < 0.05) {
-          isBend = true;
-          break;
-        }
-      }
-    }
-    if (isBend) {
-      bendCount++;
-      for (const c of group) bendFaces.add(c.face);
-    }
-  }
-  return { bendCount, bendFaces };
+  for (const g of groups) for (const f of g.faces) bendFaces.add(f);
+  return { bendCount: groups.length, bendFaces };
 }
 
 export function analyseBody(body: Body3, chordError = DEFAULT_CHORD_ERROR_MM): BodyAnalysis {
@@ -325,59 +268,6 @@ function innerArea(f: PlanarFace): number {
 
 /* ─── Flat pattern → parsed entities ────────────────────────── */
 
-type Flattening = { entities: RawEntity[]; splinesFlattened: number; ellipsesFlattened: number };
-
-function loopEntities(loop: Loop3, plane: Placement, chordError: number, out: Flattening): void {
-  // A loop made of one full circle is a CIRCLE entity.
-  if (loop.edges.length === 1) {
-    const e = loop.edges[0].edge;
-    if (e.curve.kind === "circle" && dist3(e.start, e.end) < 1e-6 && Math.abs(dot3(e.curve.placement.axis, plane.axis)) > PARALLEL) {
-      const center = project(plane, e.curve.placement.origin);
-      out.entities.push({ originalType: "CIRCLE", layer: "0", segments: [makeCircle(center, e.curve.radius)], closed: true });
-      return;
-    }
-  }
-  for (const oe of loop.edges) {
-    const e = oe.edge;
-    const c = e.curve;
-    if (c.kind === "line") {
-      const a = project(plane, e.start);
-      const b = project(plane, e.end);
-      if (pointsEqual(a, b, 1e-9)) continue;
-      out.entities.push({ originalType: "LINE", layer: "0", segments: [makeLine(a, b)], closed: false });
-      continue;
-    }
-    if (c.kind === "circle" && Math.abs(dot3(c.placement.axis, plane.axis)) > PARALLEL) {
-      const center = project(plane, c.placement.origin);
-      if (dist3(e.start, e.end) < 1e-6) {
-        out.entities.push({ originalType: "CIRCLE", layer: "0", segments: [makeCircle(center, c.radius)], closed: true });
-        continue;
-      }
-      const a = project(plane, e.start);
-      const b = project(plane, e.end);
-      // CCW around the circle's own axis when same_sense; mirrored in the
-      // plane frame when the circle axis points against the plane axis.
-      const ccwInPlane = e.sameSense !== dot3(c.placement.axis, plane.axis) < 0;
-      const startDeg = angleDeg(center, ccwInPlane ? a : b);
-      const endDeg = angleDeg(center, ccwInPlane ? b : a);
-      out.entities.push({ originalType: "ARC", layer: "0", segments: [makeArc(center, c.radius, startDeg, endDeg)], closed: false });
-      continue;
-    }
-    // Ellipses, B-splines, polylines, tilted circles: flatten.
-    const pts = sampleEdge(e, chordError).map((v) => project(plane, v));
-    const segments = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      if (pointsEqual(pts[i], pts[i + 1], 1e-9)) continue;
-      segments.push(makeLine(pts[i], pts[i + 1]));
-    }
-    if (segments.length === 0) continue;
-    const originalType = c.kind === "bspline" ? "SPLINE" : c.kind === "ellipse" ? "ELLIPSE" : "LWPOLYLINE";
-    if (c.kind === "bspline") out.splinesFlattened++;
-    if (c.kind === "ellipse") out.ellipsesFlattened++;
-    out.entities.push({ originalType, layer: "0", segments, closed: false });
-  }
-}
-
 function headerFor(model: BrepModel, extents: { min: Point; max: Point } | null): DxfHeaderInfo {
   return {
     version: null,
@@ -388,29 +278,15 @@ function headerFor(model: BrepModel, extents: { min: Point; max: Point } | null)
   };
 }
 
-function extentsOf(pts: Point[][]): { min: Point; max: Point } | null {
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  for (const loop of pts) {
-    for (const p of loop) {
-      if (p.x < minX) minX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y > maxY) maxY = p.y;
-    }
-  }
-  return Number.isFinite(minX) ? { min: { x: minX, y: minY }, max: { x: maxX, y: maxY } } : null;
-}
 
 /** The flat pattern of an analysed flat body as parsed entities (like a DXF). */
 export function flatPatternOf(analysis: BodyAnalysis, model: BrepModel, chordError = DEFAULT_CHORD_ERROR_MM): ParsedDxf | null {
   const face = analysis.patternFace;
   if (!face || !face.face.outer) return null;
   const out: Flattening = { entities: [], splinesFlattened: 0, ellipsesFlattened: 0 };
-  loopEntities(face.face.outer, face.placement, chordError, out);
-  for (const hole of face.face.inner) loopEntities(hole, face.placement, chordError, out);
+  const map: FlatMap = { toFlat: (v) => project(face.placement, v), normal: face.placement.axis };
+  loopToEntities(face.face.outer, map, null, chordError, out);
+  for (const hole of face.face.inner) loopToEntities(hole, map, null, chordError, out);
   return {
     header: headerFor(model, extentsOf([face.outer2, ...face.inner2])),
     entities: out.entities,
@@ -503,10 +379,17 @@ export function analyseStepSync(text: string, options: AnalyzeOptions = {}): Par
   const file = parseStep(text);
   const model = evaluateBrep(file);
   const analyses = model.bodies.map((b) => analyseBody(b));
-  if (model.bodies.length === 1 && analyses[0].summary.flat) {
-    const parsed = flatPatternOf(analyses[0], model);
+  if (model.bodies.length === 1) {
+    const a = analyses[0];
+    const thicknessMm = options.thicknessMm ?? a.summary.thicknessMm;
+    let parsed: ParsedDxf | null = null;
+    if (a.summary.flat) {
+      parsed = flatPatternOf(a, model);
+    } else if (a.summary.bendCount > 0 && a.summary.thicknessMm !== null && !a.summary.notFlatBecause.includes("freeform_surfaces")) {
+      // Bent sheet: walk flange → bend → flange on one side (unfold.ts).
+      parsed = unfoldBody(model.bodies[0], a.summary.thicknessMm, model.unitScale)?.parsed ?? null;
+    }
     if (parsed && parsed.entities.length > 0) {
-      const thicknessMm = options.thicknessMm ?? analyses[0].summary.thicknessMm;
       try {
         const geometry = runPipeline(parsed, { ...options, thicknessMm }, "step");
         if (geometry.outerLoopId) return geometry;

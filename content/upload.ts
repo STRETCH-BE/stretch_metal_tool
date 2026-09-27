@@ -505,8 +505,8 @@ export const upload: UploadContent = {
       pdfAttached: "PDF dołączony do części {part}.",
       restored: "Przywrócono wcześniejsze oznaczenia dla tego pliku.",
       stepManual:
-        "Model STEP odczytany, ale nie jest płaskim arkuszem (grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}). Wprowadź rozwinięcie jako szybką część.",
-      stepFlat: "Model STEP odczytany: część płaska, grubość {thickness} mm — rozwinięcie zbudowane z modelu.",
+        "Model STEP odczytany, ale nie dał się rozwinąć (grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}). Wprowadź rozwinięcie jako szybką część.",
+      stepFlat: "Model STEP odczytany: grubość {thickness} mm, rozwinięcie zbudowane z modelu (gięcia jako linie gięcia).",
       multiPart: "Plik zawiera {count} części — wyceniana jest największa.",
       healingLabel: "Naprawa",
       suggestionsAi: "podpowiedzi AI z PDF",
@@ -604,9 +604,9 @@ export const upload: UploadContent = {
     noGeometryTitle: "Brak geometrii",
     noGeometryBody: "Ten plik nie ma rozwinięcia do wyświetlenia.",
     stepBody:
-      "Model STEP nie jest płaskim arkuszem — rozwinięcie trzeba wprowadzić ręcznie. Z modelu odczytano: grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm. Grubość i gabaryt są podpowiedziane w szybkiej części.",
+      "Modelu STEP nie udało się rozwinąć automatycznie — rozwinięcie trzeba wprowadzić ręcznie. Z modelu odczytano: grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm. Grubość i gabaryt są podpowiedziane w szybkiej części.",
     stepLegacyBody:
-      "Ten model STEP został wgrany, zanim narzędzie potrafiło go czytać. Odczytaj go teraz: część płaska stanie się rozwinięciem, część gięta dostanie grubość i gabaryt.",
+      "Ten model STEP został wgrany, zanim narzędzie potrafiło go czytać. Odczytaj go teraz: część płaska lub gięta stanie się rozwinięciem z liniami gięcia.",
     analyseStep: "Odczytaj model STEP",
     enterQuickPart: "Wprowadź jako szybką część",
     saved: "Zapisano oznaczenia.",

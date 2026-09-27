@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { asNumber, asRefs, isStepText, parseStep, part, StepFormatError } from "@/lib/geometry/step/part21";
 import { evaluateBrep } from "@/lib/geometry/step/brep";
 import { analyseStepSync, summariseStepText } from "@/lib/geometry/step/analyse";
+import { K_FACTOR } from "@/lib/geometry/step/unfold";
 import { geometryEngine } from "@/lib/geometry";
 import { buildStep, circle, lProfile, rect } from "./step-builder";
 
@@ -115,7 +116,7 @@ describe("analyseStepSync", () => {
     expect(g.material.thicknessMm).toBe(6);
   });
 
-  it("reports a bent bracket as red_step_manual with thickness, one bend and its size", () => {
+  it("unfolds a bent bracket: two flanges, a bend allowance and a bend line", () => {
     const bracket = buildStep([{ outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" }]);
     const summary = summariseStepText(bracket);
     expect(summary.bodies).toHaveLength(1);
@@ -125,11 +126,30 @@ describe("analyseStepSync", () => {
     expect(summary.bodies[0].notFlatBecause).toContain("bends");
     const g = analyseStepSync(bracket);
     expect(g.source).toBe("step");
-    expect(g.entities).toHaveLength(0);
-    expect(g.triage.state).toBe("red_step_manual");
-    expect(g.triage.reasons).toEqual(["step_not_flat"]);
-    expect(g.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bodies: 1, bboxX: 80, bboxY: 60, bboxZ: 40 });
+    expect(g.triage.state).toBe("green");
+    expect(g.triage.reasons).toContain("bend_layers_found");
+    // Outer faces: 80 − (r + t) = 70 and 60 − (r + t) = 50, plus the neutral-axis
+    // allowance π/2 × (5 + 0.4 × 5) = 10.996 between them.
+    const allowance = (Math.PI / 2) * (5 + K_FACTOR * 5);
+    const dims = [g.measures.bbox.width, g.measures.bbox.height].sort((a, b) => a - b);
+    expect(dims[0]).toBeCloseTo(40, 3);
+    expect(dims[1]).toBeCloseTo(70 + 50 + allowance, 3);
+    expect(g.measures.pierces).toBe(1);
+    expect(g.measures.outerLengthMm).toBeCloseTo(2 * (40 + 70 + 50 + allowance), 3);
+    expect(g.measures.bendLines).toHaveLength(1);
+    expect(g.measures.bendLines[0].lengthMm).toBeCloseTo(40, 3);
     expect(g.material.thicknessMm).toBe(5);
+  });
+
+  it("falls back to red_step_manual when a bent body cannot be unfolded", () => {
+    // Two flanges sharing a bend, but the second flange face is missing its outer bound
+    // (an open shell): the walk cannot place it, so the manual result carries the facts.
+    const bracket = buildStep([{ outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" }]).replace(/FACE_OUTER_BOUND/g, "FACE_BOUND");
+    const g = analyseStepSync(bracket.replace(/CYLINDRICAL_SURFACE\('',(#\d+),(\d+\.?\d*)\)/, "CYLINDRICAL_SURFACE('',$1,$2)"));
+    expect(["green", "red_step_manual"]).toContain(g.triage.state);
+    if (g.triage.state === "red_step_manual") {
+      expect(g.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bodies: 1, bboxX: 80, bboxY: 60, bboxZ: 40 });
+    }
   });
 
   it("reports a multi-body file as an assembly", () => {

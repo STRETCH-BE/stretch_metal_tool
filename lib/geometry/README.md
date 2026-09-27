@@ -82,11 +82,20 @@ representation context), `analyse.ts` measures the sheet:
   flat pattern: the outer bound becomes the outline and the inner bounds the
   holes (exact lines and arcs, B-splines and ellipses flattened), and the
   result runs through the same pipeline as a DXF with `source: "step"`.
-- anything else (bent parts, assemblies, no solid) → a geometry with no
-  entities in triage state `red_step_manual` whose `details` carry
-  `thicknessMm`, `bendCount`, `bboxX/Y/Z` (sorted extents) and `bodies`; the
-  quick-part dialog is pre-filled from them. Unfolding bent parts stays
-  manual (spec: deliberately last).
+- **bent parts** (`unfold.ts`) = planar flanges joined by cylindrical bends.
+  The walk starts at the largest flange and, for every bend cylinder on the
+  same sheet side, places the flange on the cylinder's other tangent edge a
+  bend allowance away (angle × (r_inner + K_FACTOR × t), K_FACTOR 0.4
+  [CONFIRM]), matched point for point along the bend axis. Flange outlines
+  and holes are copied through each placement, the bend zone's short sides
+  close the outline and its centre line goes on the BEND_UP / BEND_DOWN
+  layer, so the pipeline measures bend lines and pricing counts the bends
+  (90°, inner radius = thickness by default; the bends table adjusts).
+- anything else (assemblies with several bodies, no solid, joints that are
+  not plain cylinders) → a geometry with no entities in triage state
+  `red_step_manual` whose `details` carry `thicknessMm`, `bendCount`,
+  `bboxX/Y/Z` (sorted extents) and `bodies`; the quick-part dialog is
+  pre-filled from them.
 
 Test fixtures are written by `test/geometry/step-builder.ts` (extruded
 profiles the way CAD exporters write them: shared vertices, oriented edges,

@@ -47,8 +47,8 @@ export const flags: FlagsContent = {
     red_step_manual: {
       label: "STEP model — manual flat pattern",
       message:
-        "The STEP model is not a flat sheet (bent part, several bodies or no solid). Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}.",
-      action: "Enter the flat-pattern dimensions as a quick part — thickness and size are pre-filled. A flat part in STEP unfolds by itself.",
+        "The STEP model could not be unfolded automatically (an assembly of several bodies, no solid, or joints other than plain bends). Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}.",
+      action: "Enter the flat-pattern dimensions as a quick part — thickness and size are pre-filled. A single flat or bent part in STEP unfolds by itself.",
     },
   },
   triageReasons: {
@@ -64,7 +64,7 @@ export const flags: FlagsContent = {
     multiple_view_clusters: "{clusterCount} separate outline groups (views)",
     no_closed_contour: "No closed outline found",
     multi_part: "The file holds {partCount} separate parts — the largest is priced",
-    step_not_flat: "The STEP model is bent or not a sheet — no automatic flat pattern",
+    step_not_flat: "The STEP model is not a sheet with plain bends — no automatic flat pattern",
     step_multi_body: "The STEP file holds {bodies} bodies (an assembly) — upload the parts separately",
     step_no_geometry: "No readable solid was found in the STEP file",
   },

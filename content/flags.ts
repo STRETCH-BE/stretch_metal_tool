@@ -98,8 +98,8 @@ export const flags: FlagsContent = {
     red_step_manual: {
       label: "Model STEP — rozwinięcie ręczne",
       message:
-        "Model STEP nie jest płaskim arkuszem (część gięta, kilka brył albo brak bryły). Odczytano z modelu: grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}.",
-      action: "Wprowadź wymiary rozwinięcia jako szybką część — grubość i gabaryt są już podpowiedziane. Część płaska w STEP rozwija się sama.",
+        "Modelu STEP nie udało się rozwinąć automatycznie (złożenie z kilku brył, brak bryły albo połączenia inne niż proste gięcia). Odczytano z modelu: grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}.",
+      action: "Wprowadź wymiary rozwinięcia jako szybką część — grubość i gabaryt są już podpowiedziane. Pojedyncza część płaska lub gięta w STEP rozwija się sama.",
     },
   },
   triageReasons: {
@@ -115,7 +115,7 @@ export const flags: FlagsContent = {
     multiple_view_clusters: "{clusterCount} oddzielnych grup obrysów (widoków)",
     no_closed_contour: "Nie znaleziono zamkniętego obrysu",
     multi_part: "Plik zawiera {partCount} oddzielnych części — wyceniana jest największa",
-    step_not_flat: "Model STEP jest gięty albo nie jest arkuszem — brak automatycznego rozwinięcia",
+    step_not_flat: "Model STEP nie jest arkuszem z prostymi gięciami — brak automatycznego rozwinięcia",
     step_multi_body: "Plik STEP zawiera {bodies} brył (złożenie) — wgraj części osobno",
     step_no_geometry: "W pliku STEP nie znaleziono bryły do odczytu",
   },

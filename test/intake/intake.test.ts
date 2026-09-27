@@ -458,17 +458,40 @@ describe("processUploadedFile — STEP", () => {
     expect(deps.reprice).toHaveBeenCalledTimes(1);
   });
 
-  it("stores a bent bracket as red_step_manual with the measured thickness and no thumbnail", async () => {
+  it("unfolds a bent bracket into a flat pattern with a bend line, thumbnail and thickness", async () => {
     const store = memoryDb();
     const deps = makeDeps(store);
     const text = buildStep([{ outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" }]);
     const bytes = new Uint8Array(Buffer.from(text));
     const file = store.addFile("bracket-01.step", "step", bytes);
     const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
-    expect(result).toMatchObject({ kind: "step", name: "bracket-01", flat: false, thicknessMm: 5, thumbnailSvg: null });
+    expect(result).toMatchObject({ kind: "step", name: "bracket-01", flat: true, thicknessMm: 5 });
+    if (result.kind !== "step") throw new Error("expected step");
+    expect(result.triage.state).toBe("green");
+    expect(result.thumbnailSvg).toContain("<svg");
+    const part = store.parts[0];
+    expect(part.geometry?.measures.bendLines).toHaveLength(1);
+    expect(part.geometry?.measures.bendLines[0].lengthMm).toBeCloseTo(40, 3);
+    expect(part.triage?.state).toBe("green");
+    expect(part.thicknessMm).toBe(5);
+    expect(store.items).toHaveLength(1);
+  });
+
+  it("stores an assembly of several bodies as red_step_manual with the facts and no thumbnail", async () => {
+    const store = memoryDb();
+    const deps = makeDeps(store);
+    const text = buildStep([
+      { outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" },
+      { outer: rect(30, 30), height: 3 },
+    ]);
+    const bytes = new Uint8Array(Buffer.from(text));
+    const file = store.addFile("assy-01.step", "step", bytes);
+    const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
+    expect(result).toMatchObject({ kind: "step", name: "assy-01", flat: false, thicknessMm: 5, thumbnailSvg: null, partCount: 2 });
     if (result.kind !== "step") throw new Error("expected step");
     expect(result.triage.state).toBe("red_step_manual");
-    expect(result.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bboxX: 80, bboxY: 60, bboxZ: 40 });
+    expect(result.triage.reasons).toEqual(["step_multi_body"]);
+    expect(result.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bodies: 2, bboxX: 80, bboxY: 60, bboxZ: 40 });
     const part = store.parts[0];
     expect(part.geometry?.entities).toHaveLength(0);
     expect(part.triage?.state).toBe("red_step_manual");
