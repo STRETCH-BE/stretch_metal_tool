@@ -311,6 +311,7 @@ function mapThread(row: Loose<RateThreadRow>): ThreadRate {
   return {
     size: row.size,
     priceEach: num(row.price_each, `rate_thread[${row.size}].price_each`),
+    setupPerLineEur: numOr(row.setup_per_line_eur, `rate_thread[${row.size}].setup_per_line_eur`, 0),
     placeholder: Boolean(row.placeholder),
   };
 }
@@ -334,6 +335,7 @@ function mapFinish(row: Loose<RateFinishRow>): FinishRate {
     minimum: num(row.minimum, `${context}.minimum`),
     placeholder: Boolean(row.placeholder),
     setupPerOrderEur: numOr(row.setup_per_order_eur, `${context}.setup_per_order_eur`, 0),
+    setupPerLineEur: numOr(row.setup_per_line_eur, `${context}.setup_per_line_eur`, 0),
     minPartMm: typeof row.min_part_mm === "string" && row.min_part_mm.trim() !== "" ? row.min_part_mm : null,
   };
 }

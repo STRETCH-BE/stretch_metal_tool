@@ -102,6 +102,14 @@ export function materialPricePerKg(
   return bands.find((b) => b.maxThicknessMm >= thicknessMm - MM_EPSILON) ?? bands[bands.length - 1];
 }
 
+/**
+ * Market mode: the band whose maxThicknessMm equals the part thickness —
+ * one band per benchmarked thickness, never a neighbouring one.
+ */
+export function materialPricePerKgExact(material: MaterialRate, thicknessMm: number): ThicknessBandPrice | null {
+  return material.pricePerKg.find((b) => sameMm(b.maxThicknessMm, thicknessMm)) ?? null;
+}
+
 /* ─── Laser ───────────────────────────────────────────────── */
 
 export type LaserLookupReason =
@@ -184,6 +192,31 @@ export function findLaserRate(
     subcontract: !withinLimit,
     reason: withinLimit ? "none" : reason,
     exactThickness: false,
+    limitMm: machineLimitMm,
+  };
+}
+
+/**
+ * Market mode gate: a row with exactly this material and thickness (within
+ * MM_EPSILON), in_house or not. No nearest thickness, no time-mode row, no
+ * supplier ladder: without the exact row the part is not priceable.
+ */
+export function findExactLaserRate(
+  rates: RateSnapshot,
+  materialCode: string,
+  thicknessMm: number,
+  machineLimitMm: number | null
+): LaserRateLookup {
+  const code = normaliseCode(materialCode);
+  const rows = rates.laser.filter(
+    (r) => normaliseCode(r.materialCode) === code && sameMm(r.thicknessMm, thicknessMm) && r.mode === "per_m" && isUsableLaserRow(r)
+  );
+  const row = rows.find((r) => r.inHouse) ?? rows[0] ?? null;
+  return {
+    row,
+    subcontract: row ? !row.inHouse : false,
+    reason: row ? (row.inHouse ? "in_house" : "supplier_row") : "none",
+    exactThickness: row !== null,
     limitMm: machineLimitMm,
   };
 }

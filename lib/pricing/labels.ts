@@ -31,6 +31,8 @@ export const OPERATION_LABELS = {
   packagingPallet: "packaging_pallet",
   leadTime: "lead_time",
   deburr: "deburr",
+  finishSetup: "finish_setup",
+  threadSetup: "thread_setup",
 } as const;
 
 export type OperationLabelKey = (typeof OPERATION_LABELS)[keyof typeof OPERATION_LABELS];

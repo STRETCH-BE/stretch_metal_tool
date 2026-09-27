@@ -110,6 +110,8 @@ export type ThreadRate = {
   size: string;
   priceEach: number;
   placeholder: boolean;
+  /** Market mode: charged once per quote line that carries threads of this size (EUR). */
+  setupPerLineEur: number;
 };
 
 export type FeatureRate = {
@@ -132,6 +134,8 @@ export type FinishRate = {
   placeholder: boolean;
   /** Market mode: setup charged once per order, split over the lines that carry this finish. */
   setupPerOrderEur: number;
+  /** Market mode: charged once per quote line (part type) that carries this finish (EUR). */
+  setupPerLineEur: number;
   /** Free-text minimum part size rule (lib/pricing/market-rules.ts parseMinPartRule). */
   minPartMm: string | null;
 };
@@ -445,8 +449,19 @@ export type FlagCode =
   | "finish.no_rate_row"
   | "finish.minimum_applied"
   | "finish.part_too_small"
+  | "finish.not_for_family"
   | "market.margin_below_default"
   | "market.no_cost_version"
+  /** Market mode: no rate_laser row for exactly this material + thickness (or no thread row) — quote manually. */
+  | "market.no_benchmark_rate"
+  /** Market mode: the active version has no rows for this operation (bending, welding, …) — quote manually. */
+  | "market.not_benchmarked"
+  /** Market mode: requested lead time shorter than the shortest offered tier. */
+  | "market.leadtime_not_offered"
+  /** Market mode: priced from an in_house = false row (subcontract) — informational. */
+  | "market.subcontract"
+  /** Market mode: a lump sum / minutes typed by the user — not a benchmarked price. */
+  | "market.manual_price"
   | "rates.placeholder";
 
 export type Flag = {
@@ -466,9 +481,10 @@ export type PricedItem = {
   qty: number;
   operations: OperationLine[];
   unitCost: number;
-  unitPrice: number;
+  /** null = refused (market mode: no benchmark for this part) — no number is shown anywhere. */
+  unitPrice: number | null;
   batchCost: number;
-  batchPrice: number;
+  batchPrice: number | null;
   flags: Flag[];
 };
 

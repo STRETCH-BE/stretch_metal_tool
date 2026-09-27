@@ -320,6 +320,31 @@ export const flags: FlagsContent = {
       label: "Brak cennika kosztowego",
       message: "Cennik rynkowy bez wersji kosztowej — nie można policzyć marży. Wskaż wersję kosztową w administracji.",
     },
+    "finish.not_for_family": {
+      label: "Wykończenie niedostępne dla materiału",
+      message: "Wykończenie {code} nie jest oferowane dla materiału {family} ({rule}) — nie doliczono.",
+    },
+    "market.no_benchmark_rate": {
+      label: "Brak stawki rynkowej",
+      message:
+        "Materiał {materialCode} w grubości {thicknessMm} mm nie ma stawki w aktywnym cenniku rynkowym (dokładne dopasowanie, bez zaokrąglania do sąsiedniej grubości) — wyceń ręcznie.",
+    },
+    "market.not_benchmarked": {
+      label: "Operacja poza cennikiem",
+      message: "Operacja „{operation}” nie ma stawek w aktywnym cenniku rynkowym — wyceń ręcznie. Część nie ma ceny.",
+    },
+    "market.leadtime_not_offered": {
+      label: "Termin nieoferowany",
+      message: "Termin {workingDays} dni roboczych jest krótszy niż najkrótszy oferowany ({minDays} dni) — wybierz dłuższy termin.",
+    },
+    "market.subcontract": {
+      label: "Kooperacja",
+      message: "{materialCode} {thicknessMm} mm przekracza nasze możliwości cięcia — wyceniono ze stawki kooperanta: {supplier}.",
+    },
+    "market.manual_price": {
+      label: "Cena ręczna",
+      message: "Pozycja „{what}” wpisana ręcznie — nie jest ceną z benchmarku.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

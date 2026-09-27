@@ -4,16 +4,19 @@
  * and the free-text minimum part size for deburring. Pure.
  * File path: /lib/pricing/market-rules.ts
  *
- * Lead time (rate_leadtime rows, working days → multiplier): the promised
- * lead time is interpolated linearly between the two neighbouring rows;
- * shorter than the shortest row → that row's multiplier (nobody can
- * promise faster), longer than the longest row → the longest row's
- * multiplier; no rows or no promised lead time → 1 (list price).
+ * Lead time (rate_leadtime rows, working days → multiplier): tiers are
+ * steps — the row with the LARGEST working_days ≤ the promised lead time
+ * applies (11 → 1.00, 7–10 → 1.12, 4–6 → 1.75 in the 27 Sep 2026
+ * benchmark); shorter than the shortest row → not offered (the engine
+ * refuses the quote with market.leadtime_not_offered); longer than the
+ * longest row → the longest row's multiplier; no rows or no promised lead
+ * time → 1 (list price).
  *
  * Packaging: a box when every part fits in PACKAGING_BOX_MAX_SIDE_MM and
- * the total net mass stays under PACKAGING_BOX_MAX_MASS_KG, else a pallet.
- * Both limits are engine constants for now ([CONFIRM]; the owner asked for
- * an editable rule in a later admin iteration).
+ * the total net mass stays within PACKAGING_BOX_MAX_MASS_KG (5 kg, the
+ * benchmark's box limit), else a pallet. Both limits are engine constants
+ * for now ([CONFIRM]; the owner asked for an editable rule in a later
+ * admin iteration).
  *
  * Minimum part size (rate_finish.min_part_mm, free text kept editable by
  * the admin), e.g. "steel 250x60 or 600x50; aluminium/stainless 50x50":
@@ -32,33 +35,29 @@ import type { LeadtimeRate, MaterialFamily } from "./types";
 /* ─── Lead time ───────────────────────────────────────────── */
 
 export type LeadTimeResolution = {
+  /** Multiplier applied to every part line (1 when no tier applies or no lead time is requested). */
   multiplier: number;
-  /** The rows the multiplier was taken from / interpolated between (for the rate ref). */
-  lower: LeadtimeRate | null;
-  upper: LeadtimeRate | null;
+  /** The tier the multiplier comes from: the row with the LARGEST working_days ≤ requested. */
+  row: LeadtimeRate | null;
+  /** False when the requested lead time is shorter than the shortest tier offered. */
+  offered: boolean;
 };
 
+/**
+ * Lead-time tiers are steps, not a curve: the tier with the largest
+ * working_days that is still ≤ the requested lead time applies (11 →
+ * 1.00, 7–10 → 1.12, 4–6 → 1.75 in the 247 benchmark). A request shorter
+ * than the shortest tier is not offered. No request (null) = list price.
+ */
 export function resolveLeadTimeMultiplier(rows: readonly LeadtimeRate[], workingDays: number | null): LeadTimeResolution {
   const sorted = [...rows].sort((a, b) => a.workingDays - b.workingDays);
   if (sorted.length === 0 || workingDays === null || !Number.isFinite(workingDays)) {
-    return { multiplier: 1, lower: null, upper: null };
+    return { multiplier: 1, row: null, offered: true };
   }
-  const shortest = sorted[0];
-  const longest = sorted[sorted.length - 1];
-  if (workingDays <= shortest.workingDays) return { multiplier: shortest.multiplier, lower: shortest, upper: shortest };
-  if (workingDays >= longest.workingDays) return { multiplier: longest.multiplier, lower: longest, upper: longest };
-  let lower = shortest;
-  let upper = longest;
-  for (let i = 0; i < sorted.length - 1; i += 1) {
-    if (sorted[i].workingDays <= workingDays && workingDays <= sorted[i + 1].workingDays) {
-      lower = sorted[i];
-      upper = sorted[i + 1];
-      break;
-    }
-  }
-  const span = upper.workingDays - lower.workingDays;
-  const t = span > 0 ? (workingDays - lower.workingDays) / span : 0;
-  return { multiplier: lower.multiplier + (upper.multiplier - lower.multiplier) * t, lower, upper };
+  let row: LeadtimeRate | null = null;
+  for (const tier of sorted) if (tier.workingDays <= workingDays + 1e-9) row = tier;
+  if (!row) return { multiplier: 1, row: null, offered: false };
+  return { multiplier: row.multiplier, row, offered: true };
 }
 
 /* ─── Packaging ───────────────────────────────────────────── */
@@ -66,7 +65,7 @@ export function resolveLeadTimeMultiplier(rows: readonly LeadtimeRate[], working
 /** [CONFIRM] Box when every part fits in this (mm) … */
 export const PACKAGING_BOX_MAX_SIDE_MM = 600;
 /** [CONFIRM] … and the order's total net mass stays under this (kg). */
-export const PACKAGING_BOX_MAX_MASS_KG = 25;
+export const PACKAGING_BOX_MAX_MASS_KG = 5; // [CONFIRM] 247 ships up to 5 kg in a box
 
 export type PackagingKind = "box" | "pallet";
 

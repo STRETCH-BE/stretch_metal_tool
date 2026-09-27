@@ -266,6 +266,31 @@ export const flags: FlagsContent = {
       label: "No cost version",
       message: "Market rate version without a cost version — the margin cannot be computed. Pick a cost version in Admin.",
     },
+    "finish.not_for_family": {
+      label: "Finish not available for this material",
+      message: "Finish {code} is not offered for {family} ({rule}) — not charged.",
+    },
+    "market.no_benchmark_rate": {
+      label: "No benchmark rate",
+      message:
+        "{materialCode} at {thicknessMm} mm has no rate in the active market version (exact match, no neighbouring thickness) — quote manually.",
+    },
+    "market.not_benchmarked": {
+      label: "Not benchmarked",
+      message: "“{operation}” has no rates in the active market version — quote manually. The part has no price.",
+    },
+    "market.leadtime_not_offered": {
+      label: "Lead time not offered",
+      message: "{workingDays} working days is shorter than the shortest tier offered ({minDays} days) — choose a longer lead time.",
+    },
+    "market.subcontract": {
+      label: "Subcontract",
+      message: "{materialCode} {thicknessMm} mm is beyond our own laser — priced from the subcontract rate: {supplier}.",
+    },
+    "market.manual_price": {
+      label: "Manual price",
+      message: "“{what}” was typed by hand — it is not a benchmarked price.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

@@ -162,7 +162,7 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
   if (welding) accumulate(totalsByType, welding.operations, 1, marginPct);
 
   const subtotalCost = items.reduce((sum, i) => sum + i.batchCost, 0) + (welding?.cost ?? 0);
-  const subtotalPrice = items.reduce((sum, i) => sum + i.batchPrice, 0) + (welding?.price ?? 0);
+  const subtotalPrice = items.reduce((sum, i) => sum + (i.batchPrice ?? 0), 0) + (welding?.price ?? 0);
 
   const allOperations = [...items.flatMap((i) => i.operations), ...(welding?.operations ?? [])];
   const usesPlaceholderRates = allOperations.some((op) => op.rateRef.values.placeholder === true);

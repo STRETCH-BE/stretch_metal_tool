@@ -182,7 +182,8 @@ export type OperationInsert = {
 export type ItemUpdate = {
   id: string;
   unit_cost: number;
-  unit_price: number;
+  /** null = refused (market mode, not benchmarked). */
+  unit_price: number | null;
   flags: Json;
 };
 

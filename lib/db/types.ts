@@ -176,6 +176,8 @@ export type RateThreadRow = {
   size: string;
   price_each: number;
   placeholder: boolean;
+  /** Market mode: charged once per quote line carrying threads of this size (EUR). */
+  setup_per_line_eur: number;
 };
 
 export type RateFeatureRow = {
@@ -198,6 +200,8 @@ export type RateFinishRow = {
   placeholder: boolean;
   /** Market mode: setup charged once per order, split over the lines with this finish (EUR). */
   setup_per_order_eur: number;
+  /** Market mode: charged once per quote line (part type) carrying this finish (EUR). */
+  setup_per_line_eur: number;
   /** Free-text minimum part size rule, e.g. "steel 250x60 or 600x50; aluminium/stainless 50x50". */
   min_part_mm: string | null;
 };
@@ -298,7 +302,8 @@ export type QuoteItemRow = {
   position: number;
   qty: number;
   unit_cost: number;
-  unit_price: number;
+  /** null = refused in market mode (no benchmark for the part). */
+  unit_price: number | null;
   extras: Json;
   scrap_pct: number | null;
   flags: Json;

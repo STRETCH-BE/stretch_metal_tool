@@ -124,36 +124,55 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `feature.no_rate_row` | red | feature extra without a row | `code`, `index` |
 | `finish.no_rate_row` | red | finish extra without a row, or engraving without an `engrave` row | `code`, `index` |
 | `finish.minimum_applied` | green | batch minimum raised the unit cost | `code`, `minimum`, `batchCost`, `batchBefore`, `index` |
-| `finish.part_too_small` | red | market mode: deburring refused, the bbox is below the rate's `min_part_mm` rule (no line is priced) | `code`, `widthMm`, `heightMm`, `minimum`, `family` |
-| `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` | `marginPct`, `minPct`, `price`, `cost` |
+| `finish.part_too_small` | amber | market mode: a finish (deburr / edge_round / deburr_one_side) is not available for the part — the bbox is below the rate's `min_part_mm` rule; no charge, the part keeps its price | `code`, `widthMm`, `heightMm`, `minimum`, `family` |
+| `finish.not_for_family` | amber | market mode: the finish's `min_part_mm` rule names no family of the part (deburr_one_side on mild steel); no charge | `code`, `family`, `rule` |
+| `market.no_benchmark_rate` | red | market mode: no `rate_laser` row with exactly this material and thickness, or no material band at exactly this thickness, or a material code the version does not list — the part is REFUSED (`unitPrice = null`, no lines) | `materialCode`, `thicknessMm`, `what` (`laser` / `material`) |
+| `market.not_benchmarked` | red | market mode: an operation the version has no rows for — `bending`, `rolling`, `welding` (also welding-only quotes), `tube`, `thread <size>`, `feature <code>`, `finish <code>` — the part is REFUSED | `operation` (+ `count`, `size`, `code`, `index`) |
+| `market.leadtime_not_offered` | red | market mode, quote level: the promised lead time is shorter than the shortest `rate_leadtime` tier — every part is refused | `workingDays`, `minDays` |
+| `market.subcontract` | amber | market mode: the exact laser row has `in_house = false` — priced from that row, the supplier text is shown | `materialCode`, `thicknessMm`, `supplier` |
+| `market.manual_price` | amber | market mode: a user-typed line (machining minutes, "other" lump sum, handling) is in the price as typed | `what`, `minutes` / `amount`, `index` |
+| `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` (0 in the benchmark versions → only a negative margin) | `marginPct`, `minPct`, `price`, `cost` |
 | `market.no_cost_version` | amber | market mode priced without a cost version — no margin could be computed | — |
 | `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder | `count` |
 
 ## Market mode (`market.ts`, `market-rules.ts`)
 
-`rate_general.pricing_mode = 'market'` means the version's tables are SELLING prices
-(e.g. 247TailorSteel × 1.10). `priceQuote()` then delegates to `priceMarketQuote()`:
+`rate_general.pricing_mode = 'market'` means the version's tables are benchmarked SELLING
+prices (247TailorSteel standard tier × 1.10, "market-247+10% v2 (27 Sep 2026)"). `priceQuote()`
+then delegates to `priceMarketQuote()`. Nothing is added on top, and whatever the version does
+not benchmark is REFUSED (red flag, `unitPrice = null`, no lines) — never approximated.
 
 | Line | Rule |
 |---|---|
-| material | net mass (`netAreaMm2 × t × density`) × €/kg — no blank rectangle, no scrap |
-| laser_cut | cut length × `price_per_m` + pierces × `price_per_pierce` (per-metre row; no slow-contour factor) |
-| setup (`laser_setup`) | `rate_laser.setup_eur` once per distinct (material, thickness) in the quote, split equally over the part LINES of that group; per line, so unitCost = share ÷ qty |
-| order (`order_charge`) | `rate_general.order_charge_eur` split equally over all part lines |
-| setup (`deburr_setup`) + finish_deburr | when the item carries the finish extra `deburr`: `setup_per_order_eur` split over the lines with deburring, plus €/m × the part's total cut length; refused (red `finish.part_too_small`) when the bbox is below `min_part_mm` |
-| engrave | the `engrave` rate's price per part (unit `part`/`each`) when selected as an extra or drawn; an `m` rate falls back to length pricing |
-| leadtime (`lead_time`) | per part: (multiplier − 1) × Σ its other lines; the multiplier comes from `rate_leadtime` (linear between rows, capped at the shortest row, held at the longest); absent when it is 1 |
-| packaging (quote level, `quoteLines`) | box when every part fits 600 mm and the total net mass ≤ 25 kg (`PACKAGING_BOX_*` constants [CONFIRM]), else pallet — `packaging_box_eur` / `packaging_pallet_eur` |
-| bends, rolls, welds, threads, features, machining, tubes, other finishes | the cost-mode builders on the version's rows |
+| material | net mass (`netAreaMm2 × t × density`) × €/kg of the band whose `max_thickness_mm` equals t exactly — no blank rectangle, no scrap; no band at t → refused |
+| laser_cut / subcontract_cutting | the `rate_laser` row with exactly this material and thickness (`per_m`, not a placeholder; `lookup.ts findExactLaserRate`, no nearest thickness, no time-mode row): cut length × `price_per_m` + pierces × `price_per_pierce`, plain length (no slow-contour factor: the benchmark's pierce prices already carry small-contour handling); `in_house = false` → priced the same, amber `market.subcontract` |
+| setup (`laser_setup`) | `rate_laser.setup_eur` once per distinct (material, thickness) in the quote, split over the PIECES (Σ qty) of that group's priceable lines |
+| order (`order_charge`) | `rate_general.order_charge_eur` split over all pieces of the quote's priceable lines |
+| setup (`finish_setup`) + finish line | a finish extra: `rate_finish.setup_per_line_eur` ÷ qty + (unit `m`: cut length × price; unit `part`: price); available only when `min_part_mm` names the part's family and the bbox meets a listed size, else amber `finish.part_too_small` / `finish.not_for_family` and no charge |
+| engrave | the `engrave` rate's price per part when selected as an extra or when the geometry carries engraving |
+| setup (`thread_setup`) + thread | confirmed threads with a `rate_thread` row: `setup_per_line_eur` ÷ qty + count × `price_each`; a size without a row → refused |
+| machining / other / handling | typed by the user, priced as typed (`machining_rate_eur_h`), amber `market.manual_price` |
+| leadtime (`lead_time`) | per part: (multiplier − 1) × Σ its other lines; the multiplier is the `rate_leadtime` tier with the LARGEST working_days ≤ the promised lead time (steps, no interpolation: 11 → 1.00, 7–10 → 1.12, 4–6 → 1.75); shorter than the shortest tier → red `market.leadtime_not_offered`, every part refused; absent when it is 1 |
+| packaging (quote level, `quoteLines`) | once per quote, not multiplied by the lead time: box when every priceable part fits 600 mm and the total net mass ≤ 5 kg (`PACKAGING_BOX_*` constants [CONFIRM]), else pallet — `packaging_box_eur` / `packaging_pallet_eur` |
+| bends, rolls, welds, tubes, features, other finishes | only when the version has rows for them (the cost-mode builders); with empty tables → red `market.not_benchmarked {operation}` and the part is refused; welding-only quotes without weld rows are refused at quote level |
+
+Pieces = Σ qty over the priceable lines (a refused part is not in the order), so quantity
+discounts fall out of the set-up / order-charge splits and there is no other quantity logic.
+The cost-mode `*.no_rate_row`, `laser.subcontract`, `laser.thickness_over_limit`,
+`laser.slow_contours`, `material.no_price` and `finish.minimum_applied` flags are replaced by
+the market flags above; geometry, bend-geometry and bed-size flags still apply.
 
 No margin is added: `unitPrice = Σ lines`. `unitCost` / `subtotalCost` come from
 pricing the SAME input with the cost version (`options.costRates`, the machine-hour
 model); `marginPct = 1 − cost ÷ price`, red `market.margin_below_default` below the
 market version's `default_margin_pct`, amber `market.no_cost_version` without a cost
 version. `totalsByType` carries the market price and the cost version's cost per
-bucket. Welding-only blocks keep cost semantics (weld rows are costs): price =
-cost ÷ (1 − default margin). `PricedQuote.pricingMode`, `costRateVersionId`,
-`leadTimeDays`, `leadTimeMultiplier` and `quoteLines` record all of this.
+bucket. `PricedQuote.pricingMode`, `costRateVersionId`, `leadTimeDays`,
+`leadTimeMultiplier` and `quoteLines` record all of this. `quote_items.unit_price` is
+nullable for refused parts; the send guard blocks any quote with a red flag.
+
+Acceptance: `test/pricing/market-v2.test.ts` (E1–E8 on the v2 fixture) and
+`test/rates/market-247.test.ts` (E9: the 38 SMT parts of SM-2026-0004).
 
 ## Operation lines
 

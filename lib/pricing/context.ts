@@ -41,10 +41,12 @@ import {
 } from "./formulas";
 import {
   familyThicknessLimitMm,
+  findExactLaserRate,
   findLaserRate,
   findMaterial,
   machineOf,
   materialPricePerKg,
+  materialPricePerKgExact,
   normaliseThreadSize,
   type LaserRateLookup,
 } from "./lookup";
@@ -230,11 +232,21 @@ export function resolveConfirmedThreads(annotations: PartAnnotations): Confirmed
     .map(([, g]) => g);
 }
 
+export type PartContextOptions = {
+  /**
+   * Market mode: the laser row and the material band must match the part's
+   * thickness exactly (lookup.ts findExactLaserRate / materialPricePerKgExact);
+   * cost mode keeps the fallback order (nearest supplier row, wider band).
+   */
+  exactRates?: boolean;
+};
+
 export function buildPartContext(
   part: PricingPart,
   item: PricingItem,
   rates: RateSnapshot,
-  machines: MachinePark
+  machines: MachinePark,
+  options: PartContextOptions = {}
 ): PartContext {
   validatePricingItem(item);
   validatePartAnnotations(part.id, part.annotations);
@@ -244,7 +256,12 @@ export function buildPartContext(
   const material = findMaterial(rates, part.materialCode);
   const family = material?.family ?? null;
   const densityKgM3 = material?.densityKgM3 ?? geometry.material.densityKgM3 ?? null;
-  const priceBand = material && thicknessMm !== null ? materialPricePerKg(material, thicknessMm) : null;
+  const priceBand =
+    material && thicknessMm !== null
+      ? options.exactRates
+        ? materialPricePerKgExact(material, thicknessMm)
+        : materialPricePerKg(material, thicknessMm)
+      : null;
   const scrapPct = item.scrapPct ?? material?.scrapPctDefault ?? null;
 
   const flatLaser = machineOf(machines, "flat_laser");
@@ -257,7 +274,9 @@ export function buildPartContext(
   const limitMm = familyThicknessLimitMm(flatLaser?.limits ?? null, family);
   const laser =
     material && thicknessMm !== null && !isTubePart
-      ? findLaserRate(rates, material.code, thicknessMm, limitMm)
+      ? options.exactRates
+        ? findExactLaserRate(rates, material.code, thicknessMm, limitMm)
+        : findLaserRate(rates, material.code, thicknessMm, limitMm)
       : null;
 
   const thresholdMm =
