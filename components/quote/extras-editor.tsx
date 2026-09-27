@@ -12,7 +12,9 @@
  * options come from the rate snapshot passed to the page, so the list
  * always matches the version the quote is pinned to. Costs of "other"
  * and "handling" lines are EUR (the rate-table currency), as the label
- * says.
+ * says. A market version without feature / finish rows greys those
+ * buttons and says "not benchmarked — quote manually" (a lump-sum
+ * "other" line is the manual route; the engine flags it market.manual_price).
  */
 
 import { useState } from "react";
@@ -44,6 +46,8 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
   const [scrap, setScrap] = useState<number | null>(scrapPct);
   const features = rates?.feature ?? [];
   const finishes = rates?.finish ?? [];
+  const market = rates?.general.pricingMode === "market";
+  const notBenchmarked = market ? [features.length === 0 ? t.features : null, finishes.length === 0 ? t.finish : null].filter((x): x is string => x !== null) : [];
 
   const update = (index: number, next: ExtraOperation) => {
     const list = extras.map((e, i) => (i === index ? next : e));
@@ -74,6 +78,7 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
     >
       <div className="flex flex-col gap-4">
         <Notice tone="info">{t.costEur}</Notice>
+        {notBenchmarked.length > 0 && <Notice tone="info">{interpolate(t.notBenchmarked, { what: notBenchmarked.join(", ") })}</Notice>}
 
         <Field label={c.quote.builder.parts.scrap} htmlFor="extras-scrap" help={c.quote.builder.parts.scrapDefault}>
           <NumberInput id="extras-scrap" value={scrap} onValueChange={setScrap} decimals={1} min={0} max={500} dense inline className="w-[120px]" />

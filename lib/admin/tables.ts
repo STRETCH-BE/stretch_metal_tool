@@ -78,6 +78,8 @@ export type ColumnDef = {
   min?: number;
   jsonKind?: JsonKind;
   maxLength?: number;
+  /** CSV import: the header may omit it (the schema's fallback / null applies) — columns added after the first exports. */
+  optional?: boolean;
 };
 
 export type RateTableDef = {
@@ -296,6 +298,7 @@ const WELD_COLUMNS: readonly ColumnDef[] = [
 const THREAD_COLUMNS: readonly ColumnDef[] = [
   { name: "size", kind: "text", key: true, maxLength: 20 },
   { name: "price_each", kind: "number", decimals: 4 },
+  { name: "setup_per_line_eur", kind: "number", decimals: 2, optional: true },
 ];
 
 const FEATURE_COLUMNS: readonly ColumnDef[] = [
@@ -310,8 +313,9 @@ const FINISH_COLUMNS: readonly ColumnDef[] = [
   { name: "unit", kind: "select", options: FINISH_UNITS, optionGroup: "unit" },
   { name: "price", kind: "number", decimals: 4 },
   { name: "minimum", kind: "number", decimals: 4 },
-  { name: "setup_per_order_eur", kind: "number", decimals: 2 },
-  { name: "min_part_mm", kind: "text", nullable: true, maxLength: 200 },
+  { name: "setup_per_order_eur", kind: "number", decimals: 2, optional: true },
+  { name: "setup_per_line_eur", kind: "number", decimals: 2, optional: true },
+  { name: "min_part_mm", kind: "text", nullable: true, maxLength: 200, optional: true },
 ];
 
 const LEADTIME_COLUMNS: readonly ColumnDef[] = [
@@ -403,6 +407,7 @@ const weldSchema = rowSchema({
 const threadSchema = rowSchema({
   size: textField({ max: 20 }),
   price_each: numberField(),
+  setup_per_line_eur: numberField({ fallback: 0 }),
 });
 
 const featureSchema = rowSchema({
@@ -418,6 +423,7 @@ const finishSchema = rowSchema({
   price: numberField(),
   minimum: numberField(),
   setup_per_order_eur: numberField({ fallback: 0 }),
+  setup_per_line_eur: numberField({ fallback: 0 }),
   min_part_mm: textField({ nullable: true, max: 200 }),
 });
 

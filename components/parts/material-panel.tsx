@@ -10,18 +10,26 @@
  * another panel changes material / thickness (accepting an AI suggestion)
  * the refreshed props remount it, so it never offers to save the stale
  * value back.
+ *
+ * Market version (rates.pricingMode = 'market'): only the version's
+ * benchmarked (material, thickness) pairs are offered — materials without
+ * a laser row are listed disabled as "not benchmarked", the thickness is a
+ * select of the material's benchmarked thicknesses (ThicknessInput), and a
+ * pair outside the benchmark shows the "quote manually" notice (the
+ * engine refuses it with market.no_benchmark_rate).
  */
 
 import { useId, useState } from "react";
 import { useContent, useLocale } from "@/components/providers/locale";
 import { Panel } from "@/components/ui/panel";
 import { Field, Select } from "@/components/ui/field";
-import { NumberInput } from "@/components/ui/number-input";
 import { Notice } from "@/components/ui/notice";
 import { formatMm, interpolate } from "@/lib/format";
 import { familyThicknessLimitMm } from "@/lib/pricing/lookup";
+import { isBenchmarked } from "@/lib/parts/material-choices";
 import type { RatesInfo } from "@/lib/parts/queries";
 import { serverKey } from "@/lib/parts/server-key";
+import { ThicknessInput } from "./thickness-input";
 
 export type MaterialPanelProps = {
   materialCode: string | null;
@@ -44,9 +52,12 @@ function MaterialForm({ materialCode, thicknessMm, rates, disabled = false, onSa
   const [thickness, setThickness] = useState<number | null>(thicknessMm);
   const known = rates.materials.find((m) => m.code === code) ?? null;
   const unknownCode = code.length > 0 && !known;
+  const market = rates.pricingMode === "market";
+  const choice = rates.choices.find((m) => m.code === code) ?? null;
   const limit = known ? familyThicknessLimitMm(rates.flatLaser?.limits ?? null, known.family) : null;
   const dirty = code !== (materialCode ?? "") || thickness !== thicknessMm;
   const overLimit = limit !== null && thickness !== null && thickness > limit;
+  const notBenchmarked = market && code.length > 0 && thickness !== null && !isBenchmarked(choice, thickness);
 
   return (
     <Panel title={c.upload.part.panels.material}>
@@ -62,9 +73,10 @@ function MaterialForm({ materialCode, thicknessMm, rates, disabled = false, onSa
           <Select id={`${id}-code`} value={code} onChange={(event) => setCode(event.target.value)} dense disabled={disabled}>
             <option value="">{t.none}</option>
             {unknownCode && <option value={code}>{code}</option>}
-            {rates.materials.map((m) => (
-              <option key={m.code} value={m.code}>
+            {rates.choices.map((m) => (
+              <option key={m.code} value={m.code} disabled={m.notBenchmarked && m.code !== code}>
                 {m.code} — {m.name}
+                {m.notBenchmarked ? ` — ${t.notBenchmarked}` : ""}
               </option>
             ))}
           </Select>
@@ -74,15 +86,18 @@ function MaterialForm({ materialCode, thicknessMm, rates, disabled = false, onSa
           label={t.thickness}
           htmlFor={`${id}-t`}
           help={
-            known
-              ? limit !== null && rates.flatLaser
-                ? interpolate(t.limitHint, { limitMm: formatMm(limit, locale), family: c.flags.families[known.family], machine: rates.flatLaser.name })
-                : t.noLimit
-              : undefined
+            market
+              ? t.benchmarkedHint
+              : known
+                ? limit !== null && rates.flatLaser
+                  ? interpolate(t.limitHint, { limitMm: formatMm(limit, locale), family: c.flags.families[known.family], machine: rates.flatLaser.name })
+                  : t.noLimit
+                : undefined
           }
         >
-          <NumberInput id={`${id}-t`} value={thickness} onValueChange={setThickness} min={0} decimals={2} dense disabled={disabled} invalid={overLimit} />
+          <ThicknessInput id={`${id}-t`} value={thickness} onValueChange={setThickness} choice={choice} market={market} emptyLabel={t.none} disabled={disabled} invalid={overLimit || notBenchmarked} />
         </Field>
+        {notBenchmarked && <Notice tone="error">{t.notBenchmarkedHint}</Notice>}
         <div>
           <button type="submit" className="btn btn-ghost btn-sm" disabled={disabled || !dirty}>
             {t.save}

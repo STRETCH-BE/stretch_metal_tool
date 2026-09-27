@@ -198,7 +198,7 @@ export const admin: AdminContent = {
         setup: "Setup (€)",
         min_order: "Minimum order (€)",
       },
-      thread: { size: "Size", price_each: "Price (€/each)" },
+      thread: { size: "Size", price_each: "Price (€/each)", setup_per_line_eur: "Setup per line (€)" },
       feature: { code: "Code", name: "Name", price_each: "Price (€/each)" },
       finish: {
         code: "Code",
@@ -207,6 +207,7 @@ export const admin: AdminContent = {
         price: "Price (€/unit)",
         minimum: "Minimum (€)",
         setup_per_order_eur: "Setup per order (€)",
+        setup_per_line_eur: "Setup per line (€)",
         min_part_mm: "Minimum part size (mm)",
       },
       leadtime: { working_days: "Working days", multiplier: "Price multiplier" },

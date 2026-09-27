@@ -172,6 +172,7 @@ export const upload: UploadContent = {
         clearMaterial: "— remove material —",
         thickness: "Thickness [mm]",
         thicknessHelp: "Empty = keep.",
+        keepThickness: "— keep —",
         apply: "Apply",
         nothingToApply: "Tick at least one part and set a material or thickness.",
         applied: "Updated {count} parts. The quote has been re-priced.",
@@ -260,6 +261,9 @@ export const upload: UploadContent = {
       noRates: "No active rate version — the material list is empty. Activate one in Admin → Rates.",
       save: "Save material",
       unknownCode: "Code not in the rate tables — pricing will flag a missing material.",
+      notBenchmarked: "not benchmarked",
+      notBenchmarkedHint: "This material / thickness pair is not in the active market rate version — quote manually. The part gets no price and the quote cannot be sent.",
+      benchmarkedHint: "Market version: only the thicknesses benchmarked for this material can be chosen.",
     },
     measures: {
       cutLength: "Cut length",

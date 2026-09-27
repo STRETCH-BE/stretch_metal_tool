@@ -78,7 +78,7 @@ export default async function QuoteUploadPage({ params }: { params: Params }) {
           quoteId={id}
           bucket={QUOTE_FILES_BUCKET}
           canWrite={canWrite}
-          materials={rates.materials.map((m) => ({ code: m.code, name: m.name }))}
+          materials={rates.choices}
         />
         <Panel
           title={t.parts.title}
@@ -88,7 +88,7 @@ export default async function QuoteUploadPage({ params }: { params: Params }) {
               <BulkMaterialModal
                 quoteId={id}
                 parts={parts.map((p) => ({ id: p.id, name: p.name, materialCode: p.materialCode, thicknessMm: p.thicknessMm }))}
-                materials={rates.materials.map((m) => ({ code: m.code, name: m.name }))}
+                materials={rates.choices}
               />
             ) : undefined
           }

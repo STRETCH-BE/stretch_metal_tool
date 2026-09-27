@@ -16,25 +16,31 @@
  * re-priced quote) re-render; the dialog closes and a toast reports how
  * many parts changed. Every control is a native checkbox, select, input
  * or button — keyboard reachable in DOM order inside the focus trap.
+ * Market version: the material list marks materials without a laser row
+ * as "not benchmarked" (disabled) and the thickness becomes a select of
+ * the chosen material's benchmarked thicknesses (ThicknessInput); with
+ * "keep material" the thickness stays a free number, since the parts may
+ * differ in material.
  */
 
 import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useContent, useLocale } from "@/components/providers/locale";
+import { ThicknessInput } from "@/components/parts/thickness-input";
 import { Field, Select } from "@/components/ui/field";
 import { Modal } from "@/components/ui/modal";
-import { NumberInput } from "@/components/ui/number-input";
 import { Table, Td, Th } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { formatMm, interpolate } from "@/lib/format";
 import { setPartsMaterial } from "@/lib/parts/actions";
+import type { MaterialChoice } from "@/lib/parts/material-choices";
 
 export type BulkMaterialPart = { id: string; name: string; materialCode: string | null; thicknessMm: number | null };
 
 export type BulkMaterialModalProps = {
   quoteId: string;
   parts: BulkMaterialPart[];
-  materials: { code: string; name: string }[];
+  materials: MaterialChoice[];
   disabled?: boolean;
   className?: string;
 };
@@ -56,6 +62,8 @@ export function BulkMaterialModal({ quoteId, parts, materials, disabled = false,
   const [thickness, setThickness] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
+  const market = materials.some((m) => m.thicknessesMm !== null);
+  const choice = materials.find((m) => m.code === material) ?? null;
   const allSelected = parts.length > 0 && parts.every((p) => selected.has(p.id));
   const hasChange = material !== KEEP || thickness !== null;
   const canApply = selected.size > 0 && hasChange && !pending;
@@ -175,15 +183,16 @@ export function BulkMaterialModal({ quoteId, parts, materials, disabled = false,
             <Select id={`${id}-m`} dense value={material} onChange={(event) => setMaterial(event.target.value)}>
               <option value={KEEP}>{t.keepMaterial}</option>
               {materials.map((m) => (
-                <option key={m.code} value={m.code}>
+                <option key={m.code} value={m.code} disabled={m.notBenchmarked}>
                   {m.code} — {m.name}
+                  {m.notBenchmarked ? ` — ${c.upload.part.material.notBenchmarked}` : ""}
                 </option>
               ))}
               <option value={CLEAR}>{t.clearMaterial}</option>
             </Select>
           </Field>
-          <Field label={t.thickness} htmlFor={`${id}-t`} help={t.thicknessHelp}>
-            <NumberInput id={`${id}-t`} value={thickness} onValueChange={setThickness} min={0} decimals={2} dense />
+          <Field label={t.thickness} htmlFor={`${id}-t`} help={market && choice ? c.upload.part.material.benchmarkedHint : t.thicknessHelp}>
+            <ThicknessInput id={`${id}-t`} value={thickness} onValueChange={setThickness} choice={choice} market={market && choice !== null} emptyLabel={t.keepThickness} />
           </Field>
         </div>
         {!canApply && !pending && <p className="mt-3 text-[12px] text-text-faint">{t.nothingToApply}</p>}

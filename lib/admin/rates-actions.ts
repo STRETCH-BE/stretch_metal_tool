@@ -369,7 +369,7 @@ export async function importRateCsv(
     return { status: "error", error: "invalid" };
   }
   if (parsed.records.length === 0) return { status: "error", error: "emptyFile" };
-  const missing = def.columns.map((c) => c.name).filter((name) => !parsed.header.includes(name));
+  const missing = def.columns.filter((c) => !c.optional).map((c) => c.name).filter((name) => !parsed.header.includes(name));
   if (missing.length > 0) return { status: "error", error: "missingColumns", missing };
 
   const existing = await loadRateTableRows(supabase, versionId, table);

@@ -199,9 +199,9 @@ export type AdminContent = {
       bend: { thickness_mm: string; length_class_mm: string; price_per_bend: string; setup_per_part_type: string };
       roll: { thickness_mm: string; radius_class_mm: string; price_per_m: string; setup: string };
       weld: { process: string; bead_mm: string; price_per_mm: string; setup: string; min_order: string };
-      thread: { size: string; price_each: string };
+      thread: { size: string; price_each: string; setup_per_line_eur: string };
       feature: { code: string; name: string; price_each: string };
-      finish: { code: string; name: string; unit: string; price: string; minimum: string; setup_per_order_eur: string; min_part_mm: string };
+      finish: { code: string; name: string; unit: string; price: string; minimum: string; setup_per_order_eur: string; setup_per_line_eur: string; min_part_mm: string };
       leadtime: { working_days: string; multiplier: string };
     };
     options: {
@@ -677,7 +677,7 @@ export const admin: AdminContent = {
         setup: "Przezbrojenie (€)",
         min_order: "Minimum zlecenia (€)",
       },
-      thread: { size: "Rozmiar", price_each: "Cena (€/szt.)" },
+      thread: { size: "Rozmiar", price_each: "Cena (€/szt.)", setup_per_line_eur: "Przezbrojenie na pozycję (€)" },
       feature: { code: "Kod", name: "Nazwa", price_each: "Cena (€/szt.)" },
       finish: {
         code: "Kod",
@@ -686,6 +686,7 @@ export const admin: AdminContent = {
         price: "Cena (€/jedn.)",
         minimum: "Minimum (€)",
         setup_per_order_eur: "Przezbrojenie na zamówienie (€)",
+        setup_per_line_eur: "Przezbrojenie na pozycję (€)",
         min_part_mm: "Minimalny rozmiar części (mm)",
       },
       leadtime: { working_days: "Dni robocze", multiplier: "Mnożnik ceny" },

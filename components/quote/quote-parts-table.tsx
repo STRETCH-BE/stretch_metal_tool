@@ -191,11 +191,11 @@ export function QuotePartsTable({
                     <Td align="num" className="money" muted={!line}>
                       {line ? money(line.unitCost) : "—"}
                     </Td>
-                    <Td align="num" className="money font-bold" muted={!line}>
-                      {line ? money(line.unitPrice) : "—"}
+                    <Td align="num" className="money font-bold" muted={!line || line.unitPrice === null}>
+                      {line && line.unitPrice !== null ? money(line.unitPrice) : "—"}
                     </Td>
-                    <Td align="num" className="money" muted={!line}>
-                      {line ? money(line.batchPrice) : "—"}
+                    <Td align="num" className="money" muted={!line || line.batchPrice === null}>
+                      {line && line.batchPrice !== null ? money(line.batchPrice) : "—"}
                     </Td>
                     <Td>
                       <span className="inline-flex max-w-[260px] flex-wrap gap-1">

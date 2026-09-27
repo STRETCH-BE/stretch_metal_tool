@@ -37,6 +37,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition, type MouseEvent } from "react";
 import { BulkMaterialModal } from "@/components/intake/bulk-material-modal";
+import { materialChoicesFromSnapshot } from "@/lib/parts/material-choices";
 import { useContent } from "@/components/providers/locale";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -398,7 +399,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
                     materialCode: p.material_code,
                     thicknessMm: p.thickness_mm === null ? null : Number(p.thickness_mm),
                   }))}
-                  materials={(rates?.materials ?? []).map((m) => ({ code: m.code, name: m.name }))}
+                  materials={materialChoicesFromSnapshot(rates)}
                   disabled={pending}
                 />
                 <Link href={routes.quoteUpload(quote.id)} className="btn btn-ghost btn-sm">

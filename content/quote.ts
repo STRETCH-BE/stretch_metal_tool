@@ -482,6 +482,8 @@ export type QuoteBuilderContent = {
     costEur: string;
     none: string;
     summary: string;
+    /** Market version without rows for `{what}` (features / finishes). */
+    notBenchmarked: string;
   };
   audit: {
     title: string;
@@ -840,6 +842,7 @@ const builderPl: QuoteBuilderContent = {
     costEur: "Koszty dodatków wpisuj w EUR (waluta cenników).",
     none: "brak",
     summary: "{count} dodatków",
+    notBenchmarked: "Nie w cenniku — wycena ręczna: {what}. Dodaj pozycję „Inna pozycja” z kwotą ryczałtową.",
   },
   audit: {
     title: "Historia zmian",

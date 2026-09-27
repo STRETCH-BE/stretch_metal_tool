@@ -22,10 +22,12 @@ import { NumberInput } from "@/components/ui/number-input";
 import { FormError } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { useToast } from "@/components/ui/toast";
+import { ThicknessInput } from "@/components/parts/thickness-input";
 import { createQuickPart } from "@/lib/parts/actions";
+import type { MaterialChoice } from "@/lib/parts/material-choices";
 import { quickPartFormSchema } from "@/lib/parts/schema";
 
-export type QuickPartMaterial = { code: string; name: string };
+export type QuickPartMaterial = MaterialChoice;
 
 export type QuickPartModalProps = {
   open: boolean;
@@ -55,6 +57,8 @@ export function QuickPartModal({ open, onClose, quoteId, materials, defaultName 
   const [widthMm, setWidthMm] = useState<number | null>(null);
   const [thicknessMm, setThicknessMm] = useState<number | null>(null);
   const [materialCode, setMaterialCode] = useState("");
+  const market = materials.some((m) => m.thicknessesMm !== null);
+  const choice = materials.find((m) => m.code === materialCode) ?? null;
   const [holes, setHoles] = useState<HoleRow[]>([]);
   const [bends, setBends] = useState<BendRow[]>([]);
   const [rolled, setRolled] = useState(false);
@@ -144,8 +148,8 @@ export function QuickPartModal({ open, onClose, quoteId, materials, defaultName 
           <Field label={t.width} htmlFor={`${id}-w`}>
             <NumberInput id={`${id}-w`} value={widthMm} onValueChange={setWidthMm} min={0} decimals={2} dense />
           </Field>
-          <Field label={t.thickness} htmlFor={`${id}-t`}>
-            <NumberInput id={`${id}-t`} value={thicknessMm} onValueChange={setThicknessMm} min={0} decimals={2} dense />
+          <Field label={t.thickness} htmlFor={`${id}-t`} help={market ? c.upload.part.material.benchmarkedHint : undefined}>
+            <ThicknessInput id={`${id}-t`} value={thicknessMm} onValueChange={setThicknessMm} choice={choice} market={market} emptyLabel={c.upload.part.material.none} />
           </Field>
         </div>
 
@@ -153,8 +157,9 @@ export function QuickPartModal({ open, onClose, quoteId, materials, defaultName 
           <Select id={`${id}-m`} value={materialCode} onChange={(e) => setMaterialCode(e.target.value)} dense>
             <option value="">{t.materialNone}</option>
             {materials.map((m) => (
-              <option key={m.code} value={m.code}>
+              <option key={m.code} value={m.code} disabled={m.notBenchmarked}>
                 {m.code} — {m.name}
+                {m.notBenchmarked ? ` — ${c.upload.part.material.notBenchmarked}` : ""}
               </option>
             ))}
           </Select>

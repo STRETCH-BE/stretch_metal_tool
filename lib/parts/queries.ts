@@ -12,7 +12,7 @@
  */
 
 import type { FileRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
-import type { Flag, FlatLaserLimits, MaterialFamily } from "@/lib/pricing/types";
+import type { Flag, FlatLaserLimits, MaterialFamily, PricingMode } from "@/lib/pricing/types";
 import type { PartAnnotations, PartGeometry, Triage, TriageState } from "@/lib/geometry/types";
 import type { Suggestions } from "@/lib/ai/types";
 import type { ServerSupabase } from "@/lib/supabase/server";
@@ -20,6 +20,7 @@ import { loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
 import { machineOf } from "@/lib/pricing/lookup";
 import { parseSuggestions } from "@/lib/ai/types";
 import { requirePartReader, type PartReader } from "./access";
+import { materialChoices, type MaterialChoice } from "./material-choices";
 import { parseStoredGeometry } from "./intake-db";
 import { parseStoredAnnotations } from "./schema";
 
@@ -28,8 +29,12 @@ export type MaterialOption = { code: string; name: string; family: MaterialFamil
 export type RatesInfo = {
   versionId: string | null;
   label: string | null;
+  /** 'market' = benchmarked selling prices: the forms offer only the version's (material, thickness) pairs. */
+  pricingMode: PricingMode;
   blankMarginMm: number;
   materials: MaterialOption[];
+  /** Material select options with the benchmarked thicknesses per material (lib/parts/material-choices.ts). */
+  choices: MaterialChoice[];
   flatLaser: { name: string; limits: FlatLaserLimits } | null;
 };
 
@@ -41,13 +46,15 @@ export async function loadRatesInfo(supabase: ServerSupabase, versionId: string 
     return {
       versionId: rates.versionId,
       label: rates.label,
+      pricingMode: rates.general.pricingMode,
       blankMarginMm: rates.general.blankMarginMm,
       materials: rates.materials.map((m) => ({ code: m.code, name: m.name, family: m.family, densityKgM3: m.densityKgM3 })),
+      choices: materialChoices({ pricingMode: rates.general.pricingMode, materials: rates.materials, laser: rates.laser }),
       flatLaser: laser ? { name: laser.name, limits: laser.limits } : null,
     };
   } catch (error) {
     console.error("[parts] rates unavailable", error);
-    return { versionId: null, label: null, blankMarginMm: 10, materials: [], flatLaser: null };
+    return { versionId: null, label: null, pricingMode: "cost", blankMarginMm: 10, materials: [], choices: [], flatLaser: null };
   }
 }
 

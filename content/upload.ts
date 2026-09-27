@@ -170,6 +170,7 @@ export type UploadContent = {
         clearMaterial: string;
         thickness: string;
         thicknessHelp: string;
+        keepThickness: string;
         apply: string;
         nothingToApply: string;
         /** `{count}` placeholder. */
@@ -252,6 +253,10 @@ export type UploadContent = {
       noRates: string;
       save: string;
       unknownCode: string;
+      /** Market version: suffix of a material / thickness the version has no laser row for. */
+      notBenchmarked: string;
+      notBenchmarkedHint: string;
+      benchmarkedHint: string;
     };
     measures: {
       cutLength: string;
@@ -554,6 +559,7 @@ export const upload: UploadContent = {
         clearMaterial: "— usuń materiał —",
         thickness: "Grubość [mm]",
         thicknessHelp: "Puste pole = bez zmian.",
+        keepThickness: "— bez zmian —",
         apply: "Zastosuj",
         nothingToApply: "Zaznacz co najmniej jedną część i podaj materiał lub grubość.",
         applied: "Zaktualizowano części: {count}. Wycena została przeliczona.",
@@ -642,6 +648,9 @@ export const upload: UploadContent = {
       noRates: "Brak aktywnej wersji cennika — lista materiałów jest pusta. Aktywuj wersję w Administracja → Cenniki.",
       save: "Zapisz materiał",
       unknownCode: "Kod spoza cennika — wycena zgłosi brak materiału.",
+      notBenchmarked: "nie w cenniku",
+      notBenchmarkedHint: "Ta kombinacja materiału i grubości nie jest w aktywnym cenniku rynkowym — wycena ręczna. Część nie otrzyma ceny i oferta nie będzie mogła zostać wysłana.",
+      benchmarkedHint: "Cennik rynkowy: do wyboru tylko grubości, które cennik obejmuje dla tego materiału.",
     },
     measures: {
       cutLength: "Długość cięcia",

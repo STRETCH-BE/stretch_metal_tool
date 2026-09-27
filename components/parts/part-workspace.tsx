@@ -77,7 +77,7 @@ export type PartWorkspaceProps = {
   triage: Triage | null;
   suggestions: Suggestions | null;
   flags: Flag[];
-  item: { id: string; qty: number; unitCost: number; unitPrice: number; finishCodes: string[] } | null;
+  item: { id: string; qty: number; unitCost: number; unitPrice: number | null; finishCodes: string[] } | null;
   quote: { currency: "PLN" | "EUR"; fxRate: number; priced: boolean };
   fileId: string | null;
   pdfFileId: string | null;
@@ -365,7 +365,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
         open={quickOpen}
         onClose={() => setQuickOpen(false)}
         quoteId={props.quoteId}
-        materials={props.rates.materials.map((m) => ({ code: m.code, name: m.name }))}
+        materials={props.rates.choices}
         defaultName={props.name}
         defaults={quickDefaults}
         replacePartId={props.partId}

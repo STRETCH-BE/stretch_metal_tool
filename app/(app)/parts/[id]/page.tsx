@@ -110,7 +110,7 @@ export default async function PartPage({ params }: { params: Params }) {
       flags={data.flags}
       item={
         item
-          ? { id: item.id, qty: Number(item.qty), unitCost: Number(item.unit_cost), unitPrice: Number(item.unit_price), finishCodes: parseFinishCodes(item.extras) }
+          ? { id: item.id, qty: Number(item.qty), unitCost: Number(item.unit_cost), unitPrice: item.unit_price === null ? null : Number(item.unit_price), finishCodes: parseFinishCodes(item.extras) }
           : null
       }
       quote={{ currency: quote.currency, fxRate: Number(quote.fx_rate), priced: quote.priced_at !== null }}

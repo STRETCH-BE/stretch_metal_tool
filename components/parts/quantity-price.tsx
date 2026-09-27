@@ -22,7 +22,8 @@ import { serverKey } from "@/lib/parts/server-key";
 export type QuantityPriceProps = {
   qty: number;
   unitCostEur: number;
-  unitPriceEur: number;
+  /** null = refused in market mode (no benchmark): shown as not priced. */
+  unitPriceEur: number | null;
   currency: "PLN" | "EUR";
   fxRate: number;
   priced: boolean;
@@ -68,11 +69,11 @@ function QuantityForm({ qty, unitCostEur, unitPriceEur, currency, fxRate, priced
             </tr>
             <tr>
               <td className="text-text-muted">{t.unitPrice}</td>
-              <td className="num money">{priced ? money(unitPriceEur) : t.notPriced}</td>
+              <td className="num money">{priced && unitPriceEur !== null ? money(unitPriceEur) : t.notPriced}</td>
             </tr>
             <tr>
               <td className="font-bold">{t.batchPrice}</td>
-              <td className="num money font-bold">{priced ? money(unitPriceEur * qty) : t.notPriced}</td>
+              <td className="num money font-bold">{priced && unitPriceEur !== null ? money(unitPriceEur * qty) : t.notPriced}</td>
             </tr>
           </tbody>
         </table>

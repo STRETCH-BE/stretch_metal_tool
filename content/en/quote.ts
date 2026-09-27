@@ -344,6 +344,7 @@ const builderEn: QuoteBuilderContent = {
     costEur: "Enter extra costs in EUR (the rate-table currency).",
     none: "none",
     summary: "{count} extras",
+    notBenchmarked: "Not benchmarked — quote manually: {what}. Add an \"Other line\" with a lump sum.",
   },
   audit: {
     title: "Change history",
