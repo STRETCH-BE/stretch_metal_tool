@@ -19,10 +19,12 @@
  * PDF: extract text → DXF part with the same base name in this quote?
  * attach (pdf_file_id, pdf_text, ai_suggestions, triage re-run with the
  * PDF forming hint) else keep the files row — a DXF uploaded later picks
- * it up. STEP: the model is read (lib/geometry/step): a flat sheet becomes
- * a flat pattern like a DXF (thumbnail, triage, thickness written to the
- * part); a bent part / assembly gets a red_step_manual geometry whose
- * triage details pre-fill the quick part.
+ * it up. STEP / IFC: the model is read (lib/geometry/step): a flat sheet
+ * becomes a flat pattern like a DXF, a bent part is unfolded (thumbnail,
+ * triage, thickness written to the part); a multi-body STEP or an IFC file
+ * is split into one part per body / element, each stored as its own STEP
+ * file with the occurrence count as quantity; what cannot be read gets a
+ * red_step_manual geometry whose triage details pre-fill the quick part.
  *
  * The PDF re-triage goes through lib/parts/reanalyse.ts: parts.geometry
  * is the ANNOTATED geometry and applyAnnotations is not idempotent for
@@ -38,8 +40,10 @@
 import type {
   AnalyzeOptions,
   HealingReport,
+  ModelPart,
   PartAnnotations,
   PartGeometry,
+  SplitModel,
   Triage,
 } from "@/lib/geometry/types";
 import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
@@ -53,7 +57,7 @@ export { THUMBNAIL_SIZE };
 
 export const INTAKE_TOLERANCE_MM = 0.01;
 
-export type IntakeKind = "dxf" | "pdf" | "step";
+export type IntakeKind = "dxf" | "pdf" | "step" | "ifc";
 
 export type IntakeFile = {
   id: string;
@@ -116,6 +120,10 @@ export type IntakeDeps = {
   analyse(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
   /** STEP text → PartGeometry (flat pattern, or red_step_manual with the model facts). */
   analyseStep(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
+  /** STEP / IFC text → its parts (assemblies split, IFC elements rewritten as STEP), each analysed. */
+  splitModel(text: string, options: AnalyzeOptions): Promise<SplitModel>;
+  /** Store a derived per-part STEP file under the quote (Storage object + files row). */
+  saveDerivedFile(input: { quoteId: string; name: string; bytes: Uint8Array; kind: "step" }): Promise<IntakeFile>;
   applyAnnotations(geometry: PartGeometry, annotations: PartAnnotations, options: AnalyzeOptions): Promise<PartGeometry>;
   toSvg(geometry: PartGeometry, annotations: PartAnnotations): string;
   /** Text of a PDF; throws on an unreadable file (caught here). */
@@ -164,14 +172,35 @@ export type IntakeResult =
       name: string;
       triage: Triage;
       healing: HealingReport;
-      /** True when the model was a flat sheet and became a flat pattern (entities, thumbnail). */
+      /** True when the model became a flat pattern (entities, thumbnail): flat sheet or unfolded. */
       flat: boolean;
       /** Sheet thickness measured from the solid (written to parts.thickness_mm), or null. */
       thicknessMm: number | null;
       thumbnailSvg: string | null;
       partCount: number;
       restoredAnnotations: boolean;
+    }
+  | {
+      /** A multi-body STEP or an IFC file: one part (and quote item) per body / element. */
+      kind: "assembly";
+      name: string;
+      format: "step" | "ifc";
+      parts: AssemblyPartResult[];
     };
+
+export type AssemblyPartResult = {
+  partId: string;
+  itemId: string;
+  name: string;
+  /** Placements of the part in the assembly = quote item quantity. */
+  qty: number;
+  triage: Triage;
+  flat: boolean;
+  thicknessMm: number | null;
+  thumbnailSvg: string | null;
+  /** Representation items that could not be converted (IFC). */
+  warnings: string[];
+};
 
 export type IntakeInput = {
   quoteId: string;
@@ -234,6 +263,8 @@ export async function processUploadedFile(input: IntakeInput): Promise<IntakeRes
       return processPdf(input);
     case "step":
       return processStep(input);
+    case "ifc":
+      return processIfc(input);
   }
 }
 
@@ -383,31 +414,60 @@ async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry
   );
 }
 
-async function processStep(input: IntakeInput): Promise<Extract<IntakeResult, { kind: "step" }>> {
-  const { deps, quoteId, file } = input;
+async function processStep(input: IntakeInput): Promise<IntakeResult> {
+  const { deps, file } = input;
   const name = baseName(file.originalName);
   const text = decodeStepBytes(input.buffer);
-
-  // 1. Analyse: a flat sheet becomes a flat pattern through the DXF
-  //    pipeline; anything else a red_step_manual geometry with thickness,
-  //    bends and size in triage.details (lib/geometry/step/analyse.ts).
   const options: AnalyzeOptions = {
     toleranceMm: deps.toleranceMm ?? INTAKE_TOLERANCE_MM,
     blankMarginMm: deps.blankMarginMm,
     name,
   };
-  let geometry = await deps.analyseStep(text, options);
+  // One solid: the uploaded file is the part's file. Several: one part per
+  // solid, each with its own STEP file split out of the upload.
+  const split = await deps.splitModel(text, options);
+  if (split.parts.length === 1 && split.parts[0].stepText === null) {
+    return storeStepPart(input, name, file, split.parts[0].geometry, options);
+  }
+  const parts = await storeModelParts(input, name, split);
+  return { kind: "assembly", name, format: "step", parts };
+}
+
+/** IFC: every element becomes a part with a STEP file of its geometry; the .ifc stays as the upload. */
+async function processIfc(input: IntakeInput): Promise<Extract<IntakeResult, { kind: "assembly" }>> {
+  const { deps, file } = input;
+  const name = baseName(file.originalName);
+  const options: AnalyzeOptions = {
+    toleranceMm: deps.toleranceMm ?? INTAKE_TOLERANCE_MM,
+    blankMarginMm: deps.blankMarginMm,
+    name,
+  };
+  const split = await deps.splitModel(decodeStepBytes(input.buffer), options);
+  const parts = await storeModelParts(input, name, split);
+  return { kind: "assembly", name, format: "ifc", parts };
+}
+
+/** A single STEP part: annotations restored by hash, thumbnail, measured thickness, one item. */
+async function storeStepPart(
+  input: IntakeInput,
+  name: string,
+  file: IntakeFile,
+  analysed: PartGeometry,
+  options: AnalyzeOptions
+): Promise<Extract<IntakeResult, { kind: "step" }>> {
+  const { deps, quoteId } = input;
+  let geometry = analysed;
   const flat = geometry.entities.length > 0;
 
-  // 2. Annotations stored against the same file hash (flat patterns only —
-  //    a manual STEP part has no entities to attach them to).
+  // Annotations stored against the same file hash (flat patterns only —
+  // a manual STEP part has no entities to attach them to).
   const restored = flat ? await deps.db.findAnnotationsByHash(file.sha256) : null;
   const annotations = hasAnnotations(restored) ? restored : { ...EMPTY_ANNOTATIONS };
   const restoredAnnotations = hasAnnotations(restored);
   if (restoredAnnotations) geometry = await deps.applyAnnotations(geometry, annotations, options);
 
-  // 3. Rows. The measured sheet thickness is written to the part so pricing
-  //    and the material panel start from it (the user can still change it).
+  // The measured sheet thickness is written to the part so pricing and the
+  // material panel start from it (the user can still change it).
   const thumbnailSvg = flat ? deps.toSvg(geometry, annotations) : null;
   const thicknessMm = geometry.material.thicknessMm;
   const part = await deps.db.insertPart({
@@ -441,4 +501,74 @@ async function processStep(input: IntakeInput): Promise<Extract<IntakeResult, { 
     partCount: geometry.partCount,
     restoredAnnotations,
   };
+}
+
+/**
+ * Parts of a split model: each gets its derived STEP file (or, without
+ * geometry, the upload itself), a part row with the measured thickness and
+ * a quote item with the occurrence count as quantity. One re-price at the end.
+ */
+async function storeModelParts(input: IntakeInput, uploadName: string, split: SplitModel): Promise<AssemblyPartResult[]> {
+  const { deps, quoteId, file } = input;
+  const out: AssemblyPartResult[] = [];
+  const used = new Map<string, number>();
+  for (const modelPart of split.parts) {
+    const partName = uniqueName(modelPart.name || uploadName, used);
+    let partFile: IntakeFile = file;
+    if (modelPart.stepText !== null) {
+      partFile = await deps.saveDerivedFile({
+        quoteId,
+        name: `${partName}.step`,
+        bytes: new TextEncoder().encode(modelPart.stepText),
+        kind: "step",
+      });
+    }
+    out.push(await storeSplitPart(input, partName, partFile, modelPart));
+  }
+  await repriceQuietly(deps, quoteId);
+  return out;
+}
+
+async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile, modelPart: ModelPart): Promise<AssemblyPartResult> {
+  const { deps, quoteId } = input;
+  const geometry = modelPart.geometry;
+  const flat = geometry.entities.length > 0;
+  const annotations = { ...EMPTY_ANNOTATIONS };
+  const thumbnailSvg = flat ? deps.toSvg(geometry, annotations) : null;
+  const thicknessMm = geometry.material.thicknessMm;
+  const part = await deps.db.insertPart({
+    quoteId,
+    name,
+    source: "step",
+    fileId: file.id,
+    fileHash: file.sha256,
+    geometry,
+    annotations,
+    triage: geometry.triage,
+    thumbnailSvg,
+    pdfFileId: null,
+    pdfText: null,
+    aiSuggestions: null,
+    thicknessMm,
+  });
+  const position = await deps.db.nextItemPosition(quoteId);
+  const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: Math.max(1, modelPart.occurrences) });
+  return {
+    partId: part.id,
+    itemId: item.id,
+    name,
+    qty: Math.max(1, modelPart.occurrences),
+    triage: geometry.triage,
+    flat,
+    thicknessMm,
+    thumbnailSvg,
+    warnings: modelPart.warnings,
+  };
+}
+
+function uniqueName(name: string, used: Map<string, number>): string {
+  const base = name.trim() || "part";
+  const n = (used.get(base) ?? 0) + 1;
+  used.set(base, n);
+  return n === 1 ? base : `${base} (${n})`;
 }

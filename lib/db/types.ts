@@ -30,7 +30,7 @@ export type MachineKindDb = "flat_laser" | "tube_laser" | "press_brake" | "roll"
 export type OverrideStatus = "pending" | "approved" | "rejected";
 export type MaterialFamilyDb = "mild_steel" | "stainless" | "aluminium" | "brass" | "copper";
 export type TubeProfileFamilyDb = "round" | "square" | "rectangular" | "open";
-export type FileKind = "dxf" | "pdf" | "step" | "export_dxf" | "thumbnail" | "quote_pdf" | "other";
+export type FileKind = "dxf" | "pdf" | "step" | "ifc" | "export_dxf" | "thumbnail" | "quote_pdf" | "other";
 
 type Table<Row, Insert, Update> = {
   Row: Row;

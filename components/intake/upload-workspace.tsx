@@ -198,7 +198,7 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
           ) : (
             <StatusChip severity="neutral" label={status} />
           )}
-          {result?.partId && (
+          {result && result.kind !== "assembly" && result.partId && (
             <Link href={routes.part(result.partId)} className="btn btn-ghost btn-sm">
               {t.results.openPart}
               <span aria-hidden="true" className="btn-arrow">
@@ -270,6 +270,25 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
                   : interpolate(t.results.stepManual, result.triage.details)}
               </li>
               {result.restoredAnnotations && <li>{t.results.restored}</li>}
+            </>
+          )}
+          {result.kind === "assembly" && (
+            <>
+              <li>{interpolate(result.format === "ifc" ? t.results.ifcSplit : t.results.assemblySplit, { count: result.parts.length })}</li>
+              {result.parts.map((p) => (
+                <li key={p.partId} className="flex flex-wrap items-center gap-2">
+                  {p.thumbnailSvg ? <PartThumbnail svg={p.thumbnailSvg} size={40} label={p.name} /> : <span className="inline-block h-10 w-10 shrink-0 bg-surface" aria-hidden="true" />}
+                  <span className="font-bold text-text-body">{p.name}</span>
+                  {p.qty > 1 && <span className="num">× {p.qty}</span>}
+                  <TriageChip state={p.triage.state} />
+                  <Link href={routes.part(p.partId)} className="btn btn-ghost btn-sm">
+                    {t.results.openPart}
+                    <span aria-hidden="true" className="btn-arrow">
+                      →
+                    </span>
+                  </Link>
+                </li>
+              ))}
             </>
           )}
         </ul>

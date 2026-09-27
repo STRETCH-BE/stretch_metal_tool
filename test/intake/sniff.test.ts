@@ -65,8 +65,8 @@ describe("sniffFileType", () => {
 });
 
 describe("validateUploadRequest", () => {
-  it("whitelists .dxf .pdf .step .stp (case-insensitive) and maps them to kinds", () => {
-    expect(ALLOWED_EXTENSIONS).toEqual(["dxf", "pdf", "step", "stp"]);
+  it("whitelists .dxf .pdf .step .stp .ifc (case-insensitive) and maps them to kinds", () => {
+    expect(ALLOWED_EXTENSIONS).toEqual(["dxf", "pdf", "step", "stp", "ifc"]);
     expect(validateUploadRequest({ fileName: "200005.DXF", size: 10 })).toEqual({ ok: true, extension: "dxf", kind: "dxf" });
     expect(validateUploadRequest({ fileName: "a.stp", size: 10 })).toEqual({ ok: true, extension: "stp", kind: "step" });
     expect(kindForExtension("step")).toBe("step");

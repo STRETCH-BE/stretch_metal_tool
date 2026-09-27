@@ -26,8 +26,9 @@ import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import { repriceQuote } from "@/lib/quotes/reprice";
 import { accessErrorResponse, requireQuoteWriter } from "@/lib/parts/access";
 import { completeBodySchema } from "@/lib/parts/schema";
-import { MAX_FILE_BYTES, mimeForKind, validateSniffedFile } from "@/lib/files/sniff";
-import { downloadFile, insertFileRow, parseStoragePath, removeFile, sha256 } from "@/lib/files/storage";
+import { MAX_FILE_BYTES, mimeForKind, safeFileName, validateSniffedFile } from "@/lib/files/sniff";
+import { downloadFile, insertFileRow, parseStoragePath, removeFile, sha256, storagePath, uploadBytes } from "@/lib/files/storage";
+import { randomUUID } from "node:crypto";
 import { processUploadedFile, THUMBNAIL_SIZE, type IntakeDeps } from "@/lib/parts/intake";
 import { createIntakeDb } from "@/lib/parts/intake-db";
 import { loadRatesInfo } from "@/lib/parts/queries";
@@ -80,6 +81,25 @@ export async function POST(request: NextRequest) {
   const deps: IntakeDeps = {
     analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
     analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),
+    splitModel: (text, options) => geometryEngine.splitModel(text, options),
+    saveDerivedFile: async ({ quoteId: forQuote, name, bytes, kind }) => {
+      const id = randomUUID();
+      const objectPath = storagePath(forQuote, id, safeFileName(name));
+      const mime = mimeForKind(kind);
+      await uploadBytes(objectPath, bytes, mime);
+      const row = await insertFileRow(supabase, {
+        id,
+        storagePath: objectPath,
+        originalName: name,
+        mime,
+        size: bytes.byteLength,
+        sha256: sha256(bytes),
+        kind,
+        uploadedBy: session.user.id,
+        quoteId: forQuote,
+      });
+      return { id: row.id, originalName: row.original_name, storagePath: row.storage_path, sha256: row.sha256 };
+    },
     applyAnnotations: (geometry, annotations, options) => geometryEngine.applyAnnotations(geometry, annotations, options),
     toSvg: (geometry, annotations) => geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" }),
     extractPdfText: async (bytes) => (await extractPdfText(bytes)).text,

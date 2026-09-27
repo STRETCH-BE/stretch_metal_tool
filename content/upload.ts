@@ -131,6 +131,10 @@ export type UploadContent = {
       stepManual: string;
       stepFlat: string;
       /** `{count}` placeholder. */
+      assemblySplit: string;
+      /** `{count}` placeholder. */
+      ifcSplit: string;
+      /** `{count}` placeholder. */
       multiPart: string;
       healingLabel: string;
       suggestionsAi: string;
@@ -459,7 +463,7 @@ export const upload: UploadContent = {
   start: {
     eyebrow: "Wgraj pliki",
     title: "Nowa wycena z plików",
-    subtitle: "Utwórz szkic wyceny i wgraj rozwinięcia DXF, rysunki PDF lub modele STEP. Klienta i dane handlowe uzupełnisz w edytorze wyceny.",
+    subtitle: "Utwórz szkic wyceny i wgraj rozwinięcia DXF, rysunki PDF lub modele STEP / IFC (złożenia dzielą się na części). Klienta i dane handlowe uzupełnisz w edytorze wyceny.",
     newQuote: "Rozpocznij nową wycenę",
     newQuoteHelp: "Tworzy szkic z kolejnym numerem SM-RRRR-NNNN i otwiera ekran wgrywania.",
     recentTitle: "Twoje szkice",
@@ -482,7 +486,7 @@ export const upload: UploadContent = {
       title: "Upuść pliki tutaj",
       hint: "lub",
       browse: "Wybierz pliki",
-      formats: "DXF, PDF, STEP / STP — wiele plików naraz",
+      formats: "DXF, PDF, STEP / STP, IFC — wiele plików naraz",
       maxSize: "maks. {mb} MB na plik",
       dropHere: "Upuść, aby wgrać",
       inputLabel: "Wybierz pliki do wgrania",
@@ -507,6 +511,8 @@ export const upload: UploadContent = {
       stepManual:
         "Model STEP odczytany, ale nie dał się rozwinąć (grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}). Wprowadź rozwinięcie jako szybką część.",
       stepFlat: "Model STEP odczytany: grubość {thickness} mm, rozwinięcie zbudowane z modelu (gięcia jako linie gięcia).",
+      assemblySplit: "Złożenie STEP podzielone na {count} części — każda z własnym plikiem STEP i pozycją wyceny (ilość według wystąpień).",
+      ifcSplit: "Plik IFC odczytany: {count} elementów, każdy zapisany jako część z własnym plikiem STEP i pozycją wyceny.",
       multiPart: "Plik zawiera {count} części — wyceniana jest największa.",
       healingLabel: "Naprawa",
       suggestionsAi: "podpowiedzi AI z PDF",
@@ -767,12 +773,12 @@ export const upload: UploadContent = {
     },
   },
   errors: {
-    extension: "Nieobsługiwany typ pliku. Dozwolone: DXF, PDF, STEP / STP.",
+    extension: "Nieobsługiwany typ pliku. Dozwolone: DXF, PDF, STEP / STP, IFC.",
     size: "Plik jest za duży — limit to 25 MB.",
     dwg: "DWG nie jest obsługiwany. Zapisz plik jako DXF (w AutoCAD: Zapisz jako → DXF) i wgraj ponownie.",
     empty: "Plik jest pusty.",
     binary_dxf: "To binarny DXF. Zapisz plik jako ASCII DXF (AutoCAD 2018 lub R12) i wgraj ponownie.",
-    unknown_type: "Nie rozpoznano zawartości pliku — to nie jest DXF, PDF ani STEP.",
+    unknown_type: "Nie rozpoznano zawartości pliku — to nie jest DXF, PDF, STEP ani IFC.",
     type_mismatch: "Zawartość pliku nie zgadza się z rozszerzeniem.",
     invalid_body: "Nieprawidłowe żądanie.",
     invalid_path: "Nieprawidłowa ścieżka pliku.",

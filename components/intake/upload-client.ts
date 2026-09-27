@@ -29,7 +29,7 @@ export class UploadFlowError extends Error {
   }
 }
 
-type SignResponse = { fileId: string; path: string; token: string; signedUrl: string; kind: "dxf" | "pdf" | "step" };
+type SignResponse = { fileId: string; path: string; token: string; signedUrl: string; kind: "dxf" | "pdf" | "step" | "ifc" };
 
 export type CompleteResponse = IntakeResult & { fileId: string };
 

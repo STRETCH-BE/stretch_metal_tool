@@ -55,6 +55,13 @@ export async function createUploadTicket(quoteId: string, fileName: string): Pro
   return { fileId, path: data.path, token: data.token, signedUrl: data.signedUrl };
 }
 
+/** Server-side upload of a derived file (a part split out of an assembly). Never overwrites. */
+export async function uploadBytes(path: string, bytes: Uint8Array, mime: string): Promise<void> {
+  const admin = createAdminClient();
+  const { error } = await admin.storage.from(QUOTE_FILES_BUCKET).upload(path, bytes, { contentType: mime, upsert: false });
+  if (error) throw new Error(`storage upload failed for ${path}: ${error.message}`);
+}
+
 export async function downloadFile(path: string): Promise<Buffer> {
   const admin = createAdminClient();
   const { data, error } = await admin.storage.from(QUOTE_FILES_BUCKET).download(path);

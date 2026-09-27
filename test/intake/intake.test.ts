@@ -10,8 +10,13 @@
  */
 import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { analyseStepSync, analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart } from "@/lib/geometry";
+import { analyseStepSync, analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart, splitModelSync } from "@/lib/geometry";
 import { buildStep, circle, lProfile, rect } from "../geometry/step-builder";
+import { buildIfc } from "../geometry/ifc-builder";
+import { tessellatedPlate } from "../geometry/mesh-fixtures";
+import { evaluateBrep } from "@/lib/geometry/step/brep";
+import { parseStep } from "@/lib/geometry/step/part21";
+import { polygonsOfFacetedBody } from "@/lib/geometry/step/mesh";
 import { EMPTY_ANNOTATIONS, type PartAnnotations, type PartGeometry } from "@/lib/geometry/types";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import { sha256 } from "@/lib/files/storage";
@@ -45,7 +50,7 @@ type PartRecord = Omit<PartInsert, "source"> & {
   materialCode: string | null;
   createdAt: number;
 };
-type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step"; quoteId: string; bytes: Uint8Array; uploadedBy: string };
+type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step" | "ifc"; quoteId: string; bytes: Uint8Array; uploadedBy: string };
 
 /** In-memory IntakeDb + file store mirroring the production queries. */
 function memoryDb() {
@@ -145,6 +150,8 @@ function makeDeps(store: ReturnType<typeof memoryDb>, overrides: Partial<IntakeD
   return {
     analyse: async (text, options) => analyzeDxfSync(text, options),
     analyseStep: async (text, options) => analyseStepSync(text, options),
+    splitModel: async (text, options) => splitModelSync(text, options),
+    saveDerivedFile: async ({ name, bytes, kind }) => store.addFile(name, kind, bytes),
     applyAnnotations: async (geometry, annotations, options) => applyAnnotationsSync(geometry, annotations, options),
     toSvg: (geometry, annotations) => geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" }),
     extractPdfText: async () => PDF_TEXT_200005,
@@ -477,7 +484,61 @@ describe("processUploadedFile — STEP", () => {
     expect(store.items).toHaveLength(1);
   });
 
-  it("stores an assembly of several bodies as red_step_manual with the facts and no thumbnail", async () => {
+  it("splits a multi-body STEP into one part per solid with its own file and quantity", async () => {
+    const store = memoryDb();
+    const deps = makeDeps(store);
+    const text = buildStep(
+      [
+        { outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" },
+        { outer: rect(30, 30), height: 3 },
+      ],
+      { products: [{ name: "Winkel t5", occurrences: 2 }, { name: "Platte t3" }] }
+    );
+    const bytes = new Uint8Array(Buffer.from(text));
+    const file = store.addFile("assy-01.step", "step", bytes);
+    const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
+    if (result.kind !== "assembly") throw new Error("expected assembly");
+    expect(result.format).toBe("step");
+    expect(result.parts.map((p) => [p.name, p.qty, p.triage.state, p.flat])).toEqual([
+      ["Winkel t5", 2, "green", true],
+      ["Platte t3", 1, "green", true],
+    ]);
+    expect(store.parts).toHaveLength(2);
+    expect(store.parts.map((p) => p.source)).toEqual(["step", "step"]);
+    // Each part has a derived STEP file of its own, next to the upload.
+    expect(store.files).toHaveLength(3);
+    expect(store.files.slice(1).map((f) => f.originalName)).toEqual(["Winkel t5.step", "Platte t3.step"]);
+    expect(store.parts[0].fileId).toBe(store.files[1].id);
+    expect(store.parts[0].thicknessMm).toBe(5);
+    expect(store.parts[0].geometry?.measures.bendLines).toHaveLength(1);
+    expect(store.items.map((i) => i.qty)).toEqual([2, 1]);
+    expect(deps.reprice).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads an IFC file into parts with STEP files, keeping the IFC as the upload", async () => {
+    const store = memoryDb();
+    const deps = makeDeps(store);
+    const plate = polygonsOfFacetedBody(evaluateBrep(parseStep(tessellatedPlate())).bodies[0]).map((poly) =>
+      poly.map((p) => ({ x: p.x / 1000, y: p.y / 1000, z: p.z / 1000 }))
+    );
+    const text = buildIfc([
+      { kind: "brep", name: "Rib", polygons: plate, mapShared: "rib" },
+      { kind: "brep", name: "Rib", polygons: plate, mapShared: "rib" },
+    ]);
+    const bytes = new Uint8Array(Buffer.from(text));
+    const file = store.addFile("frame.ifc", "ifc", bytes);
+    const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "ifc", actor: "user-1", deps });
+    if (result.kind !== "assembly") throw new Error("expected assembly");
+    expect(result.format).toBe("ifc");
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toMatchObject({ name: "Rib", qty: 2, flat: true, thicknessMm: 5 });
+    expect(result.parts[0].triage.state).toBe("green");
+    expect(store.files.map((f) => f.kind)).toEqual(["ifc", "step"]);
+    expect(store.parts[0].geometry?.measures.bbox.width).toBeCloseTo(100, 3);
+    expect(store.items[0].qty).toBe(2);
+  });
+
+  it("numbers the parts of a multi-body STEP without a product structure after the upload", async () => {
     const store = memoryDb();
     const deps = makeDeps(store);
     const text = buildStep([
@@ -487,15 +548,12 @@ describe("processUploadedFile — STEP", () => {
     const bytes = new Uint8Array(Buffer.from(text));
     const file = store.addFile("assy-01.step", "step", bytes);
     const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
-    expect(result).toMatchObject({ kind: "step", name: "assy-01", flat: false, thicknessMm: 5, thumbnailSvg: null, partCount: 2 });
-    if (result.kind !== "step") throw new Error("expected step");
-    expect(result.triage.state).toBe("red_step_manual");
-    expect(result.triage.reasons).toEqual(["step_multi_body"]);
-    expect(result.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bodies: 2, bboxX: 80, bboxY: 60, bboxZ: 40 });
-    const part = store.parts[0];
-    expect(part.geometry?.entities).toHaveLength(0);
-    expect(part.triage?.state).toBe("red_step_manual");
-    expect(part.thicknessMm).toBe(5);
-    expect(store.items).toHaveLength(1);
+    if (result.kind !== "assembly") throw new Error("expected assembly");
+    expect(result.parts.map((p) => [p.name, p.qty, p.triage.state])).toEqual([
+      ["assy-01 1", 1, "green"],
+      ["assy-01 2", 1, "green"],
+    ]);
+    expect(store.parts.map((p) => p.thicknessMm)).toEqual([5, 3]);
+    expect(store.items).toHaveLength(2);
   });
 });

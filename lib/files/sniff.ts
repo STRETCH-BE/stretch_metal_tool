@@ -24,10 +24,10 @@
 
 import type { FileKind } from "@/lib/db/types";
 
-export type SniffedType = "dxf" | "pdf" | "step" | "dwg" | "dxf_binary" | "unknown";
+export type SniffedType = "dxf" | "pdf" | "step" | "ifc" | "dwg" | "dxf_binary" | "unknown";
 
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
-export const ALLOWED_EXTENSIONS = ["dxf", "pdf", "step", "stp"] as const;
+export const ALLOWED_EXTENSIONS = ["dxf", "pdf", "step", "stp", "ifc"] as const;
 export type AllowedExtension = (typeof ALLOWED_EXTENSIONS)[number];
 
 /** Codes the UI maps to copy (content.upload.errors). */
@@ -77,7 +77,7 @@ export function sniffFileType(bytes: Uint8Array, fileName = ""): SniffedType {
   if (/^AC10\d\d/.test(text)) return "dwg";
   if (text.startsWith("AutoCAD Binary DXF")) return "dxf_binary";
   if (text.slice(0, PDF_WINDOW).includes("%PDF-")) return "pdf";
-  if (/^\s*ISO-10303-21\s*;/.test(stripBom(text))) return "step";
+  if (/^\s*ISO-10303-21\s*;/.test(stripBom(text))) return /FILE_SCHEMA\s*\(\s*\(\s*'IFC/i.test(text) ? "ifc" : "step";
   if (looksLikeAsciiDxf(text)) return "dxf";
   void fileName;
   return "unknown";
@@ -137,12 +137,12 @@ export function validateUploadRequest(input: { fileName: string; size: number })
   return { ok: true, extension: ext, kind: kindForExtension(ext) };
 }
 
-export function kindForExtension(ext: AllowedExtension): "dxf" | "pdf" | "step" {
+export function kindForExtension(ext: AllowedExtension): "dxf" | "pdf" | "step" | "ifc" {
   return ext === "stp" || ext === "step" ? "step" : ext;
 }
 
 export type SniffValidation =
-  | { ok: true; kind: "dxf" | "pdf" | "step" }
+  | { ok: true; kind: "dxf" | "pdf" | "step" | "ifc" }
   | { ok: false; code: UploadRejection; sniffed: SniffedType };
 
 /** Server-side check of the downloaded bytes against the claimed extension. */
@@ -158,7 +158,7 @@ export function validateSniffedFile(bytes: Uint8Array, fileName: string): SniffV
 }
 
 /** MIME stored on the files row per kind (the bucket whitelist accepts these). */
-export function mimeForKind(kind: "dxf" | "pdf" | "step"): string {
+export function mimeForKind(kind: "dxf" | "pdf" | "step" | "ifc"): string {
   switch (kind) {
     case "dxf":
       return "application/dxf";
@@ -166,5 +166,7 @@ export function mimeForKind(kind: "dxf" | "pdf" | "step"): string {
       return "application/pdf";
     case "step":
       return "application/step";
+    case "ifc":
+      return "application/x-step";
   }
 }
