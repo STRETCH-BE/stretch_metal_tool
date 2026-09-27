@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
   const rates = await loadRatesInfo(supabase, quote.rate_version_id);
   const deps: IntakeDeps = {
     analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
+    analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),
     applyAnnotations: (geometry, annotations, options) => geometryEngine.applyAnnotations(geometry, annotations, options),
     toSvg: (geometry, annotations) => geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" }),
     extractPdfText: async (bytes) => (await extractPdfText(bytes)).text,

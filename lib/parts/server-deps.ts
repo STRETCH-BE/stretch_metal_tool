@@ -23,6 +23,7 @@ import { isBaseEquivalent, type ReanalyseDeps } from "./reanalyse";
 export function makeReanalyseDeps(client: ServerSupabase | AdminSupabase): ReanalyseDeps {
   return {
     analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
+    analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),
     applyAnnotations: (geometry, annotations, options) => geometryEngine.applyAnnotations(geometry, annotations, options),
     toSvg: (geometry, annotations, size) => geometryToSvg(geometry, annotations, { ...size, theme: "light" }),
     download: async (path) => new Uint8Array(await downloadFile(path)),

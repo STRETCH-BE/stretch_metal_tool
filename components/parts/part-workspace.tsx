@@ -61,6 +61,7 @@ import { FlagsPanel } from "./flags-panel";
 import { QuantityPrice } from "./quantity-price";
 import { PartActions } from "./part-actions";
 import { NoGeometryPanel } from "./no-geometry";
+import { DEFAULT_TOLERANCE_MM } from "@/lib/geometry/heal";
 
 export type PartWorkspaceProps = {
   partId: string;
@@ -96,6 +97,20 @@ export function PartWorkspace(props: PartWorkspaceProps) {
   const [, startTransition] = useTransition();
   const [busy, setBusy] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
+  // STEP models that are not flat sheets: geometry without entities whose
+  // triage details (thickness, bends, size) pre-fill the quick part. A STEP
+  // part stored before the reader existed has no geometry at all.
+  const stepManual = props.source === "step" && props.geometry !== null && props.geometry.entities.length === 0;
+  const legacyStep = props.source === "step" && props.geometry === null;
+  const stepFacts = stepManual && props.geometry ? props.geometry.triage.details : null;
+  const numOrNull = (v: number | string | undefined): number | null => (typeof v === "number" ? v : null);
+  const quickDefaults = stepFacts
+    ? {
+        lengthMm: numOrNull(stepFacts.bboxX),
+        widthMm: numOrNull(stepFacts.bboxY),
+        thicknessMm: numOrNull(stepFacts.thicknessMm) ?? props.thicknessMm,
+      }
+    : undefined;
   const [annotations, setAnnotations] = useState<PartAnnotations>(props.annotations);
   const timer = useRef<number | null>(null);
   const pendingSave = useRef<PartAnnotations | null>(null);
@@ -244,7 +259,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(360px,1fr)]">
         <div className="flex min-w-0 flex-col gap-6">
-          {props.viewerGeometry && props.geometry ? (
+          {props.viewerGeometry && props.geometry && !stepManual ? (
             <section aria-label={t.viewerLabel}>
               <PartViewer
                 geometry={props.viewerGeometry}
@@ -258,10 +273,17 @@ export function PartWorkspace(props: PartWorkspaceProps) {
               />
             </section>
           ) : (
-            <NoGeometryPanel source={props.source} disabled={disabled} onQuickPart={() => setQuickOpen(true)} />
+            <NoGeometryPanel
+              source={props.source}
+              disabled={disabled}
+              facts={stepFacts}
+              legacyStep={legacyStep}
+              onQuickPart={() => setQuickOpen(true)}
+              onAnalyseStep={() => onReanalyse(DEFAULT_TOLERANCE_MM)}
+            />
           )}
-          {props.geometry && <MeasuresPanel geometry={props.geometry} />}
-          {props.geometry && (
+          {props.geometry && !stepManual && <MeasuresPanel geometry={props.geometry} />}
+          {props.geometry && !stepManual && (
             <HolesTable
               holes={props.geometry.measures.holes}
               threads={annotations.threads}
@@ -269,7 +291,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
               onConfirm={(loopIds, choice: ThreadChoice) => act(() => confirmThreadGroup(props.partId, loopIds, choice), c.common.actions.saved)}
             />
           )}
-          {props.geometry && (
+          {props.geometry && !stepManual && (
             <BendsTable
               bends={bendRows}
               thicknessMm={props.thicknessMm}
@@ -345,6 +367,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
         quoteId={props.quoteId}
         materials={props.rates.materials.map((m) => ({ code: m.code, name: m.name }))}
         defaultName={props.name}
+        defaults={quickDefaults}
         replacePartId={props.partId}
         onCreated={() => {
           setQuickOpen(false);

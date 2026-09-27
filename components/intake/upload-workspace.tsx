@@ -176,7 +176,7 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          {result && result.kind === "dxf" ? (
+          {result && (result.kind === "dxf" || result.kind === "step") && result.thumbnailSvg ? (
             <PartThumbnail svg={result.thumbnailSvg} size={56} label={result.name} />
           ) : (
             <span className="inline-block h-14 w-14 shrink-0 bg-surface" aria-hidden="true" />
@@ -190,7 +190,7 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
           {row.status === "error" ? (
             <StatusChip severity="red" label={status} />
           ) : row.status === "done" ? (
-            result?.kind === "dxf" ? (
+            result?.kind === "dxf" || result?.kind === "step" ? (
               <TriageChip state={result.triage.state} />
             ) : (
               <StatusChip severity="green" label={status} />
@@ -262,7 +262,16 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
           {result.kind === "pdf" && (
             <li>{result.attachedTo ? interpolate(t.results.pdfAttached, { part: result.attachedTo }) : t.results.pdfWaiting}</li>
           )}
-          {result.kind === "step" && <li>{t.results.stepManual}</li>}
+          {result.kind === "step" && (
+            <>
+              <li>
+                {result.flat
+                  ? interpolate(t.results.stepFlat, { thickness: result.thicknessMm ?? "?" })
+                  : interpolate(t.results.stepManual, result.triage.details)}
+              </li>
+              {result.restoredAnnotations && <li>{t.results.restored}</li>}
+            </>
+          )}
         </ul>
       )}
     </>

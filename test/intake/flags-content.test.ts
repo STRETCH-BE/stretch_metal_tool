@@ -48,7 +48,7 @@ const FLAG_CODES: FlagCode[] = [
   "rates.placeholder",
 ];
 
-const TRIAGE_STATES = ["green", "amber_bend_candidates", "amber_forming_unknown", "amber_units", "red_drawing_sheet", "red_no_closed_contour"] as const;
+const TRIAGE_STATES = ["green", "amber_bend_candidates", "amber_forming_unknown", "amber_units", "red_drawing_sheet", "red_no_closed_contour", "red_step_manual"] as const;
 
 function placeholders(template: string): string[] {
   return Array.from(template.matchAll(/\{(\w+)\}/g), (m) => m[1]).sort();

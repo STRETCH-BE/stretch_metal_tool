@@ -29,6 +29,7 @@ import { runPipeline, GEOMETRY_VERSION } from "./pipeline";
 import { applyAnnotationsSync } from "./annotate";
 import { quickPart } from "./quick-part";
 import { exportAnnotatedDxf } from "./export-dxf";
+import { analyseStepSync, StepFormatError } from "./step/analyse";
 
 /** Geometry for a file that produced nothing usable (still a valid snapshot). */
 export function emptyGeometry(parsed: ParsedDxf | null, options: AnalyzeOptions, error: string | null): PartGeometry {
@@ -87,6 +88,10 @@ export class TsGeometryEngine implements GeometryEngine {
     return analyzeDxfSync(dxfText, options);
   }
 
+  async analyzeStep(stepText: string, options: AnalyzeOptions = {}): Promise<PartGeometry> {
+    return analyseStepSync(stepText, options);
+  }
+
   async applyAnnotations(
     geometry: PartGeometry,
     annotations: PartAnnotations,
@@ -104,4 +109,4 @@ export class TsGeometryEngine implements GeometryEngine {
   }
 }
 
-export { DxfFormatError, runPipeline, GEOMETRY_VERSION };
+export { DxfFormatError, StepFormatError, analyseStepSync, runPipeline, GEOMETRY_VERSION };

@@ -64,6 +64,34 @@ Ignored-layer entities are removed before chaining and listed in
 
 `multi_part` is appended to the reasons of any state when `partCount > 1`.
 
+## STEP models (`step/`)
+
+`analyzeStep(text)` reads an ISO 10303-21 file without any dependency:
+`part21.ts` scans the DATA section into instances, `brep.ts` evaluates
+bodies → faces → edges → curves in millimetres (SI or inch units from the
+representation context), `analyse.ts` measures the sheet:
+
+- **thickness** = the most common distance between a planar face and the
+  nearest opposite-facing planar face with material in between, weighted by
+  face area (flange tops and bottoms outweigh edge faces);
+- **bends** = coaxial cylinder pairs whose radii differ by the thickness
+  (inner + outer bend surface); an edge fillet has no partner;
+- **flat sheet** = one body, every planar face parallel or perpendicular to
+  the sheet normal (small chamfers tolerated), every cylinder / cone / torus
+  axis along it, no free-form surfaces. Its largest face on the normal is the
+  flat pattern: the outer bound becomes the outline and the inner bounds the
+  holes (exact lines and arcs, B-splines and ellipses flattened), and the
+  result runs through the same pipeline as a DXF with `source: "step"`.
+- anything else (bent parts, assemblies, no solid) → a geometry with no
+  entities in triage state `red_step_manual` whose `details` carry
+  `thicknessMm`, `bendCount`, `bboxX/Y/Z` (sorted extents) and `bodies`; the
+  quick-part dialog is pre-filled from them. Unfolding bent parts stays
+  manual (spec: deliberately last).
+
+Test fixtures are written by `test/geometry/step-builder.ts` (extruded
+profiles the way CAD exporters write them: shared vertices, oriented edges,
+caps with FACE_OUTER_BOUND / FACE_BOUND, seam-edge or two-half-circle holes).
+
 ## Tests
 
 `npx vitest run test/geometry lib/geometry` — customer fixtures

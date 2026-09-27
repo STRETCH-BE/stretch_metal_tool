@@ -126,7 +126,9 @@ export const upload: UploadContent = {
       pdfWaiting: "PDF stored — it will attach to a DXF with the same name once you upload it.",
       pdfAttached: "PDF attached to part {part}.",
       restored: "Earlier annotations for this file were restored.",
-      stepManual: "STEP stored — geometry is not unfolded. Enter the dimensions as a quick part.",
+      stepManual:
+        "STEP model read, but it is not a flat sheet (thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}). Enter the flat pattern as a quick part.",
+      stepFlat: "STEP model read: flat part, thickness {thickness} mm — flat pattern built from the model.",
       multiPart: "The file holds {count} parts — the largest is priced.",
       healingLabel: "Healing",
       suggestionsAi: "AI suggestions from the PDF",
@@ -223,7 +225,11 @@ export const upload: UploadContent = {
     readOnlyNotice: "View only — this quote is no longer editable or you have no write access to it.",
     noGeometryTitle: "No geometry",
     noGeometryBody: "This file has no flat pattern to show.",
-    stepBody: "STEP files are not unfolded in this version. Enter the flat-pattern dimensions as a quick part — the name is already filled in.",
+    stepBody:
+      "The STEP model is not a flat sheet — the flat pattern has to be entered by hand. Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm. Thickness and size are pre-filled in the quick part.",
+    stepLegacyBody:
+      "This STEP model was uploaded before the tool could read it. Read it now: a flat part becomes a flat pattern, a bent part gets its thickness and size.",
+    analyseStep: "Read the STEP model",
     enterQuickPart: "Enter as a quick part",
     saved: "Annotations saved.",
     saveError: "Saving the annotations failed.",

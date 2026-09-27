@@ -141,6 +141,7 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
           pdf_file_id: row.pdfFileId,
           pdf_text: row.pdfText,
           ai_suggestions: toJson(row.aiSuggestions),
+          ...(row.thicknessMm !== undefined && row.thicknessMm !== null ? { thickness_mm: row.thicknessMm } : {}),
         })
         .select("id")
         .single();

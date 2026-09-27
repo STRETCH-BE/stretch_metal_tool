@@ -33,6 +33,8 @@ export type QuickPartModalProps = {
   quoteId: string;
   materials: QuickPartMaterial[];
   defaultName?: string;
+  /** Pre-filled dimensions (a STEP model's thickness and bounding box); applied when the dialog opens. */
+  defaults?: { lengthMm?: number | null; widthMm?: number | null; thicknessMm?: number | null };
   replacePartId?: string | null;
   onCreated: (partId: string) => void;
 };
@@ -40,7 +42,7 @@ export type QuickPartModalProps = {
 type HoleRow = { diameterMm: number | null; count: number | null };
 type BendRow = { lengthMm: number | null; angleDeg: number | null; count: number | null };
 
-export function QuickPartModal({ open, onClose, quoteId, materials, defaultName = "", replacePartId = null, onCreated }: QuickPartModalProps) {
+export function QuickPartModal({ open, onClose, quoteId, materials, defaultName = "", defaults, replacePartId = null, onCreated }: QuickPartModalProps) {
   const c = useContent();
   const t = c.upload.quickPart;
   const { toast } = useToast();
@@ -59,12 +61,18 @@ export function QuickPartModal({ open, onClose, quoteId, materials, defaultName 
   const [rollRadius, setRollRadius] = useState<number | null>(null);
   const [rollAxis, setRollAxis] = useState<number | null>(null);
 
+  const defaultLength = defaults?.lengthMm ?? null;
+  const defaultWidth = defaults?.widthMm ?? null;
+  const defaultThickness = defaults?.thicknessMm ?? null;
   useEffect(() => {
     if (open) {
       setName(defaultName);
       setError(null);
+      if (defaultLength !== null) setLengthMm(defaultLength);
+      if (defaultWidth !== null) setWidthMm(defaultWidth);
+      if (defaultThickness !== null) setThicknessMm(defaultThickness);
     }
-  }, [open, defaultName]);
+  }, [open, defaultName, defaultLength, defaultWidth, defaultThickness]);
 
   const submit = () => {
     const form = {

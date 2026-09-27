@@ -24,6 +24,7 @@ export * from "./quick-part";
 export * from "./export-dxf";
 export * from "./svg";
 export * from "./engine";
+export * from "./step/analyse";
 
 import { TsGeometryEngine } from "./engine";
 

@@ -12,21 +12,26 @@
  *     part with the same file_hash, the same healing tolerance and
  *     base-equivalent annotations (no scale, no mirror, no deletions)
  *     already holds the base result and is copied instead of parsed;
- *   - manual / STEP parts: the stored geometry is the base (quick parts
- *     are synthetic rectangles; scale/mirror are not offered for them and
- *     are ignored on re-apply).
+ *   - STEP parts: re-read from the stored model (lib/geometry/step) with
+ *     the same hash cache; a STEP part uploaded before the reader existed
+ *     (geometry null) gets its first analysis this way;
+ *   - manual parts: the stored geometry is the base (quick parts are
+ *     synthetic rectangles; scale/mirror are not offered for them and are
+ *     ignored on re-apply).
  * The result is applyAnnotations(base, annotations, options) plus the
  * light-theme thumbnail.
  */
 
 import type { AnalyzeOptions, PartAnnotations, PartGeometry } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
+import { decodeStepBytes } from "@/lib/geometry/step/part21";
 
 /** Light-theme thumbnail stored on parts.thumbnail_svg (lists, PDF). */
 export const THUMBNAIL_SIZE = { width: 160, height: 120 } as const;
 
 export type ReanalyseDeps = {
   analyse(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
+  analyseStep(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
   applyAnnotations(geometry: PartGeometry, annotations: PartAnnotations, options: AnalyzeOptions): Promise<PartGeometry>;
   toSvg(geometry: PartGeometry, annotations: PartAnnotations, size: { width: number; height: number }): string;
   download(storagePath: string): Promise<Uint8Array>;
@@ -71,13 +76,16 @@ export async function baseGeometryFor(
   deps: ReanalyseDeps
 ): Promise<{ geometry: PartGeometry; fromCache: boolean; annotations: PartAnnotations }> {
   const analyseOptions = analyseOptionsFor(part, options);
-  if (part.source === "dxf" && part.storagePath) {
+  if ((part.source === "dxf" || part.source === "step") && part.storagePath) {
     if (part.fileHash) {
       const cached = await deps.findCachedGeometry(part.fileHash, options.toleranceMm, part.id);
       if (cached) return { geometry: cached, fromCache: true, annotations: part.annotations };
     }
     const bytes = await deps.download(part.storagePath);
-    const geometry = await deps.analyse(decodeDxfBytes(bytes), analyseOptions);
+    const geometry =
+      part.source === "step"
+        ? await deps.analyseStep(decodeStepBytes(bytes), analyseOptions)
+        : await deps.analyse(decodeDxfBytes(bytes), analyseOptions);
     return { geometry, fromCache: false, annotations: part.annotations };
   }
   if (!part.geometry) throw new Error(`part ${part.id} has no geometry to re-apply annotations to`);

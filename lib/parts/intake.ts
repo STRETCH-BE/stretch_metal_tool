@@ -19,7 +19,10 @@
  * PDF: extract text → DXF part with the same base name in this quote?
  * attach (pdf_file_id, pdf_text, ai_suggestions, triage re-run with the
  * PDF forming hint) else keep the files row — a DXF uploaded later picks
- * it up. STEP: part with source step, no geometry (manual entry prompt).
+ * it up. STEP: the model is read (lib/geometry/step): a flat sheet becomes
+ * a flat pattern like a DXF (thumbnail, triage, thickness written to the
+ * part); a bent part / assembly gets a red_step_manual geometry whose
+ * triage details pre-fill the quick part.
  *
  * The PDF re-triage goes through lib/parts/reanalyse.ts: parts.geometry
  * is the ANNOTATED geometry and applyAnnotations is not idempotent for
@@ -41,6 +44,7 @@ import type {
 } from "@/lib/geometry/types";
 import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
+import { decodeStepBytes } from "@/lib/geometry/step/part21";
 import type { Suggestions } from "@/lib/ai/types";
 import { baseName } from "@/lib/files/sniff";
 import { isBaseEquivalent, reanalysePart, THUMBNAIL_SIZE, type ReanalyseDeps } from "./reanalyse";
@@ -71,6 +75,8 @@ export type PartInsert = {
   pdfFileId: string | null;
   pdfText: string | null;
   aiSuggestions: Suggestions | null;
+  /** Measured sheet thickness (STEP); omitted / null leaves parts.thickness_mm unset. */
+  thicknessMm?: number | null;
 };
 
 export type PartPatch = Partial<
@@ -108,6 +114,8 @@ export type IntakeDb = {
 
 export type IntakeDeps = {
   analyse(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
+  /** STEP text → PartGeometry (flat pattern, or red_step_manual with the model facts). */
+  analyseStep(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
   applyAnnotations(geometry: PartGeometry, annotations: PartAnnotations, options: AnalyzeOptions): Promise<PartGeometry>;
   toSvg(geometry: PartGeometry, annotations: PartAnnotations): string;
   /** Text of a PDF; throws on an unreadable file (caught here). */
@@ -149,7 +157,21 @@ export type IntakeResult =
       hasText: boolean;
       suggestionsSource: Suggestions["source"] | null;
     }
-  | { kind: "step"; partId: string; itemId: string; name: string };
+  | {
+      kind: "step";
+      partId: string;
+      itemId: string;
+      name: string;
+      triage: Triage;
+      healing: HealingReport;
+      /** True when the model was a flat sheet and became a flat pattern (entities, thumbnail). */
+      flat: boolean;
+      /** Sheet thickness measured from the solid (written to parts.thickness_mm), or null. */
+      thicknessMm: number | null;
+      thumbnailSvg: string | null;
+      partCount: number;
+      restoredAnnotations: boolean;
+    };
 
 export type IntakeInput = {
   quoteId: string;
@@ -336,6 +358,7 @@ async function processPdf(input: IntakeInput): Promise<Extract<IntakeResult, { k
 async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry: PartGeometry }, pdfText: string) {
   const reanalyseDeps: ReanalyseDeps = {
     analyse: deps.analyse,
+    analyseStep: deps.analyseStep,
     applyAnnotations: deps.applyAnnotations,
     toSvg: (geometry, annotations) => deps.toSvg(geometry, annotations),
     download: deps.download,
@@ -363,22 +386,59 @@ async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry
 async function processStep(input: IntakeInput): Promise<Extract<IntakeResult, { kind: "step" }>> {
   const { deps, quoteId, file } = input;
   const name = baseName(file.originalName);
+  const text = decodeStepBytes(input.buffer);
+
+  // 1. Analyse: a flat sheet becomes a flat pattern through the DXF
+  //    pipeline; anything else a red_step_manual geometry with thickness,
+  //    bends and size in triage.details (lib/geometry/step/analyse.ts).
+  const options: AnalyzeOptions = {
+    toleranceMm: deps.toleranceMm ?? INTAKE_TOLERANCE_MM,
+    blankMarginMm: deps.blankMarginMm,
+    name,
+  };
+  let geometry = await deps.analyseStep(text, options);
+  const flat = geometry.entities.length > 0;
+
+  // 2. Annotations stored against the same file hash (flat patterns only —
+  //    a manual STEP part has no entities to attach them to).
+  const restored = flat ? await deps.db.findAnnotationsByHash(file.sha256) : null;
+  const annotations = hasAnnotations(restored) ? restored : { ...EMPTY_ANNOTATIONS };
+  const restoredAnnotations = hasAnnotations(restored);
+  if (restoredAnnotations) geometry = await deps.applyAnnotations(geometry, annotations, options);
+
+  // 3. Rows. The measured sheet thickness is written to the part so pricing
+  //    and the material panel start from it (the user can still change it).
+  const thumbnailSvg = flat ? deps.toSvg(geometry, annotations) : null;
+  const thicknessMm = geometry.material.thicknessMm;
   const part = await deps.db.insertPart({
     quoteId,
     name,
     source: "step",
     fileId: file.id,
     fileHash: file.sha256,
-    geometry: null,
-    annotations: { ...EMPTY_ANNOTATIONS },
-    triage: null,
-    thumbnailSvg: null,
+    geometry,
+    annotations,
+    triage: geometry.triage,
+    thumbnailSvg,
     pdfFileId: null,
     pdfText: null,
     aiSuggestions: null,
+    thicknessMm,
   });
   const position = await deps.db.nextItemPosition(quoteId);
   const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: 1 });
   await repriceQuietly(deps, quoteId);
-  return { kind: "step", partId: part.id, itemId: item.id, name };
+  return {
+    kind: "step",
+    partId: part.id,
+    itemId: item.id,
+    name,
+    triage: geometry.triage,
+    healing: geometry.healing,
+    flat,
+    thicknessMm,
+    thumbnailSvg,
+    partCount: geometry.partCount,
+    restoredAnnotations,
+  };
 }

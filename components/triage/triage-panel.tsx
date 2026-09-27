@@ -13,6 +13,7 @@
  *   amber_forming_unknown  → "Is this part bent or rolled?" Flat / Bent / Rolled
  *   red_drawing_sheet      → explanation, "pick the view" instructions, quick part
  *   red_no_closed_contour  → explanation, join-within-tolerance input, quick part
+ *   red_step_manual        → explanation (thickness / bends / size read from the STEP), quick part
  * The panel never mutates anything itself: it calls back with a
  * TriageAnswer / tolerance and the workspace runs the server action.
  */
@@ -139,6 +140,17 @@ export function TriagePanel({ triage, healing, dropped, annotations, disabled = 
                 </span>
               </button>
             </div>
+          </div>
+        )}
+
+        {triage.state === "red_step_manual" && (
+          <div>
+            <button type="button" className="btn btn-primary btn-sm" disabled={controlsOff} onClick={onQuickPart}>
+              {t.quickPart}
+              <span aria-hidden="true" className="btn-arrow">
+                →
+              </span>
+            </button>
           </div>
         )}
 

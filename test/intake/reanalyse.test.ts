@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart } from "@/lib/geometry";
+import { analyseStepSync, analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart } from "@/lib/geometry";
 import { EMPTY_ANNOTATIONS, type PartGeometry } from "@/lib/geometry/types";
 import { baseGeometryFor, isBaseEquivalent, reanalysePart, type ReanalyseDeps, type ReanalysePart } from "@/lib/parts/reanalyse";
 
@@ -15,6 +15,7 @@ const DXF = new Uint8Array(fs.readFileSync("test/fixtures/200164.dxf"));
 function deps(cached: PartGeometry | null): ReanalyseDeps & { download: ReturnType<typeof vi.fn>; findCachedGeometry: ReturnType<typeof vi.fn> } {
   return {
     analyse: async (text, options) => analyzeDxfSync(text, options),
+    analyseStep: async (text, options) => analyseStepSync(text, options),
     applyAnnotations: async (geometry, annotations, options) => applyAnnotationsSync(geometry, annotations, options),
     toSvg: (geometry, annotations, size) => geometryToSvg(geometry, annotations, { ...size, theme: "light" }),
     download: vi.fn(async () => DXF),

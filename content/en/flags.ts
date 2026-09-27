@@ -44,6 +44,12 @@ export const flags: FlagsContent = {
         "No closed outer contour could be built — the lines do not meet at their ends, or the file holds no geometry.",
       action: "Raise the join tolerance and re-analyse, fix the file in CAD, or enter the part manually.",
     },
+    red_step_manual: {
+      label: "STEP model — manual flat pattern",
+      message:
+        "The STEP model is not a flat sheet (bent part, several bodies or no solid). Read from the model: thickness {thicknessMm} mm, bends: {bendCount}, size {bboxX} × {bboxY} × {bboxZ} mm, bodies: {bodies}.",
+      action: "Enter the flat-pattern dimensions as a quick part — thickness and size are pre-filled. A flat part in STEP unfolds by itself.",
+    },
   },
   triageReasons: {
     bend_layers_found: "Bend lines recognised from layer names ({bendLines})",
@@ -58,6 +64,9 @@ export const flags: FlagsContent = {
     multiple_view_clusters: "{clusterCount} separate outline groups (views)",
     no_closed_contour: "No closed outline found",
     multi_part: "The file holds {partCount} separate parts — the largest is priced",
+    step_not_flat: "The STEP model is bent or not a sheet — no automatic flat pattern",
+    step_multi_body: "The STEP file holds {bodies} bodies (an assembly) — upload the parts separately",
+    step_no_geometry: "No readable solid was found in the STEP file",
   },
   healing: {
     title: "Geometry healing",

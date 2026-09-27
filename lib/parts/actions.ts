@@ -168,7 +168,7 @@ async function applyAndStore(
   options: { toleranceMm?: number; partOverrides?: Partial<ReanalysePart> } = {}
 ): Promise<{ geometry: PartGeometry; fromCache: boolean }> {
   const part = toReanalysePart(ctx, options.partOverrides);
-  if (!(part.source === "dxf" && part.storagePath) && !part.geometry) fail("no_geometry");
+  if (!((part.source === "dxf" || part.source === "step") && part.storagePath) && !part.geometry) fail("no_geometry");
   const toleranceMm = options.toleranceMm ?? ctx.geometry?.healing.toleranceMm ?? 0.01;
   const result = await reanalyseCore(part, annotations, { toleranceMm, blankMarginMm: ctx.rates.blankMarginMm }, makeReanalyseDeps(ctx.supabase));
   const { error } = await ctx.supabase

@@ -287,7 +287,9 @@ export type TriageState =
   | "amber_forming_unknown"
   | "amber_units"
   | "red_drawing_sheet"
-  | "red_no_closed_contour";
+  | "red_no_closed_contour"
+  /** STEP model that is not a flat sheet (bent, several bodies, no solid): enter the flat pattern by hand. */
+  | "red_step_manual";
 
 export type TriageReasonCode =
   | "bend_layers_found"
@@ -301,7 +303,10 @@ export type TriageReasonCode =
   | "dimension_text_heavy"
   | "multiple_view_clusters"
   | "no_closed_contour"
-  | "multi_part";
+  | "multi_part"
+  | "step_not_flat"
+  | "step_multi_body"
+  | "step_no_geometry";
 
 export type Triage = {
   state: TriageState;
@@ -482,6 +487,12 @@ export type QuickPartInput = {
 export interface GeometryEngine {
   /** Parse + normalise + heal + chain + classify + measure + triage a DXF. */
   analyzeDxf(dxfText: string, options?: AnalyzeOptions): Promise<PartGeometry>;
+  /**
+   * STEP model → flat pattern through the same pipeline when the body is a
+   * flat sheet; otherwise a geometry without entities in state
+   * red_step_manual carrying thickness / bends / size in triage.details.
+   */
+  analyzeStep(stepText: string, options?: AnalyzeOptions): Promise<PartGeometry>;
   /** Re-run classification/measures with user annotations applied. */
   applyAnnotations(
     geometry: PartGeometry,

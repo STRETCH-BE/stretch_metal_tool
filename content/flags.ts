@@ -95,6 +95,12 @@ export const flags: FlagsContent = {
         "Nie udało się zbudować zamkniętego obrysu zewnętrznego — linie nie łączą się końcami albo plik nie zawiera geometrii.",
       action: "Zwiększ tolerancję łączenia i przelicz ponownie, popraw plik w CAD albo wprowadź część ręcznie.",
     },
+    red_step_manual: {
+      label: "Model STEP — rozwinięcie ręczne",
+      message:
+        "Model STEP nie jest płaskim arkuszem (część gięta, kilka brył albo brak bryły). Odczytano z modelu: grubość {thicknessMm} mm, gięcia: {bendCount}, gabaryt {bboxX} × {bboxY} × {bboxZ} mm, bryły: {bodies}.",
+      action: "Wprowadź wymiary rozwinięcia jako szybką część — grubość i gabaryt są już podpowiedziane. Część płaska w STEP rozwija się sama.",
+    },
   },
   triageReasons: {
     bend_layers_found: "Linie gięcia rozpoznane po nazwie warstwy ({bendLines})",
@@ -109,6 +115,9 @@ export const flags: FlagsContent = {
     multiple_view_clusters: "{clusterCount} oddzielnych grup obrysów (widoków)",
     no_closed_contour: "Nie znaleziono zamkniętego obrysu",
     multi_part: "Plik zawiera {partCount} oddzielnych części — wyceniana jest największa",
+    step_not_flat: "Model STEP jest gięty albo nie jest arkuszem — brak automatycznego rozwinięcia",
+    step_multi_body: "Plik STEP zawiera {bodies} brył (złożenie) — wgraj części osobno",
+    step_no_geometry: "W pliku STEP nie znaleziono bryły do odczytu",
   },
   healing: {
     title: "Naprawa geometrii",

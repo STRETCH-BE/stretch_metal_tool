@@ -10,7 +10,8 @@
  */
 import fs from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart } from "@/lib/geometry";
+import { analyseStepSync, analyzeDxfSync, applyAnnotationsSync, geometryToSvg, quickPart } from "@/lib/geometry";
+import { buildStep, circle, lProfile, rect } from "../geometry/step-builder";
 import { EMPTY_ANNOTATIONS, type PartAnnotations, type PartGeometry } from "@/lib/geometry/types";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import { sha256 } from "@/lib/files/storage";
@@ -85,7 +86,7 @@ function memoryDb() {
     },
     async insertPart(row) {
       const id = `part-${++seq}`;
-      parts.push({ ...row, id, thicknessMm: null, materialCode: null, createdAt: seq });
+      parts.push({ ...row, id, thicknessMm: row.thicknessMm ?? null, materialCode: null, createdAt: seq });
       return { id };
     },
     async updatePart(id, patch: PartPatch) {
@@ -143,6 +144,7 @@ function makeDeps(store: ReturnType<typeof memoryDb>, overrides: Partial<IntakeD
   });
   return {
     analyse: async (text, options) => analyzeDxfSync(text, options),
+    analyseStep: async (text, options) => analyseStepSync(text, options),
     applyAnnotations: async (geometry, annotations, options) => applyAnnotationsSync(geometry, annotations, options),
     toSvg: (geometry, annotations) => geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" }),
     extractPdfText: async () => PDF_TEXT_200005,
@@ -433,19 +435,44 @@ describe("processUploadedFile — companion PDFs and who filed them", () => {
 });
 
 describe("processUploadedFile — STEP", () => {
-  it("creates a part without geometry and an item, prefilled by name", async () => {
+  it("reads a flat plate into a green flat pattern with thumbnail, triage and thickness", async () => {
     const store = memoryDb();
     const deps = makeDeps(store);
-    const bytes = new Uint8Array(Buffer.from("ISO-10303-21;\nHEADER;\nENDSEC;\nEND-ISO-10303-21;\n"));
-    const file = store.addFile("bracket-01.step", "step", bytes);
+    const text = buildStep([{ outer: rect(100, 50), holes: [circle({ x: 30, y: 25 }, 5)], height: 5 }]);
+    const bytes = new Uint8Array(Buffer.from(text));
+    const file = store.addFile("plate-01.step", "step", bytes);
     const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
-    expect(result).toMatchObject({ kind: "step", name: "bracket-01" });
+    expect(result).toMatchObject({ kind: "step", name: "plate-01", flat: true, thicknessMm: 5, partCount: 1 });
+    if (result.kind !== "step") throw new Error("expected step");
+    expect(result.triage.state).toBe("green");
+    expect(result.thumbnailSvg).toContain("<svg");
     const part = store.parts[0];
     expect(part.source).toBe("step");
-    expect(part.geometry).toBeNull();
-    expect(part.triage).toBeNull();
+    expect(part.geometry?.source).toBe("step");
+    expect(part.geometry?.measures.bbox.width).toBeCloseTo(100, 3);
+    expect(part.geometry?.measures.pierces).toBe(2);
+    expect(part.triage?.state).toBe("green");
+    expect(part.thicknessMm).toBe(5);
     expect(part.annotations).toEqual(EMPTY_ANNOTATIONS);
     expect(store.items).toHaveLength(1);
     expect(deps.reprice).toHaveBeenCalledTimes(1);
+  });
+
+  it("stores a bent bracket as red_step_manual with the measured thickness and no thumbnail", async () => {
+    const store = memoryDb();
+    const deps = makeDeps(store);
+    const text = buildStep([{ outer: lProfile(80, 60, 5, 5), height: 40, frame: "xz" }]);
+    const bytes = new Uint8Array(Buffer.from(text));
+    const file = store.addFile("bracket-01.step", "step", bytes);
+    const result = await processUploadedFile({ quoteId: QUOTE, file, buffer: bytes, kind: "step", actor: "user-1", deps });
+    expect(result).toMatchObject({ kind: "step", name: "bracket-01", flat: false, thicknessMm: 5, thumbnailSvg: null });
+    if (result.kind !== "step") throw new Error("expected step");
+    expect(result.triage.state).toBe("red_step_manual");
+    expect(result.triage.details).toMatchObject({ thicknessMm: 5, bendCount: 1, bboxX: 80, bboxY: 60, bboxZ: 40 });
+    const part = store.parts[0];
+    expect(part.geometry?.entities).toHaveLength(0);
+    expect(part.triage?.state).toBe("red_step_manual");
+    expect(part.thicknessMm).toBe(5);
+    expect(store.items).toHaveLength(1);
   });
 });
