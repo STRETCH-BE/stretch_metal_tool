@@ -237,9 +237,9 @@ describe("deleteRateRow / cloneRateVersionAction / importRateCsv", () => {
     expect(state.imported).toBe(2);
     expect(state.errors).toEqual([{ line: 3, column: "price_each", code: "invalidNumber" }]);
     const update = callsTo(client.calls, "rate_thread", "update")[0].args[0];
-    expect(update).toEqual({ size: "M8", price_each: 1.25, placeholder: false });
+    expect(update).toEqual({ size: "M8", price_each: 1.25, setup_per_line_eur: 0, placeholder: false });
     const insert = callsTo(client.calls, "rate_thread", "insert")[0].args[0];
-    expect(insert).toEqual({ size: "M12", price_each: 2, placeholder: false, rate_version_id: VERSION });
+    expect(insert).toEqual({ size: "M12", price_each: 2, setup_per_line_eur: 0, placeholder: false, rate_version_id: VERSION });
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "rate_thread.import" }));
   });
 

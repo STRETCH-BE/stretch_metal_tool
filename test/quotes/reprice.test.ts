@@ -57,7 +57,7 @@ describe("repriceQuote", () => {
 
     const item = db.tables.quote_items[0];
     expect(Number(item.unit_cost)).toBeCloseTo(priced!.items[0].unitCost, 9);
-    expect(Number(item.unit_price)).toBeCloseTo(priced!.items[0].unitPrice, 9);
+    expect(Number(item.unit_price)).toBeCloseTo(priced!.items[0].unitPrice ?? Number.NaN, 9);
 
     const ops = db.tables.operations;
     expect(ops.some((o) => o.id === "old-op")).toBe(false);

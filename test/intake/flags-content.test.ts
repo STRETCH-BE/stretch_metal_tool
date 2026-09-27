@@ -45,6 +45,12 @@ const FLAG_CODES: FlagCode[] = [
   "finish.part_too_small",
   "market.margin_below_default",
   "market.no_cost_version",
+  "finish.not_for_family",
+  "market.no_benchmark_rate",
+  "market.not_benchmarked",
+  "market.leadtime_not_offered",
+  "market.subcontract",
+  "market.manual_price",
   "rates.placeholder",
 ];
 

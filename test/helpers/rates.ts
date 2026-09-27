@@ -190,17 +190,17 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
     { process: "mma", beadMm: 4, pricePerMm: 0.07, setup: 15, minOrder: 60, placeholder: true },
   ],
   thread: [
-    { size: "M3", priceEach: 0.6, placeholder: true },
-    { size: "M4", priceEach: 0.6, placeholder: true },
-    { size: "M5", priceEach: 0.7, placeholder: true },
-    { size: "M6", priceEach: 0.8, placeholder: true },
-    { size: "M8", priceEach: 0.9, placeholder: true },
-    { size: "M10", priceEach: 1.0, placeholder: true },
-    { size: "M10x1", priceEach: 1.0, placeholder: true },
-    { size: "M12", priceEach: 1.2, placeholder: true },
-    { size: "M12x1.5", priceEach: 1.2, placeholder: true },
-    { size: "M16", priceEach: 1.4, placeholder: true },
-    { size: "M20", priceEach: 1.5, placeholder: true },
+    { size: "M3", priceEach: 0.6, setupPerLineEur: 0, placeholder: true },
+    { size: "M4", priceEach: 0.6, setupPerLineEur: 0, placeholder: true },
+    { size: "M5", priceEach: 0.7, setupPerLineEur: 0, placeholder: true },
+    { size: "M6", priceEach: 0.8, setupPerLineEur: 0, placeholder: true },
+    { size: "M8", priceEach: 0.9, setupPerLineEur: 0, placeholder: true },
+    { size: "M10", priceEach: 1.0, setupPerLineEur: 0, placeholder: true },
+    { size: "M10x1", priceEach: 1.0, setupPerLineEur: 0, placeholder: true },
+    { size: "M12", priceEach: 1.2, setupPerLineEur: 0, placeholder: true },
+    { size: "M12x1.5", priceEach: 1.2, setupPerLineEur: 0, placeholder: true },
+    { size: "M16", priceEach: 1.4, setupPerLineEur: 0, placeholder: true },
+    { size: "M20", priceEach: 1.5, setupPerLineEur: 0, placeholder: true },
   ],
   feature: [
     { code: "countersink", name: "Countersink", priceEach: 0.8, placeholder: true }, // [CONFIRM]
@@ -209,10 +209,10 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
     { code: "stud", name: "Welded stud", priceEach: 1.5, placeholder: true }, // [CONFIRM]
   ],
   finish: [
-    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
-    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
-    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true, setupPerOrderEur: 0, minPartMm: null },
-    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true, setupPerOrderEur: 0, minPartMm: null }, // [CONFIRM]
+    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
+    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
+    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
+    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null }, // [CONFIRM]
   ],
   leadtime: [],
   general: {
@@ -424,6 +424,7 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     rate_version_id: v,
     size: r.size,
     price_each: r.priceEach,
+    setup_per_line_eur: r.setupPerLineEur,
     placeholder: r.placeholder,
   }));
   const feature: RateFeatureRow[] = snapshot.feature.map((r) => ({
@@ -444,6 +445,7 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     minimum: r.minimum,
     placeholder: r.placeholder,
     setup_per_order_eur: r.setupPerOrderEur,
+    setup_per_line_eur: r.setupPerLineEur,
     min_part_mm: r.minPartMm,
   }));
   const leadtime: RateLeadtimeRow[] = snapshot.leadtime.map((r) => ({

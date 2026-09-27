@@ -407,9 +407,9 @@ describe("Definition of done — 3. 200164 × 50 with 90° bends and a 30/60 sti
   it("DoD 3 — unit price = unit cost / (1 − 30 %), batch = × 50, no red flags", () => {
     const sum = item.operations.reduce((acc, o) => acc + o.unitCost, 0);
     expect(item.unitCost).toBeCloseTo(sum, 9);
-    expect(Math.abs(item.unitPrice - item.unitCost / 0.7)).toBeLessThan(1e-6);
-    expect(item.batchPrice).toBeCloseTo(item.unitPrice * 50, 6);
-    expect(priced.subtotalPrice).toBeCloseTo(item.batchPrice, 6);
+    expect(Math.abs((item.unitPrice ?? Number.NaN) - item.unitCost / 0.7)).toBeLessThan(1e-6);
+    expect(item.batchPrice).toBeCloseTo((item.unitPrice ?? Number.NaN) * 50, 6);
+    expect(priced.subtotalPrice).toBeCloseTo(item.batchPrice ?? Number.NaN, 6);
     expect(priced.flags.filter((f) => f.severity === "red")).toEqual([]);
   });
 
@@ -439,7 +439,7 @@ describe("Definition of done — 3. 200164 × 50 with 90° bends and a 30/60 sti
       expect(flat).toMatch(c.symbol);
 
       // Prices in the quote currency are on the page …
-      const unitPrice = formatMoney(toQuoteCurrency(item.unitPrice, c.currency, c.fx), c.currency, c.locale);
+      const unitPrice = formatMoney(toQuoteCurrency(item.unitPrice ?? Number.NaN, c.currency, c.fx), c.currency, c.locale);
       const total = formatMoney(toQuoteCurrency(priced.subtotalPrice, c.currency, c.fx), c.currency, c.locale);
       expect(norm(flat)).toContain(norm(unitPrice));
       expect(norm(flat)).toContain(norm(total));
@@ -709,6 +709,12 @@ const FLAG_CODES = {
   "finish.part_too_small": true,
   "market.margin_below_default": true,
   "market.no_cost_version": true,
+  "finish.not_for_family": true,
+  "market.no_benchmark_rate": true,
+  "market.not_benchmarked": true,
+  "market.leadtime_not_offered": true,
+  "market.subcontract": true,
+  "market.manual_price": true,
   "rates.placeholder": true,
 } satisfies Record<FlagCode, true>;
 

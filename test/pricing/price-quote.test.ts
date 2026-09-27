@@ -66,11 +66,11 @@ describe("Step 14 (3): 200164-like × 50 with 4 bends and a stitch weld", () => 
     expect(item.unitCost).toBeCloseTo(sum, 12);
     expect(item.unitPrice).toBeCloseTo(item.unitCost / 0.7, 12);
     expect(item.batchCost).toBeCloseTo(item.unitCost * 50, 9);
-    expect(item.batchPrice).toBeCloseTo(item.unitPrice * 50, 9);
+    expect(item.batchPrice).toBeCloseTo((item.unitPrice ?? Number.NaN) * 50, 9);
     // hand total: laser 0.344623 + material 0.946734 + bends 3.60 + 0.16 + weld 12.47175 + 0.30
     expect(item.unitCost).toBeCloseTo(0.344623 + 0.946734 + 3.6 + 0.16 + 12.47175 + 0.3, 4);
     expect(priced.subtotalCost).toBeCloseTo(item.batchCost, 9);
-    expect(priced.subtotalPrice).toBeCloseTo(item.batchPrice, 9);
+    expect(priced.subtotalPrice).toBeCloseTo(item.batchPrice ?? Number.NaN, 9);
   });
 
   it("totals by type carry setup in its own bucket and add up to the subtotal", () => {

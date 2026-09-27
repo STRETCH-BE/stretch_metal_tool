@@ -1,6 +1,6 @@
 /**
- * Unit tests for the market-mode rules: lead-time interpolation, packaging
- * choice and the minimum part size parser.
+ * Unit tests for the market-mode rules: lead-time steps, packaging choice
+ * and the minimum part size parser.
  * File path: /lib/pricing/market-rules.test.ts
  */
 
@@ -15,34 +15,42 @@ import {
 } from "./market-rules";
 
 const rows = [
-  { workingDays: 3, multiplier: 1.4, placeholder: false },
-  { workingDays: 6, multiplier: 1.15, placeholder: false },
   { workingDays: 11, multiplier: 1, placeholder: false },
+  { workingDays: 4, multiplier: 1.75, placeholder: false },
+  { workingDays: 7, multiplier: 1.12, placeholder: false },
 ];
 
 describe("resolveLeadTimeMultiplier", () => {
-  it("returns the row multiplier on a row and interpolates between rows", () => {
-    expect(resolveLeadTimeMultiplier(rows, 11).multiplier).toBe(1);
-    expect(resolveLeadTimeMultiplier(rows, 6).multiplier).toBe(1.15);
-    expect(resolveLeadTimeMultiplier(rows, 8.5).multiplier).toBeCloseTo(1.075, 12);
-    expect(resolveLeadTimeMultiplier(rows, 4.5).multiplier).toBeCloseTo(1.275, 12);
+  it("applies the tier with the largest working days ≤ the request (steps, no interpolation)", () => {
+    expect(resolveLeadTimeMultiplier(rows, 11)).toMatchObject({ multiplier: 1, offered: true, row: { workingDays: 11 } });
+    expect(resolveLeadTimeMultiplier(rows, 10).multiplier).toBe(1.12);
+    expect(resolveLeadTimeMultiplier(rows, 8.5).multiplier).toBe(1.12);
+    expect(resolveLeadTimeMultiplier(rows, 7).multiplier).toBe(1.12);
+    expect(resolveLeadTimeMultiplier(rows, 6).multiplier).toBe(1.75);
+    expect(resolveLeadTimeMultiplier(rows, 4).multiplier).toBe(1.75);
+    expect(resolveLeadTimeMultiplier(rows, 4).row?.workingDays).toBe(4);
   });
-  it("caps at the shortest row and holds the longest row beyond it", () => {
-    expect(resolveLeadTimeMultiplier(rows, 1).multiplier).toBe(1.4);
-    expect(resolveLeadTimeMultiplier(rows, 30).multiplier).toBe(1);
+  it("holds the longest tier beyond it and refuses anything shorter than the shortest tier", () => {
+    expect(resolveLeadTimeMultiplier(rows, 30)).toMatchObject({ multiplier: 1, offered: true });
+    expect(resolveLeadTimeMultiplier(rows, 3)).toEqual({ multiplier: 1, row: null, offered: false });
+    expect(resolveLeadTimeMultiplier(rows, 1).offered).toBe(false);
   });
-  it("is 1 without rows or without a promised lead time", () => {
-    expect(resolveLeadTimeMultiplier([], 5).multiplier).toBe(1);
-    expect(resolveLeadTimeMultiplier(rows, null).multiplier).toBe(1);
+  it("is 1 and offered without rows or without a promised lead time", () => {
+    expect(resolveLeadTimeMultiplier([], 5)).toEqual({ multiplier: 1, row: null, offered: true });
+    expect(resolveLeadTimeMultiplier(rows, null)).toEqual({ multiplier: 1, row: null, offered: true });
   });
 });
 
 describe("decidePackaging", () => {
-  it("box when everything fits and the mass is under the limit, pallet otherwise", () => {
-    expect(decidePackaging([{ maxSideMm: 400, massKg: 2, qty: 5 }]).kind).toBe("box");
+  it("box when everything fits in 600 mm and the total mass stays within 5 kg, pallet otherwise", () => {
+    expect(PACKAGING_BOX_MAX_SIDE_MM).toBe(600);
+    expect(PACKAGING_BOX_MAX_MASS_KG).toBe(5);
+    expect(decidePackaging([{ maxSideMm: 400, massKg: 0.5, qty: 5 }]).kind).toBe("box");
+    expect(decidePackaging([{ maxSideMm: 600, massKg: 2.5, qty: 2 }]).kind).toBe("box");
     expect(decidePackaging([{ maxSideMm: PACKAGING_BOX_MAX_SIDE_MM + 1, massKg: 1, qty: 1 }]).kind).toBe("pallet");
     expect(decidePackaging([{ maxSideMm: 100, massKg: PACKAGING_BOX_MAX_MASS_KG / 2 + 0.01, qty: 2 }]).kind).toBe("pallet");
     expect(decidePackaging([{ maxSideMm: 100, massKg: null, qty: 100 }]).totalMassKg).toBe(0);
+    expect(decidePackaging([{ maxSideMm: 100, massKg: 1, qty: 3 }])).toMatchObject({ totalMassKg: 3, maxSideMm: 100, maxSideLimitMm: 600, massLimitKg: 5 });
   });
 });
 
@@ -74,5 +82,10 @@ describe("min part size rule", () => {
     const mixed = parseMinPartRule("all 100x100; aluminium 30x30");
     expect(meetsMinPartSize(mixed, "copper", 90, 200)).toBe(false);
     expect(meetsMinPartSize(mixed, "aluminium", 30, 30)).toBe(true);
+  });
+  it("the v2 burr-side rule names only aluminium and stainless (mild steel gets no applicable rule)", () => {
+    const oneSide = parseMinPartRule("aluminium/stainless 50x50; not available for mild steel");
+    expect(oneSide.some((r) => r.families.includes("aluminium") && r.families.includes("stainless"))).toBe(true);
+    expect(meetsMinPartSize(oneSide, "stainless", 60, 60)).toBe(true);
   });
 });

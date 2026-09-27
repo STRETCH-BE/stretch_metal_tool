@@ -39,7 +39,7 @@ describe("renderQuotePdf", () => {
       const flat = text.text.replace(/\s+/g, " ");
       expect(flat).toContain("SM-2026-0001");
       expect(flat).toContain(c.name);
-      const unit = formatMoney(toQuoteCurrency(priced.items[0].unitPrice, c.currency, c.fx), c.currency, c.locale);
+      const unit = formatMoney(toQuoteCurrency(priced.items[0].unitPrice ?? Number.NaN, c.currency, c.fx), c.currency, c.locale);
       const total = formatMoney(toQuoteCurrency(priced.subtotalPrice, c.currency, c.fx), c.currency, c.locale);
       // pdf text collapses the non-breaking spaces of Intl formatting
       const norm = (s: string) => s.replace(/[\s  ]/g, "");
