@@ -48,7 +48,7 @@
  *     parseStep — an unreadable body yields the red_step_manual result.
  */
 
-import type { AnalyzeOptions, DxfHeaderInfo, PartGeometry, Point, Triage, TriageReasonCode } from "../types";
+import type { AnalyzeOptions, DxfHeaderInfo, ModelPart, PartGeometry, Point, SplitModel, Triage, TriageReasonCode } from "../types";
 import type { ParsedDxf } from "../parse";
 import { runPipeline, GEOMETRY_VERSION } from "../pipeline";
 import { clampTolerance, emptyHealingReport } from "../heal";
@@ -57,6 +57,9 @@ import { DEFAULT_CHORD_ERROR_MM } from "../math";
 import { parseStep, StepFormatError, isStepText, decodeStepBytes } from "./part21";
 import { evaluateBrep, loopPolyline, dot3, sub3, scale3, type Body3, type BrepModel, type Face3, type Loop3, type Placement, type Vec3 } from "./brep";
 import { bendGroups, extentsOf, loopToEntities, polygonArea, unfoldBody, type Flattening, type FlatMap } from "./unfold";
+import { isFacetedBody, meshToBody, polygonsOfFacetedBody } from "./mesh";
+import { ifcModel, isIfcFile } from "./ifc";
+import { extractBodyStep, stepBodyInfos } from "./assembly";
 
 export { StepFormatError, isStepText, decodeStepBytes };
 
@@ -223,13 +226,15 @@ export function analyseBody(body: Body3, chordError = DEFAULT_CHORD_ERROR_MM): B
     onNormal.sort((a, b) => b.area - a.area || innerArea(a) - innerArea(b));
     patternFace = onNormal[0] ?? null;
     const patternArea = patternFace?.area ?? 0;
-    let tilted = false;
+    // Faces at another angle than the sheet normal or its perpendicular:
+    // small chamfers are fine, a flange (or a tessellated bend strip) is not.
+    let tiltedArea = 0;
     for (const f of planar) {
       const d = Math.abs(dot3(f.normal, n));
       if (d > PARALLEL || d < PERPENDICULAR) continue;
-      if (f.area > patternArea * CHAMFER_AREA_RATIO) tilted = true;
+      tiltedArea += f.area;
     }
-    if (tilted) notFlatBecause.push("tilted_faces");
+    if (tiltedArea > patternArea * CHAMFER_AREA_RATIO) notFlatBecause.push("tilted_faces");
     let freeform = false;
     let tiltedCurved = false;
     for (const face of body.faces) {
@@ -371,13 +376,27 @@ function manualGeometry(model: BrepModel, analyses: BodyAnalysis[], options: Ana
   };
 }
 
+/** Tessellated bodies (FACETED_BREP / POLY_LOOP faces) rebuilt into flanges and cylinders (mesh.ts). */
+export function withReconstructedMeshes(model: BrepModel): BrepModel {
+  const bodies: Body3[] = [];
+  for (const body of model.bodies) {
+    if (!isFacetedBody(body)) {
+      bodies.push(body);
+      continue;
+    }
+    const rebuilt = meshToBody(body.id, polygonsOfFacetedBody(body));
+    if (rebuilt) bodies.push(rebuilt);
+  }
+  return { ...model, bodies };
+}
+
 /**
  * Analyse the text of a STEP file. Throws StepFormatError when the text is
  * not a STEP file at all; every other problem ends in red_step_manual.
  */
 export function analyseStepSync(text: string, options: AnalyzeOptions = {}): PartGeometry {
   const file = parseStep(text);
-  const model = evaluateBrep(file);
+  const model = withReconstructedMeshes(evaluateBrep(file));
   const analyses = model.bodies.map((b) => analyseBody(b));
   if (model.bodies.length === 1) {
     const a = analyses[0];
@@ -403,5 +422,41 @@ export function analyseStepSync(text: string, options: AnalyzeOptions = {}): Par
 
 /** Thickness / bend / size facts of a STEP file for tests and the intake result. */
 export function summariseStepText(text: string): StepSummary {
-  return summariseStep(evaluateBrep(parseStep(text)));
+  return summariseStep(withReconstructedMeshes(evaluateBrep(parseStep(text))));
+}
+
+/**
+ * A STEP or IFC file as its parts: a single-body STEP is one part (no
+ * derived text); a multi-body STEP is split per solid with the product
+ * name and occurrence count; an IFC file yields one part per element with
+ * its geometry rewritten as STEP. Every part is analysed like a single
+ * uploaded STEP (flat pattern, unfold or manual facts).
+ */
+export function splitModelSync(text: string, options: AnalyzeOptions = {}): SplitModel {
+  const file = parseStep(text);
+  if (isIfcFile(file)) {
+    const ifc = ifcModel(file);
+    const parts: ModelPart[] = ifc.elements.map((el) => {
+      const opts = { ...options, name: el.name };
+      if (el.stepText) {
+        return { name: el.name, occurrences: el.occurrences, stepText: el.stepText, geometry: analyseStepSync(el.stepText, opts), warnings: el.unsupported };
+      }
+      const empty: BrepModel = { unitScale: 1, unitName: "mm", bodies: [], warnings: [] };
+      return { name: el.name, occurrences: el.occurrences, stepText: null, geometry: manualGeometry(empty, [], opts), warnings: el.unsupported };
+    });
+    return { format: "ifc", parts, warnings: ifc.warnings };
+  }
+  const model = withReconstructedMeshes(evaluateBrep(file));
+  if (model.bodies.length <= 1) {
+    const name = options.name ?? file.header.fileName ?? "part";
+    return { format: "step", parts: [{ name, occurrences: 1, stepText: null, geometry: analyseStepSync(text, options), warnings: model.warnings }], warnings: model.warnings };
+  }
+  const infos = stepBodyInfos(file);
+  const parts: ModelPart[] = model.bodies.map((body, i) => {
+    const info = infos.get(body.id) ?? null;
+    const name = info?.name ?? `${options.name ?? "part"} ${i + 1}`;
+    const stepText = extractBodyStep(text, file, body.id, name, info);
+    return { name, occurrences: info?.occurrences ?? 1, stepText, geometry: analyseStepSync(stepText, { ...options, name }), warnings: [] };
+  });
+  return { format: "step", parts, warnings: model.warnings };
 }

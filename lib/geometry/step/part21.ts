@@ -45,6 +45,8 @@ export type StepInstance = {
   args: StepValue[];
   /** The parts of a complex instance, in file order (empty for a simple one). */
   complex: StepPart[];
+  /** Character range of the statement in the source text (`#id = ...;`), for copying it verbatim. */
+  span: [number, number];
 };
 
 export type StepHeader = {
@@ -78,8 +80,35 @@ export function isStepText(text: string): boolean {
   return HEAD_RE.test(text.slice(0, 64));
 }
 
+/**
+ * Part 21 text is ISO 8859-1 by the standard; many exporters write UTF-8.
+ * UTF-8 is tried first and Latin-1 used when it does not decode cleanly
+ * (SolidWorks IFC writes "Stützenfuß" as raw Latin-1 bytes).
+ */
 export function decodeStepBytes(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("latin1").decode(bytes);
+  }
+}
+
+/** Part 21 string escapes: \X2\00FC\X0\ (UTF-16BE hex), \X\FC (one byte), \S\x (Latin-1 upper half). */
+export function decodeStepString(raw: string): string {
+  if (!raw.includes("\\")) return raw;
+  return raw
+    .replace(/\\X2\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex: string) => {
+      let out = "";
+      for (let i = 0; i + 4 <= hex.length; i += 4) out += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16));
+      return out;
+    })
+    .replace(/\\X4\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex: string) => {
+      let out = "";
+      for (let i = 0; i + 8 <= hex.length; i += 8) out += String.fromCodePoint(parseInt(hex.slice(i, i + 8), 16));
+      return out;
+    })
+    .replace(/\\X\\([0-9A-Fa-f]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\S\\(.)/g, (_, ch: string) => String.fromCharCode(ch.charCodeAt(0) + 128));
 }
 
 /* ─── Value helpers ─────────────────────────────────────────── */
@@ -197,12 +226,12 @@ function readString(c: Cursor): string {
         continue;
       }
       c.pos++;
-      return out;
+      return decodeStepString(out);
     }
     out += ch;
     c.pos++;
   }
-  return out;
+  return decodeStepString(out);
 }
 
 function readNumber(c: Cursor): number | null {
@@ -417,7 +446,7 @@ export function parseStep(text: string): StepFile {
       continue;
     }
     if (instances.has(id)) duplicates++;
-    const inst: StepInstance = { id, type: body.type, args: body.args, complex: body.complex };
+    const inst: StepInstance = { id, type: body.type, args: body.args, complex: body.complex, span: [hash, semi + 1] };
     instances.set(id, inst);
     if (inst.type) index(inst.type, id);
     for (const p of inst.complex) index(p.type, id);

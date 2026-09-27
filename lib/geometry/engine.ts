@@ -20,6 +20,7 @@ import type {
   PartAnnotations,
   PartGeometry,
   QuickPartInput,
+  SplitModel,
 } from "./types";
 import { parseDxf, DxfFormatError, type ParsedDxf } from "./parse";
 import { clampTolerance, emptyHealingReport } from "./heal";
@@ -29,7 +30,7 @@ import { runPipeline, GEOMETRY_VERSION } from "./pipeline";
 import { applyAnnotationsSync } from "./annotate";
 import { quickPart } from "./quick-part";
 import { exportAnnotatedDxf } from "./export-dxf";
-import { analyseStepSync, StepFormatError } from "./step/analyse";
+import { analyseStepSync, splitModelSync, StepFormatError } from "./step/analyse";
 
 /** Geometry for a file that produced nothing usable (still a valid snapshot). */
 export function emptyGeometry(parsed: ParsedDxf | null, options: AnalyzeOptions, error: string | null): PartGeometry {
@@ -92,6 +93,10 @@ export class TsGeometryEngine implements GeometryEngine {
     return analyseStepSync(stepText, options);
   }
 
+  async splitModel(text: string, options: AnalyzeOptions = {}): Promise<SplitModel> {
+    return splitModelSync(text, options);
+  }
+
   async applyAnnotations(
     geometry: PartGeometry,
     annotations: PartAnnotations,
@@ -109,4 +114,4 @@ export class TsGeometryEngine implements GeometryEngine {
   }
 }
 
-export { DxfFormatError, StepFormatError, analyseStepSync, runPipeline, GEOMETRY_VERSION };
+export { DxfFormatError, StepFormatError, analyseStepSync, splitModelSync, runPipeline, GEOMETRY_VERSION };

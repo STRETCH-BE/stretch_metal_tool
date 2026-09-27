@@ -56,8 +56,8 @@ import {
 export const K_FACTOR = 0.4; // [CONFIRM]
 
 const PARALLEL = 0.999;
-const COAXIAL_MM = 0.05;
-const RADIUS_TOL_MM = 0.05;
+const COAXIAL_MM = 0.2;
+const RADIUS_TOL_MM = 0.1;
 const EDGE_LENGTH_TOL_MM = 0.5;
 /** Placed flange area must be at least this share of all planar area (both sides + edges). */
 const MIN_PLACED_SHARE = 0.3;

@@ -534,41 +534,50 @@ class Evaluator {
     return result;
   }
 
+  private boundsOf(refs: number[]): { outer: Loop3 | null; inner: Loop3[] } {
+    let outer: Loop3 | null = null;
+    const inner: Loop3[] = [];
+    const bounds: { loop: Loop3; outer: boolean }[] = [];
+    for (const bRef of refs) {
+      const bInst = this.inst(bRef);
+      const fob = bInst ? part(bInst, "FACE_OUTER_BOUND") : null;
+      const fb = bInst ? (fob ?? part(bInst, "FACE_BOUND")) : null;
+      if (!fb) continue;
+      const loopRef = asRef(fb.args[1]);
+      const loop = loopRef === null ? null : this.loop(loopRef);
+      if (loop) bounds.push({ loop, outer: fob !== null });
+    }
+    for (const b of bounds) {
+      if (b.outer && !outer) outer = b.loop;
+      else inner.push(b.loop);
+    }
+    if (!outer && inner.length > 0) {
+      // No FACE_OUTER_BOUND written (some exporters): the longest loop is the outer one.
+      const longest = inner.reduce((best, l) => (loopLength(l) > loopLength(best) ? l : best), inner[0]);
+      outer = longest;
+      inner.splice(inner.indexOf(longest), 1);
+    }
+    return { outer, inner };
+  }
+
   face(id: number): Face3 | null {
     const cached = this.faces.get(id);
     if (cached !== undefined) return cached;
     const inst = this.inst(id);
     const af = inst ? (part(inst, "ADVANCED_FACE") ?? part(inst, "FACE_SURFACE")) : null;
+    const plain = !af && inst ? part(inst, "FACE") : null;
     let result: Face3 | null = null;
     if (af) {
       const surface = this.surface(asRef(af.args[2]));
-      if (!surface) {
-        this.warn(`face #${id}: unreadable surface`);
-      } else {
-        let outer: Loop3 | null = null;
-        const inner: Loop3[] = [];
-        const bounds: { loop: Loop3; outer: boolean }[] = [];
-        for (const bRef of asRefs(af.args[1])) {
-          const bInst = this.inst(bRef);
-          const fob = bInst ? part(bInst, "FACE_OUTER_BOUND") : null;
-          const fb = bInst ? (fob ?? part(bInst, "FACE_BOUND")) : null;
-          if (!fb) continue;
-          const loopRef = asRef(fb.args[1]);
-          const loop = loopRef === null ? null : this.loop(loopRef);
-          if (loop) bounds.push({ loop, outer: fob !== null });
-        }
-        for (const b of bounds) {
-          if (b.outer && !outer) outer = b.loop;
-          else inner.push(b.loop);
-        }
-        if (!outer && inner.length > 0) {
-          // No FACE_OUTER_BOUND written (some exporters): the longest loop is the outer one.
-          const longest = inner.reduce((best, l) => (loopLength(l) > loopLength(best) ? l : best), inner[0]);
-          outer = longest;
-          inner.splice(inner.indexOf(longest), 1);
-        }
-        result = { id, surface, sameSense: asBool(af.args[3]) ?? true, outer, inner };
-      }
+      if (!surface) this.warn(`face #${id}: unreadable surface`);
+      else result = { id, surface, sameSense: asBool(af.args[3]) ?? true, ...this.boundsOf(asRefs(af.args[1])) };
+    } else if (plain) {
+      // FACE without a surface (FACETED_BREP): the plane through its polygon.
+      const { outer, inner } = this.boundsOf(asRefs(plain.args[1]));
+      const pts = outer ? loopPolyline(outer, 1) : [];
+      const normal = newellNormal(pts);
+      if (outer && normal) result = { id, surface: { kind: "plane", placement: placementFromNormal(pts[0], normal) }, sameSense: true, outer, inner };
+      else this.warn(`face #${id}: degenerate polygon`);
     } else if (inst) {
       this.warn(`#${id} is not a face`);
     }
@@ -628,6 +637,29 @@ class Evaluator {
     }
     return out;
   }
+}
+
+/** Unit normal of a planar polygon by Newell's method, or null when degenerate. */
+export function newellNormal(pts: Vec3[]): Vec3 | null {
+  let x = 0;
+  let y = 0;
+  let z = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    x += (a.y - b.y) * (a.z + b.z);
+    y += (a.z - b.z) * (a.x + b.x);
+    z += (a.x - b.x) * (a.y + b.y);
+  }
+  const l = Math.sqrt(x * x + y * y + z * z);
+  return l < 1e-12 ? null : { x: x / l, y: y / l, z: z / l };
+}
+
+/** Placement with the given axis and any perpendicular reference direction. */
+export function placementFromNormal(origin: Vec3, axis: Vec3): Placement {
+  const seed = Math.abs(axis.x) < 0.9 ? VX : v3(0, 1, 0);
+  const ref = norm3(sub3(seed, scale3(axis, dot3(seed, axis))));
+  return { origin, axis, ref, y: cross3(axis, ref) };
 }
 
 function loopLength(loop: Loop3): number {

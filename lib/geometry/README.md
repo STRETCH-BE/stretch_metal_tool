@@ -97,9 +97,21 @@ representation context), `analyse.ts` measures the sheet:
   `bboxX/Y/Z` (sorted extents) and `bodies`; the quick-part dialog is
   pre-filled from them.
 
-Test fixtures are written by `test/geometry/step-builder.ts` (extruded
-profiles the way CAD exporters write them: shared vertices, oriented edges,
-caps with FACE_OUTER_BOUND / FACE_BOUND, seam-edge or two-half-circle holes).
+`splitModel(text)` handles the whole file: a multi-body STEP is split into
+one part per solid (`assembly.ts`: product name and placement count from
+the product structure, the solid's statements copied verbatim into a
+per-part STEP file); an IFC file (`ifc.ts`) yields one part per element
+with its geometry rewritten as STEP by `write-step.ts` (extruded profiles
+exactly, faceted / triangulated solids as FACETED_BREPs). Tessellated
+solids are rebuilt by `mesh.ts`: coplanar facets merge into flanges,
+strips of rotating quads become cylinders fitted through their vertices
+(bends, hole walls, slot ends), so the same thickness / unfold / flat
+pattern code runs on meshes.
+
+Test fixtures are written by the library writer (`test/geometry/step-builder.ts`
+wraps `write-step.ts`: extruded profiles the way CAD exporters write them,
+optionally with a product structure), `test/geometry/mesh-fixtures.ts`
+(watertight tessellated plate and bracket) and `test/geometry/ifc-builder.ts`.
 
 ## Tests
 

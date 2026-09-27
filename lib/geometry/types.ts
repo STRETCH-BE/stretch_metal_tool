@@ -479,6 +479,28 @@ export type QuickPartInput = {
   blankMarginMm?: number;
 };
 
+/** One part of a STEP / IFC file (a solid or an IFC element), analysed. */
+export type ModelPart = {
+  /** Product / element name from the file, or a numbered fallback. */
+  name: string;
+  /** Placements of this part in the assembly (quote item quantity). */
+  occurrences: number;
+  /**
+   * STEP text holding just this part, to be stored as the part's file;
+   * null when the source file already holds only this part.
+   */
+  stepText: string | null;
+  geometry: PartGeometry;
+  /** Representation items that could not be converted (IFC), or reader warnings. */
+  warnings: string[];
+};
+
+export type SplitModel = {
+  format: "step" | "ifc";
+  parts: ModelPart[];
+  warnings: string[];
+};
+
 /**
  * The engine boundary. The TypeScript implementation lives in
  * lib/geometry/engine.ts; a Python/ezdxf service can implement the same
@@ -493,6 +515,11 @@ export interface GeometryEngine {
    * red_step_manual carrying thickness / bends / size in triage.details.
    */
   analyzeStep(stepText: string, options?: AnalyzeOptions): Promise<PartGeometry>;
+  /**
+   * STEP or IFC file → one part per body / element: assemblies are split,
+   * each part analysed like a single STEP (flat pattern, unfold or manual).
+   */
+  splitModel(text: string, options?: AnalyzeOptions): Promise<SplitModel>;
   /** Re-run classification/measures with user annotations applied. */
   applyAnnotations(
     geometry: PartGeometry,
