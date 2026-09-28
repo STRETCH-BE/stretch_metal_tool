@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { asNumber, asRefs, isStepText, parseStep, part, StepFormatError } from "@/lib/geometry/step/part21";
 import { evaluateBrep } from "@/lib/geometry/step/brep";
 import { analyseStepSync, summariseStepText } from "@/lib/geometry/step/analyse";
-import { K_FACTOR } from "@/lib/geometry/step/unfold";
+import { din6935Allowance } from "@/lib/geometry/step/unfold";
 import { geometryEngine } from "@/lib/geometry";
 import { buildStep, circle, lProfile, rect } from "./step-builder";
 
@@ -128,9 +128,9 @@ describe("analyseStepSync", () => {
     expect(g.source).toBe("step");
     expect(g.triage.state).toBe("green");
     expect(g.triage.reasons).toContain("bend_layers_found");
-    // Outer faces: 80 − (r + t) = 70 and 60 − (r + t) = 50, plus the neutral-axis
-    // allowance π/2 × (5 + 0.4 × 5) = 10.996 between them.
-    const allowance = (Math.PI / 2) * (5 + K_FACTOR * 5);
+    // Outer faces: 80 − (r + t) = 70 and 60 − (r + t) = 50, plus the DIN 6935
+    // allowance π/2 × (r + k·t/2) between them (k = 0.65 + 0.5·log10(r/t) = 0.65 at r = t).
+    const allowance = din6935Allowance(Math.PI / 2, 5, 5);
     const dims = [g.measures.bbox.width, g.measures.bbox.height].sort((a, b) => a - b);
     expect(dims[0]).toBeCloseTo(40, 3);
     expect(dims[1]).toBeCloseTo(70 + 50 + allowance, 3);

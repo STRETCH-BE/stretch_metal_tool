@@ -65,6 +65,7 @@ import type {
   RateSnapshot,
 } from "./types";
 import type { HoleInfo, Point } from "../geometry/types";
+import { evaluateDfmFlags, laserKerfMm } from "./dfm";
 
 const EPS = 1e-9;
 
@@ -538,9 +539,27 @@ function extraFlags(ctx: PartContext): Flag[] {
 
 /* ─── Public API ──────────────────────────────────────────── */
 
+/** STEP sheet parts carry their own hole / flange rules (dfm.ts, with the model's radii and dies); the DXF heuristics step aside. */
+const SHEET_REPLACED_FLAGS = new Set<FlagCode>(["bend.hole_near_bend", "bend.short_flange"]);
+
+function dfmFlags(ctx: PartContext): Flag[] {
+  const sheet = ctx.geometry.sheet;
+  if (!sheet || ctx.thicknessMm === null) return [];
+  return evaluateDfmFlags({
+    partId: ctx.part.id,
+    itemId: ctx.item.id,
+    geometry: ctx.geometry,
+    sheet,
+    thicknessMm: ctx.thicknessMm,
+    kerfMm: laserKerfMm(ctx.rates, ctx.material?.code ?? ctx.part.materialCode, ctx.thicknessMm),
+    tools: ctx.pressBrake?.tools ?? [],
+  });
+}
+
 /** All part-level flags for an already-built context (used by the operations builder). */
 export function evaluateContextFlags(ctx: PartContext): Flag[] {
-  return [
+  const sheet = ctx.geometry.sheet?.isSheetMetal === true;
+  const flags = [
     ...geometryFlags(ctx),
     ...laserFlags(ctx),
     ...materialFlags(ctx),
@@ -551,6 +570,7 @@ export function evaluateContextFlags(ctx: PartContext): Flag[] {
     ...threadFlags(ctx),
     ...extraFlags(ctx),
   ];
+  return [...(sheet ? flags.filter((f) => !SHEET_REPLACED_FLAGS.has(f.code)) : flags), ...dfmFlags(ctx)];
 }
 
 /** Every feasibility rule for one part × item. Pure. */

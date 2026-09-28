@@ -15,7 +15,11 @@
  * cap traversed the other way round, a representation context with SI or
  * inch units, FACE_OUTER_BOUND on caps (FACE_BOUND everywhere when asked).
  * Numbers are written with a decimal point (REAL attributes); the mesh
- * writer merges vertices by position.
+ * writer merges vertices by position. Test fixtures may add blind
+ * POCKETS on the top cap (stud seats, mask recesses) and place products
+ * in the assembly through NEXT_ASSEMBLY_USAGE_OCCURRENCE +
+ * CONTEXT_DEPENDENT_SHAPE_REPRESENTATION with an
+ * ITEM_DEFINED_TRANSFORMATION, exactly as CAD exporters write it.
  */
 
 import type { Point } from "../types";
@@ -36,6 +40,8 @@ export type ExtrusionSpec = {
   /** Extrusion length along the frame axis. */
   height: number;
   frame?: ExtrusionFrame;
+  /** Blind pockets cut into the top cap (z = height): profile + depth (< height). */
+  pockets?: { profile: Profile; depth: number }[];
 };
 
 export type WriteOptions = {
@@ -49,7 +55,12 @@ export type WriteOptions = {
    * PRODUCT / PRODUCT_DEFINITION / SHAPE_DEFINITION_REPRESENTATION and is
    * placed `occurrences` times in an assembly product (NEXT_ASSEMBLY_USAGE_OCCURRENCE).
    */
-  products?: { name: string; occurrences?: number }[];
+  products?: {
+    name: string;
+    occurrences?: number;
+    /** Placement of the product in the assembly (ITEM_DEFINED_TRANSFORMATION origin → this axis); identity when omitted. */
+    placement?: ExtrusionFrame;
+  }[];
 };
 
 const XY: ExtrusionFrame = { origin: { x: 0, y: 0, z: 0 }, axis: { x: 0, y: 0, z: 1 }, ref: { x: 1, y: 0, z: 0 } };
@@ -170,6 +181,10 @@ function norm2(a: Point): Point {
 }
 
 function profileEdges(w: Writer, f: FrameMap, profile: Profile, h: number): EdgeSet {
+  return profileEdgesBetween(w, f, profile, 0, h);
+}
+
+function profileEdgesBetween(w: Writer, f: FrameMap, profile: Profile, z0: number, z1: number): EdgeSet {
   const verts = profilePoints(profile);
   const n = verts.length;
   const bottom: number[] = [];
@@ -195,14 +210,14 @@ function profileEdges(w: Writer, f: FrameMap, profile: Profile, h: number): Edge
     const seg = profile.segments[i];
     const from = verts[i];
     const to = verts[(i + 1) % n];
-    bottom.push(edgeAt(seg, from, to, 0));
-    top.push(edgeAt(seg, from, to, h));
+    bottom.push(edgeAt(seg, from, to, z0));
+    top.push(edgeAt(seg, from, to, z1));
   }
   for (let i = 0; i < n; i++) {
     const p = verts[i];
-    const v1 = w.vertex(f.map(p.x, p.y, 0));
-    const v2 = w.vertex(f.map(p.x, p.y, h));
-    const line = w.add(`LINE('',#${w.point(f.map(p.x, p.y, 0))},#${w.add(`VECTOR('',#${w.direction(f.axis)},1.)`)})`);
+    const v1 = w.vertex(f.map(p.x, p.y, z0));
+    const v2 = w.vertex(f.map(p.x, p.y, z1));
+    const line = w.add(`LINE('',#${w.point(f.map(p.x, p.y, z0))},#${w.add(`VECTOR('',#${w.direction(f.axis)},1.)`)})`);
     vertical.push(w.add(`EDGE_CURVE('',#${v1},#${v2},#${line},.T.)`));
   }
   return { bottom, top, vertical, verts };
@@ -266,6 +281,46 @@ function prism(w: Writer, spec: ExtrusionSpec, opts: WriteOptions): number {
   };
   sides(spec.outer, outer, false);
   spec.holes?.forEach((p, i) => sides(p, holes[i], true));
+  // Pockets: a floor face at h − depth, walls up to the top cap, and an inner bound on the top cap.
+  for (const pocket of spec.pockets ?? []) {
+    const z0 = h - pocket.depth;
+    const ring = profileEdgesBetween(w, f, pocket.profile, z0, h);
+    const floorPlane = w.add(`PLANE('',#${w.placement(f.map(0, 0, z0), f.axis, f.ref)})`);
+    const floorBound = w.add(`FACE_OUTER_BOUND('',#${orientedLoop(w, ring.bottom, true)},.T.)`);
+    faces.push(w.add(`ADVANCED_FACE('',(#${floorBound}),#${floorPlane},.T.)`));
+    // Top cap gets the pocket rim as an inner bound (the cap face was written above: patch it).
+    const capIndex = 1;
+    const cap = w.lines[faces[capIndex] - 1];
+    const rimBound = w.add(`FACE_BOUND('',#${orientedLoop(w, ring.top, false)},.T.)`);
+    w.lines[faces[capIndex] - 1] = cap.replace(/ADVANCED_FACE\('',\(/, `ADVANCED_FACE('',(#${rimBound},`);
+    const n = ring.verts.length;
+    for (let i = 0; i < n; i++) {
+      const seg = pocket.profile.segments[i];
+      const from = ring.verts[i];
+      const loopEdges = [
+        w.add(`ORIENTED_EDGE('',*,*,#${ring.bottom[i]},.T.)`),
+        w.add(`ORIENTED_EDGE('',*,*,#${ring.vertical[(i + 1) % n]},.T.)`),
+        w.add(`ORIENTED_EDGE('',*,*,#${ring.top[i]},.F.)`),
+        w.add(`ORIENTED_EDGE('',*,*,#${ring.vertical[i]},.F.)`),
+      ];
+      const loop = w.add(`EDGE_LOOP('',(${loopEdges.map((id) => `#${id}`).join(",")}))`);
+      const bound = w.add(`FACE_OUTER_BOUND('',#${loop},.T.)`);
+      let surface: number;
+      let sense = ".T.";
+      if (seg.kind === "line") {
+        const d = norm2({ x: seg.to.x - from.x, y: seg.to.y - from.y });
+        const o = f.map(0, 0, 0);
+        const nn = f.map(-d.y, d.x, 0);
+        const rr = f.map(d.x, d.y, 0);
+        surface = w.add(`PLANE('',#${w.placement(f.map(from.x, from.y, z0), [nn[0] - o[0], nn[1] - o[1], nn[2] - o[2]], [rr[0] - o[0], rr[1] - o[1], rr[2] - o[2]])})`);
+      } else {
+        const r = Math.hypot(from.x - seg.center.x, from.y - seg.center.y);
+        surface = w.add(`CYLINDRICAL_SURFACE('',#${w.placement(f.map(seg.center.x, seg.center.y, z0), f.axis, f.ref)},${fmt(r)})`);
+        sense = seg.ccw ? ".F." : ".T.";
+      }
+      faces.push(w.add(`ADVANCED_FACE('',(#${bound}),#${surface},${sense})`));
+    }
+  }
   const shell = w.add(`CLOSED_SHELL('',(${faces.map((id) => `#${id}`).join(",")}))`);
   return w.add(`MANIFOLD_SOLID_BREP('${escape(spec.name ?? "body")}',#${shell})`);
 }
@@ -299,13 +354,26 @@ export function writeExtrudedStep(solids: ExtrusionSpec[], opts: WriteOptions = 
       return w.add(`PRODUCT_DEFINITION('design','',#${formation},#${definitionContext})`);
     };
     const assembly = definitionOf("assembly");
+    const assemblyShape = w.add(`PRODUCT_DEFINITION_SHAPE('','',#${assembly})`);
+    const assemblyRep = w.add(`SHAPE_REPRESENTATION('',(#${origin}),#${context})`);
+    w.add(`SHAPE_DEFINITION_REPRESENTATION(#${assemblyShape},#${assemblyRep})`);
     opts.products.forEach((p, i) => {
       const definition = definitionOf(p.name);
       const shape = w.add(`PRODUCT_DEFINITION_SHAPE('','',#${definition})`);
       const rep = w.add(`ADVANCED_BREP_SHAPE_REPRESENTATION('',(#${origin},#${bodies[i]}),#${context})`);
       w.add(`SHAPE_DEFINITION_REPRESENTATION(#${shape},#${rep})`);
       for (let k = 0; k < (p.occurrences ?? 1); k++) {
-        w.add(`NEXT_ASSEMBLY_USAGE_OCCURRENCE('${i + 1}.${k + 1}','','',#${assembly},#${definition},$)`);
+        const nauo = w.add(`NEXT_ASSEMBLY_USAGE_OCCURRENCE('${i + 1}.${k + 1}','','',#${assembly},#${definition},$)`);
+        if (p.placement) {
+          const pl = p.placement;
+          const axis = norm3(pl.axis);
+          const ref = norm3(sub3(pl.ref, scale3(axis, dot3(pl.ref, axis))));
+          const target = w.placement([pl.origin.x, pl.origin.y, pl.origin.z], [axis.x, axis.y, axis.z], [ref.x, ref.y, ref.z]);
+          const idt = w.add(`ITEM_DEFINED_TRANSFORMATION('','',#${origin},#${target})`);
+          const rr = w.add(`( REPRESENTATION_RELATIONSHIP('','',#${assemblyRep},#${rep}) REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#${idt}) SHAPE_REPRESENTATION_RELATIONSHIP() )`);
+          const pds = w.add(`PRODUCT_DEFINITION_SHAPE('','',#${nauo})`);
+          w.add(`CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#${rr},#${pds})`);
+        }
       }
     });
   } else {

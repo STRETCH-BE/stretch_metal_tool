@@ -10,6 +10,12 @@
  * position so polylines with reversed arcs (negative bulge) draw right.
  * Hex colours are allowed here: this is generated markup, not a
  * component (the design-system token rule applies to components).
+ *
+ * The sheet overlay (sheetOverlaySvg) draws what the STEP model holds
+ * beyond the cut lines: stud positions in blue, masking zones hatched,
+ * countersinks / pockets / threads as grey rings, flagged spots circled
+ * in red. It is appended inside the same viewBox by the flat-pattern
+ * preview (components/triage/flat-pattern-preview.tsx).
  */
 
 import type { Bbox, EntityRole, GeometryEntity, PartAnnotations, PartGeometry, Point, Segment } from "./types";
@@ -158,4 +164,60 @@ export function geometryToSvg(geometry: PartGeometry, annotations?: PartAnnotati
   out.push(`</g>`);
   out.push(`</svg>`);
   return out.join("");
+}
+
+/* ─── Sheet overlay ────────────────────────────────────────── */
+
+export type SheetOverlayInput = {
+  studPositions?: Point[];
+  maskingZones?: { polygon: Point[] }[];
+  countersinks?: { center: Point; topDiameterMm: number }[];
+  blindPockets?: { center: Point; maxSideMm: number }[];
+  helicalHoles?: Point[];
+  /** Flagged spots (flag.locations) with the flag code for the title. */
+  flagged?: { code: string; at: Point }[];
+};
+
+const STUD_COLOUR = "#1e5bd8";
+const MASK_COLOUR = "#7a5c00";
+const FLAG_COLOUR = "#e00000";
+const FEATURE_COLOUR = "#6a6a6a";
+
+/** SVG fragment (a <g>) drawn over the flat pattern, in DXF coordinates (Y flipped like the rest). */
+export function sheetOverlaySvg(input: SheetOverlayInput, options: { scale?: number } = {}): string {
+  // Marker sizes follow the drawing size so a 20 mm bracket and a 2 m panel both read.
+  const s = options.scale ?? 1;
+  const out: string[] = [`<g class="geo-overlay">`];
+  for (const z of input.maskingZones ?? []) {
+    if (z.polygon.length < 3) continue;
+    const d = z.polygon.map((p, i) => `${i === 0 ? "M" : "L"} ${n(p.x)} ${n(-p.y)}`).join(" ") + " Z";
+    out.push(`<path class="geo-mask" d="${d}" fill="${MASK_COLOUR}" fill-opacity="0.18" stroke="${MASK_COLOUR}" stroke-width="1" stroke-dasharray="3 2" vector-effect="non-scaling-stroke"/>`);
+  }
+  for (const p of input.studPositions ?? []) {
+    const r = 2.5 * s;
+    out.push(`<circle class="geo-stud" cx="${n(p.x)}" cy="${n(-p.y)}" r="${n(r)}" fill="${STUD_COLOUR}" fill-opacity="0.35" stroke="${STUD_COLOUR}" stroke-width="1" vector-effect="non-scaling-stroke"/>`);
+  }
+  for (const c of input.countersinks ?? []) {
+    out.push(`<circle class="geo-csk" cx="${n(c.center.x)}" cy="${n(-c.center.y)}" r="${n(c.topDiameterMm / 2)}" fill="none" stroke="${FEATURE_COLOUR}" stroke-width="1" stroke-dasharray="2 1" vector-effect="non-scaling-stroke"/>`);
+  }
+  for (const p of input.blindPockets ?? []) {
+    out.push(`<circle class="geo-pocket" cx="${n(p.center.x)}" cy="${n(-p.center.y)}" r="${n(Math.max(p.maxSideMm / 2, 1))}" fill="${FEATURE_COLOUR}" fill-opacity="0.2" stroke="${FEATURE_COLOUR}" stroke-width="1" vector-effect="non-scaling-stroke"/>`);
+  }
+  for (const p of input.helicalHoles ?? []) {
+    out.push(`<circle class="geo-thread" cx="${n(p.x)}" cy="${n(-p.y)}" r="${n(3 * s)}" fill="none" stroke="${FEATURE_COLOUR}" stroke-width="1" stroke-dasharray="1 1" vector-effect="non-scaling-stroke"/>`);
+  }
+  for (const f of input.flagged ?? []) {
+    const r = 6 * s;
+    out.push(`<circle class="geo-flag" data-flag="${f.code}" cx="${n(f.at.x)}" cy="${n(-f.at.y)}" r="${n(r)}" fill="none" stroke="${FLAG_COLOUR}" stroke-width="1.5" vector-effect="non-scaling-stroke"><title>${f.code}</title></circle>`);
+  }
+  out.push(`</g>`);
+  return out.join("");
+}
+
+/** The stored-thumbnail variant: geometry + overlay in one standalone <svg>. */
+export function sheetPreviewSvg(geometry: PartGeometry, annotations: PartAnnotations | null, overlay: SheetOverlayInput, options: SvgOptions = {}): string {
+  const base = geometryToSvg(geometry, annotations, options);
+  const bbox = geometry.measures.bbox;
+  const scale = Math.max(bbox.width, bbox.height, 1) / 200;
+  return base.replace("</svg>", `${sheetOverlaySvg(overlay, { scale })}</svg>`);
 }

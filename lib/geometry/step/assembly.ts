@@ -20,6 +20,8 @@
  */
 
 import { asRef, asRefs, asString, isList, isRef, isTyped, part, type StepFile, type StepInstance, type StepValue } from "./part21";
+import type { Placement } from "./brep";
+import { composeRigid, invertRigid, rigidFromPlacement, RIGID_IDENTITY, type Rigid3 } from "./transform";
 
 export type StepBodyInfo = {
   solidId: number;
@@ -137,13 +139,16 @@ function escape(s: string): string {
  * copied verbatim. `info` comes from stepBodyInfos(); a solid without a
  * representation gets the file's first geometric context.
  */
-export function extractBodyStep(text: string, file: StepFile, solidId: number, name: string, info: StepBodyInfo | null): string {
+export function extractBodyStep(text: string, file: StepFile, solidId: number, name: string, info: StepBodyInfo | null, alongSolidIds: readonly number[] = []): string {
   let contextId = info?.contextId ?? null;
   if (contextId === null) {
     const ctx = file.byType.get("GEOMETRIC_REPRESENTATION_CONTEXT") ?? [];
     contextId = ctx.length ? ctx[0] : null;
   }
-  const roots = contextId === null ? [solidId] : [solidId, contextId];
+  // Hardware solids that sit on this sheet travel with it (same frame: the
+  // file is copied verbatim, placements are not applied here).
+  const solids = [solidId, ...alongSolidIds.filter((id) => id !== solidId)];
+  const roots = contextId === null ? [...solids] : [...solids, contextId];
   const ids = Array.from(reachableInstances(file, roots)).sort((a, b) => a - b);
   let maxId = 0;
   const statements: string[] = [];
@@ -165,6 +170,109 @@ export function extractBodyStep(text: string, file: StepFile, solidId: number, n
     "ENDSEC;",
     "DATA;",
   ];
-  const representation = `#${repId} = ADVANCED_BREP_SHAPE_REPRESENTATION('${escape(name)}',(#${solidId}),${contextId === null ? "$" : `#${contextId}`});`;
+  const representation = `#${repId} = ADVANCED_BREP_SHAPE_REPRESENTATION('${escape(name)}',(${solids.map((id) => `#${id}`).join(",")}),${contextId === null ? "$" : `#${contextId}`});`;
   return [...header, ...statements, representation, "ENDSEC;", "END-ISO-10303-21;", ""].join("\n");
+}
+
+/* ─── Placements ────────────────────────────────────────────── */
+
+/**
+ * World transform of every occurrence of every solid: the composition of
+ * the ITEM_DEFINED_TRANSFORMATIONs along its NEXT_ASSEMBLY_USAGE_OCCURRENCE
+ * chain up to the root product. A solid whose product is never a child
+ * (a flat file, or the root itself) gets the identity once.
+ *
+ * AP214 as exporters write it (OCC, SolidWorks, Inventor):
+ *   CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#rr, #pds)
+ *   #rr = ( REPRESENTATION_RELATIONSHIP('', '', parentRep, childRep)
+ *           REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#idt)
+ *           SHAPE_REPRESENTATION_RELATIONSHIP() )
+ *   #idt = ITEM_DEFINED_TRANSFORMATION('', '', originAxis, childAxisInParent)
+ *   #pds = PRODUCT_DEFINITION_SHAPE('', '', #nauo)
+ * Child coordinates → parent coordinates = M(item2) ∘ M(item1)⁻¹, item1
+ * being (almost always) the identity placement. Which representation is
+ * the parent is read from the NAUO, not from the rep_1 / rep_2 order.
+ */
+export type BodyPlacement = { solidId: number; transforms: Rigid3[] };
+
+export function bodyPlacements(file: StepFile, placementOf: (id: number | null) => Placement | null): Map<number, Rigid3[]> {
+  const inst = (id: number | null): StepInstance | null => (id === null ? null : (file.instances.get(id) ?? null));
+
+  // NAUO id → (parent PD, child PD); child PD → its NAUOs.
+  const nauos = new Map<number, { parent: number; child: number }>();
+  const nauosOfChild = new Map<number, number[]>();
+  for (const id of file.byType.get("NEXT_ASSEMBLY_USAGE_OCCURRENCE") ?? []) {
+    const n = inst(id);
+    const parent = n ? asRef(n.args[3]) : null;
+    const child = n ? asRef(n.args[4]) : null;
+    if (parent === null || child === null) continue;
+    nauos.set(id, { parent, child });
+    const list = nauosOfChild.get(child) ?? [];
+    list.push(id);
+    nauosOfChild.set(child, list);
+  }
+
+  // NAUO id → transform (child → parent).
+  const transformOfNauo = new Map<number, Rigid3>();
+  for (const id of file.byType.get("CONTEXT_DEPENDENT_SHAPE_REPRESENTATION") ?? []) {
+    const cdsr = inst(id);
+    if (!cdsr) continue;
+    const rr = inst(asRef(cdsr.args[0]));
+    const pds = inst(asRef(cdsr.args[1]));
+    const nauoId = pds ? asRef(pds.args[2]) : null;
+    if (!rr || nauoId === null || !nauos.has(nauoId)) continue;
+    const withTransform = part(rr, "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION");
+    const idt = withTransform ? inst(asRef(withTransform.args[0])) : null;
+    const idtPart = idt ? part(idt, "ITEM_DEFINED_TRANSFORMATION") : null;
+    let transform: Rigid3 = RIGID_IDENTITY;
+    if (idtPart) {
+      const item1 = placementOf(asRef(idtPart.args[2]));
+      const item2 = placementOf(asRef(idtPart.args[3]));
+      if (item1 && item2) transform = composeRigid(rigidFromPlacement(item2), invertRigid(rigidFromPlacement(item1)));
+      else if (item2) transform = rigidFromPlacement(item2);
+    }
+    transformOfNauo.set(nauoId, transform);
+  }
+
+  // Product definition of each solid (through its representation).
+  const infos = stepBodyInfos(file);
+  const definitionOfRep = new Map<number, number>();
+  for (const sdrId of file.byType.get("SHAPE_DEFINITION_REPRESENTATION") ?? []) {
+    const sdr = inst(sdrId);
+    if (!sdr) continue;
+    const repId = asRef(sdr.args[1]);
+    const pds = inst(asRef(sdr.args[0]));
+    const definition = pds ? asRef(pds.args[2]) : null;
+    if (repId !== null && definition !== null) definitionOfRep.set(repId, definition);
+  }
+
+  // World transforms of a product definition: every chain up to a root.
+  const memo = new Map<number, Rigid3[]>();
+  const worldOf = (definition: number, depth: number): Rigid3[] => {
+    const cached = memo.get(definition);
+    if (cached) return cached;
+    const parents = nauosOfChild.get(definition) ?? [];
+    let out: Rigid3[];
+    if (parents.length === 0 || depth > 32) {
+      out = [RIGID_IDENTITY];
+    } else {
+      out = [];
+      for (const nauoId of parents) {
+        const link = nauos.get(nauoId);
+        const local = transformOfNauo.get(nauoId) ?? RIGID_IDENTITY;
+        if (!link) continue;
+        for (const up of worldOf(link.parent, depth + 1)) out.push(composeRigid(up, local));
+      }
+      if (out.length === 0) out = [RIGID_IDENTITY];
+    }
+    memo.set(definition, out);
+    return out;
+  };
+
+  const result = new Map<number, Rigid3[]>();
+  for (const [solidId, info] of infos) {
+    const definition = info.representationId === null ? null : (definitionOfRep.get(info.representationId) ?? null);
+    result.set(solidId, definition === null ? [RIGID_IDENTITY] : worldOf(definition, 0));
+  }
+  return result;
 }

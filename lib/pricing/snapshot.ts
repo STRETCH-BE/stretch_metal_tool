@@ -203,6 +203,20 @@ export const tubeLaserLimitsSchema = z.object({
   wallThicknessMm: familyRecord(z.tuple([z.number().positive(), z.number().positive()])),
 });
 
+export const pressBrakeToolSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("punch"),
+    code: z.string(),
+    name: z.string(),
+    heightMm: z.number().positive(),
+    type: z.enum(["straight", "gooseneck"]),
+    tipRadiusMm: z.number().nonnegative(),
+    throatDepthMm: z.number().nonnegative().nullable(),
+    placeholder: z.boolean(),
+  }),
+  z.object({ kind: z.literal("die"), code: z.string(), name: z.string(), vMm: z.number().positive(), minFlangeMm: z.number().nonnegative(), placeholder: z.boolean() }),
+]);
+
 export const pressBrakeLimitsSchema = z.object({
   forceKN: z.number().positive(),
   bendLengthMm: z.number().positive(),

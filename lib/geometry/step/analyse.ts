@@ -46,9 +46,20 @@
  *     so annotations re-attach when the same file is uploaded again.
  *   - No `any`; deterministic (no Date, no random); never throws below
  *     parseStep — an unreadable body yields the red_step_manual result.
+ *
+ * Sheet-metal files (sheet.ts): bodies are placed in the assembly frame,
+ * told apart into sheets and hardware, each sheet is unfolded with the
+ * bend allowance of the bend table handed in through the options (else
+ * DIN 6935), its through holes cut, its blind features, masking zones,
+ * countersinks and hardware written to `geometry.sheet` next to the flat
+ * pattern; the bend lines carry angle, inner radius and allowance. A
+ * multi-body file with ONE sheet is one part with hardware lines; with
+ * several sheets it is split per sheet and the hardware goes to the sheet
+ * it sits on. A file without a sheet body keeps the manual path with
+ * `sheet.isSheetMetal = false` (a machined or solid part).
  */
 
-import type { AnalyzeOptions, DxfHeaderInfo, ModelPart, PartGeometry, Point, SplitModel, Triage, TriageReasonCode } from "../types";
+import type { AnalyzeOptions, BendLine, DxfHeaderInfo, HardwareLine, ModelPart, PartGeometry, Point, ReliefInfo, SheetReport, SplitModel, Triage, TriageReasonCode } from "../types";
 import type { ParsedDxf } from "../parse";
 import { runPipeline, GEOMETRY_VERSION } from "../pipeline";
 import { clampTolerance, emptyHealingReport } from "../heal";
@@ -56,7 +67,10 @@ import { measure } from "../measure";
 import { DEFAULT_CHORD_ERROR_MM } from "../math";
 import { parseStep, StepFormatError, isStepText, decodeStepBytes } from "./part21";
 import { evaluateBrep, loopPolyline, dot3, sub3, scale3, type Body3, type BrepModel, type Face3, type Loop3, type Placement, type Vec3 } from "./brep";
-import { bendGroups, extentsOf, loopToEntities, polygonArea, unfoldBody, type Flattening, type FlatMap } from "./unfold";
+import { bendGroups, extentsOf, loopToEntities, polygonArea, type Flattening, type FlatMap } from "./unfold";
+import { analyseSheetBody, buildSheetReport, classifyBodies, classifyHardware, placeBodies, type PlacedBody, type BodyFacts, type SheetAnalysis } from "./sheet";
+import { detectReliefs } from "./reliefs";
+import { checkDrawing, compareHardware, revisionFromFileName } from "./drawing-check";
 import { isFacetedBody, meshToBody, polygonsOfFacetedBody } from "./mesh";
 import { ifcModel, isIfcFile } from "./ifc";
 import { extractBodyStep, stepBodyInfos } from "./assembly";
@@ -390,6 +404,153 @@ export function withReconstructedMeshes(model: BrepModel): BrepModel {
   return { ...model, bodies };
 }
 
+/* ─── Sheet-metal path ──────────────────────────────────────── */
+
+type SheetPart = {
+  placed: PlacedBody;
+  facts: BodyFacts;
+  analysis: SheetAnalysis | null;
+  hardware: { placed: PlacedBody; facts: BodyFacts }[];
+};
+
+/** Sheets with their hardware attached (by the base point on a sheet face, else the largest sheet). */
+function sheetParts(placed: PlacedBody[], options: AnalyzeOptions, unitScale: number): SheetPart[] {
+  const cls = classifyBodies(placed);
+  const parts: SheetPart[] = cls.sheets.map((sheet) => ({ placed: sheet.placed, facts: sheet.facts, analysis: analyseSheetBody(sheet.placed, sheet.facts, options, unitScale), hardware: [] }));
+  if (parts.length === 0) return parts;
+  for (const h of cls.hardware) {
+    let owner = parts.find((p) => {
+      if (!p.analysis) return false;
+      const b = h.facts.bbox;
+      if (!b) return false;
+      const centre = { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 };
+      // Any point of the hardware bbox column on the sheet: try the centre and the bbox bottom / top.
+      return [centre, { ...centre, z: b.min.z }, { ...centre, z: b.max.z }, { ...centre, x: b.min.x }, { ...centre, x: b.max.x }, { ...centre, y: b.min.y }, { ...centre, y: b.max.y }].some((q) => p.analysis!.unfold.mapToFlat(q) !== null);
+    });
+    if (!owner) owner = parts[0];
+    owner.hardware.push(h);
+  }
+  return parts;
+}
+
+function holeDiameterLookup(geometry: PartGeometry): (p: Point) => number | null {
+  return (p) => {
+    for (const hole of geometry.measures.holes) {
+      const loop = geometry.loops.find((l) => l.id === hole.loopId);
+      if (!loop) continue;
+      const inside = loop.points.length >= 3 && pointInPolygonLocal(p, loop.points);
+      if (inside) return hole.diameterMm;
+    }
+    return null;
+  };
+}
+
+function pointInPolygonLocal(p: Point, polygon: Point[]): boolean {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+/** Bend lines of the pipeline enriched with angle / radius / allowance from the model bends (matched by midpoint). */
+function mergeBendFacts(bendLines: BendLine[], report: SheetReport): BendLine[] {
+  return bendLines.map((line) => {
+    const mid = { x: (line.start.x + line.end.x) / 2, y: (line.start.y + line.end.y) / 2 };
+    let best: SheetReport["bends"][number] | null = null;
+    let bestD = Infinity;
+    for (const b of report.bends) {
+      const bm = { x: (b.start.x + b.end.x) / 2, y: (b.start.y + b.end.y) / 2 };
+      const d = Math.hypot(bm.x - mid.x, bm.y - mid.y);
+      if (d < bestD) {
+        bestD = d;
+        best = b;
+      }
+    }
+    if (!best || bestD > 0.5) return line;
+    return { ...line, angleDeg: best.angleDeg, innerRadiusMm: best.innerRadiusMm, allowanceMm: best.allowanceMm, allowanceSource: best.allowanceSource };
+  });
+}
+
+/** Geometry of one sheet part: the flat pattern through the pipeline plus the sheet report. */
+function sheetGeometry(part: SheetPart, model: BrepModel, options: AnalyzeOptions): PartGeometry | null {
+  const analysis = part.analysis;
+  if (!analysis) return null;
+  const parsed = analysis.unfold.parsed;
+  if (parsed.entities.length === 0) return null;
+  const thicknessMm = options.thicknessMm ?? part.facts.thicknessMm;
+  let geometry: PartGeometry;
+  try {
+    geometry = runPipeline(parsed, { ...options, thicknessMm }, "step");
+  } catch {
+    return null;
+  }
+  if (!geometry.outerLoopId || thicknessMm === null) return null;
+
+  const drawing = checkDrawing(options.drawingText ?? options.pdfText ?? null);
+  const hardware: HardwareLine[] = classifyHardware(part.hardware, { facts: part.facts, unfold: analysis.unfold, holeDiameterAt: holeDiameterLookup(geometry) }, options.hardwareNames ?? []);
+  const report = buildSheetReport({
+    analysis,
+    thicknessMm,
+    hardware,
+    hardwareBodies: part.hardware.length,
+    flatNetAreaMm2: geometry.measures.netAreaMm2,
+    productName: part.placed.info?.name ?? null,
+    maskingConfirmed: drawing.masking,
+  });
+  report.reliefs = detectReliefs(geometry, report.bends, thicknessMm);
+  if (options.drawingText || options.pdfText) {
+    report.drawing = {
+      fileRevision: options.name ? revisionFromFileName(options.name) : null,
+      drawingRevision: drawing.revision,
+      material: drawing.material,
+      finish: drawing.finish,
+      hardwareMismatches: compareHardware(drawing.hardware, hardware),
+    };
+  }
+  // Countersinks: a feature code when the through hole fits a metric clearance size.
+  for (const c of report.countersinks) c.featureCode = countersinkCode(c.throughDiameterMm);
+  return { ...geometry, measures: { ...geometry.measures, bendLines: mergeBendFacts(geometry.measures.bendLines, report) }, sheet: report };
+}
+
+/** ISO 273 medium clearance holes: M4 4.5, M5 5.5, M6 6.6, M8 9, M10 11 (±0.6 mm) → csk_m<size>. */
+export function countersinkCode(throughDiameterMm: number): string | null {
+  const sizes: [number, number][] = [
+    [4, 4.5],
+    [5, 5.5],
+    [6, 6.6],
+    [8, 9],
+    [10, 11],
+  ];
+  for (const [m, d] of sizes) if (Math.abs(throughDiameterMm - d) <= 0.6) return `csk_m${m}`;
+  return null;
+}
+
+/** Manual geometry for a file that holds no sheet body (a machined / solid part). */
+function notSheetMetal(model: BrepModel, analyses: BodyAnalysis[], options: AnalyzeOptions, hardwareBodies: number): PartGeometry {
+  const g = manualGeometry(model, analyses, options);
+  const sheet: SheetReport = {
+    version: 1,
+    thicknessMm: g.material.thicknessMm ?? 0,
+    isSheetMetal: false,
+    bends: [],
+    hardware: [],
+    studPositions: [],
+    maskingZones: [],
+    countersinks: [],
+    blindPockets: [],
+    helicalHoles: [],
+    reliefs: [],
+    solidVolumeMm3: null,
+    flatVolumeMm3: 0,
+    hardwareBodies,
+    productName: null,
+  };
+  return { ...g, sheet };
+}
+
 /**
  * Analyse the text of a STEP file. Throws StepFormatError when the text is
  * not a STEP file at all; every other problem ends in red_step_manual.
@@ -398,22 +559,25 @@ export function analyseStepSync(text: string, options: AnalyzeOptions = {}): Par
   const file = parseStep(text);
   const model = withReconstructedMeshes(evaluateBrep(file));
   const analyses = model.bodies.map((b) => analyseBody(b));
-  if (model.bodies.length === 1) {
-    const a = analyses[0];
-    const thicknessMm = options.thicknessMm ?? a.summary.thicknessMm;
-    let parsed: ParsedDxf | null = null;
-    if (a.summary.flat) {
-      parsed = flatPatternOf(a, model);
-    } else if (a.summary.bendCount > 0 && a.summary.thicknessMm !== null && !a.summary.notFlatBecause.includes("freeform_surfaces")) {
-      // Bent sheet: walk flange → bend → flange on one side (unfold.ts).
-      parsed = unfoldBody(model.bodies[0], a.summary.thicknessMm, model.unitScale)?.parsed ?? null;
-    }
+  if (model.bodies.length === 0) return manualGeometry(model, analyses, options);
+  const placed = placeBodies(file, model);
+  const parts = sheetParts(placed, options, model.unitScale);
+  if (parts.length === 0) return notSheetMetal(model, analyses, options, placed.length);
+  if (parts.length === 1) {
+    const geometry = sheetGeometry(parts[0], model, options);
+    if (geometry) return geometry;
+  }
+  if (parts.length > 1) return manualGeometry(model, analyses, options);
+  // One sheet that could not be unfolded: the flat-face fallback for a plain flat body, else manual facts.
+  const a = analyses.find((x) => x.summary.flat);
+  if (model.bodies.length === 1 && a) {
+    const parsed = flatPatternOf(a, model);
     if (parsed && parsed.entities.length > 0) {
       try {
-        const geometry = runPipeline(parsed, { ...options, thicknessMm }, "step");
+        const geometry = runPipeline(parsed, { ...options, thicknessMm: options.thicknessMm ?? a.summary.thicknessMm }, "step");
         if (geometry.outerLoopId) return geometry;
       } catch {
-        // fall through to the manual result
+        // fall through
       }
     }
   }
@@ -427,10 +591,11 @@ export function summariseStepText(text: string): StepSummary {
 
 /**
  * A STEP or IFC file as its parts: a single-body STEP is one part (no
- * derived text); a multi-body STEP is split per solid with the product
- * name and occurrence count; an IFC file yields one part per element with
- * its geometry rewritten as STEP. Every part is analysed like a single
- * uploaded STEP (flat pattern, unfold or manual facts).
+ * derived text); a multi-body STEP with ONE sheet body (hardware around
+ * it) is one part too; several sheets are split per sheet solid with the
+ * product name and occurrence count; an IFC file yields one part per
+ * element with its geometry rewritten as STEP. Every part is analysed
+ * like a single uploaded STEP (flat pattern, unfold or manual facts).
  */
 export function splitModelSync(text: string, options: AnalyzeOptions = {}): SplitModel {
   const file = parseStep(text);
@@ -447,16 +612,45 @@ export function splitModelSync(text: string, options: AnalyzeOptions = {}): Spli
     return { format: "ifc", parts, warnings: ifc.warnings };
   }
   const model = withReconstructedMeshes(evaluateBrep(file));
+  const fallbackName = options.name ?? file.header.fileName ?? "part";
   if (model.bodies.length <= 1) {
-    const name = options.name ?? file.header.fileName ?? "part";
-    return { format: "step", parts: [{ name, occurrences: 1, stepText: null, geometry: analyseStepSync(text, options), warnings: model.warnings }], warnings: model.warnings };
+    return { format: "step", parts: [{ name: fallbackName, occurrences: 1, stepText: null, geometry: analyseStepSync(text, options), warnings: model.warnings }], warnings: model.warnings };
   }
+  const placed = placeBodies(file, model);
+  const cls = classifyBodies(placed);
+  const sheetSolids = new Set(cls.sheets.map((s) => s.placed.solidId));
+  if (sheetSolids.size <= 1) {
+    // One sheet (plus hardware): the whole file is that part.
+    const name = cls.sheets[0]?.placed.info?.name ?? fallbackName;
+    return { format: "step", parts: [{ name, occurrences: 1, stepText: null, geometry: analyseStepSync(text, { ...options, name }), warnings: model.warnings }], warnings: model.warnings };
+  }
+  // Several sheets: one part per sheet solid, its hardware carried along in the derived file.
   const infos = stepBodyInfos(file);
-  const parts: ModelPart[] = model.bodies.map((body, i) => {
-    const info = infos.get(body.id) ?? null;
-    const name = info?.name ?? `${options.name ?? "part"} ${i + 1}`;
-    const stepText = extractBodyStep(text, file, body.id, name, info);
-    return { name, occurrences: info?.occurrences ?? 1, stepText, geometry: analyseStepSync(stepText, { ...options, name }), warnings: [] };
-  });
+  const parts: ModelPart[] = [];
+  const hardwareBySheet = new Map<number, number[]>();
+  const sheetOf = (h: (typeof cls.hardware)[number]): number => {
+    const b = h.facts.bbox;
+    const centre = b ? { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 } : null;
+    for (const s of cls.sheets) {
+      const analysis = analyseSheetBody(s.placed, s.facts, options, model.unitScale);
+      if (analysis && centre && analysis.unfold.mapToFlat(centre)) return s.placed.solidId;
+    }
+    return cls.sheets[0].placed.solidId;
+  };
+  for (const h of cls.hardware) {
+    const owner = sheetOf(h);
+    const list = hardwareBySheet.get(owner) ?? [];
+    if (!list.includes(h.placed.solidId)) list.push(h.placed.solidId);
+    hardwareBySheet.set(owner, list);
+  }
+  const seen = new Set<number>();
+  for (const s of cls.sheets) {
+    if (seen.has(s.placed.solidId)) continue;
+    seen.add(s.placed.solidId);
+    const info = infos.get(s.placed.solidId) ?? null;
+    const name = info?.name ?? `${fallbackName} ${parts.length + 1}`;
+    const stepText = extractBodyStep(text, file, s.placed.solidId, name, info, hardwareBySheet.get(s.placed.solidId) ?? []);
+    parts.push({ name, occurrences: info?.occurrences ?? 1, stepText, geometry: analyseStepSync(stepText, { ...options, name }), warnings: [] });
+  }
   return { format: "step", parts, warnings: model.warnings };
 }

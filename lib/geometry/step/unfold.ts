@@ -1,5 +1,6 @@
 /**
- * Geometry engine — flat pattern of a bent sheet-metal STEP body.
+ * Geometry engine — flat pattern of a sheet-metal STEP body, with the
+ * features the model holds beyond the outline.
  * File path: /lib/geometry/step/unfold.ts
  *
  * A press-brake part is a set of planar flanges joined by cylindrical
@@ -7,34 +8,43 @@
  * one cylinder (inner radius r on one side, r + t on the other) that
  * shares one straight tangent edge with each of the two flanges it joins.
  * Unfolding walks that graph on ONE side:
- *   1. the largest planar face is the root flange, drawn in its own plane;
- *   2. for every bend cylinder touching a placed flange, the flange on the
+ *   1. planar faces that are coplanar and share an edge are one FLANGE
+ *      (exporters split a face for a masking zone or a cosmetic reason;
+ *      the split lines are internal, never outline);
+ *   2. the largest flange is the root, drawn in its own plane;
+ *   3. for every bend cylinder touching a placed flange, the flange on the
  *      cylinder's other tangent edge is placed next to it: the tangent
  *      edges become parallel lines a bend allowance apart, matched point
- *      for point along the bend axis, and the flange's interior lies away
- *      from the placed one;
- *   3. the bend zone is the strip between the two tangent lines: its two
+ *      for point along the bend axis, the flange's interior lying away
+ *      from the placed one. The allowance comes from the caller (bend
+ *      table row or DIN 6935 formula — sheet.ts), never a constant;
+ *   4. the bend zone is the strip between the two tangent lines: its two
  *      short sides join the outline, its centre line is emitted on the
- *      BEND_UP / BEND_DOWN layer so the ordinary pipeline measures it as a
- *      bend line (pricing: 90°, inner radius = thickness by default, the
- *      user adjusts in the bends table).
- * Flange outlines (minus the tangent edges) and holes are copied through
- * each flange's rigid placement, so the result chains into one closed
- * outline like a DXF flat pattern.
- *
- * Bend allowance = angle × (r_inner + K_FACTOR × t), the neutral-axis
- * length; the angle is the angle between the flanges' outward normals.
+ *      BEND_UP / BEND_DOWN layer. The drawing is viewed from the side the
+ *      flanges bend towards, so a flange folding towards the viewer is
+ *      BEND_UP; walking the outside face therefore mirrors the layout.
+ * Flange outlines (minus tangent and split edges) and THROUGH holes are
+ * copied through each flange's rigid placement, so the result chains
+ * into one closed outline like a DXF flat pattern. A hole that does not
+ * reach the other sheet side is not a cut: a pocket up to
+ * MASK_RECESS_MAX_MM deep is a paint-mask recess, a round pocket up to
+ * SEAT_MAX_DIAMETER_MM a stud seat (its centre goes to the IGNORE layer),
+ * anything else a blind pocket the laser cannot make. A conical wall on
+ * a through hole is a countersink: the cut is the through diameter, the
+ * cone is reported. A free-form wall is a modelled thread. Features on the
+ * side that is not walked are found the same way on the opposite faces.
  *
  * Refused (null → the manual path): a bend cylinder without exactly two
  * flange tangent edges, tangent edges of unequal length, a flange whose
  * placement lands on the wrong side, or a walk that places less than a
- * third of the planar area (a joint that is not a plain cylinder). Never
- * throws for a well-formed model.
+ * third of the planar area (a joint that is not a plain cylinder). A body
+ * without bends is laid out as its single root flange. Never throws for a
+ * well-formed model.
  */
 
 import type { ParsedDxf, RawEntity } from "../parse";
-import type { DxfHeaderInfo, Point } from "../types";
-import { DEFAULT_CHORD_ERROR_MM, angleDeg, makeArc, makeCircle, makeLine, pointsEqual } from "../math";
+import type { BendAllowanceSource, BlindPocket, CountersinkInfo, DxfHeaderInfo, MaskingZone, Point, SheetBend } from "../types";
+import { DEFAULT_CHORD_ERROR_MM, angleDeg, makeArc, makeCircle, makeLine, pointsEqual, pointInPolygon } from "../math";
 import {
   add3,
   cross3,
@@ -52,15 +62,21 @@ import {
   type Vec3,
 } from "./brep";
 
-/** Neutral-axis factor of the bend allowance (DIN 6935 style; shops use 0.33–0.5). */
-export const K_FACTOR = 0.4; // [CONFIRM]
-
 const PARALLEL = 0.999;
 const COAXIAL_MM = 0.2;
 const RADIUS_TOL_MM = 0.1;
 const EDGE_LENGTH_TOL_MM = 0.5;
+const COPLANAR_MM = 0.02;
 /** Placed flange area must be at least this share of all planar area (both sides + edges). */
 const MIN_PLACED_SHARE = 0.3;
+/** A pocket this shallow (or less) is a paint-mask recess, not a feature. */
+export const MASK_RECESS_MAX_MM = 0.05;
+/** Round blind pockets up to this diameter are stud seats. */
+export const SEAT_MAX_DIAMETER_MM = 12;
+/** A hole wall must reach this close to the other side to count as through. */
+const THROUGH_TOL_MM = 0.05;
+/** A coplanar member of a flange smaller than this share of the flange is a masking split. */
+const SPLIT_FACE_MAX_SHARE = 0.4;
 
 /* ─── Bend cylinders ────────────────────────────────────────── */
 
@@ -227,23 +243,28 @@ export function extentsOf(loops: Point[][]): { min: Point; max: Point } | null {
 
 /* ─── Flanges ───────────────────────────────────────────────── */
 
-/** A planar face with a right-handed 2D frame about its OUTWARD normal. */
-type Flange = {
-  face: Face3;
+/** Coplanar, edge-connected planar faces with a right-handed 2D frame about their OUTWARD normal. */
+export type Flange = {
+  faces: Face3[];
   origin: Vec3;
   normal: Vec3;
   u: Vec3;
   v: Vec3;
+  /** Net area of the members (outer loops minus holes). */
   area: number;
-  /** Centroid of the outer loop in the face frame. */
+  /** Centroid of the largest member's outer loop, in the flange frame. */
   centroid: Point;
+  /** Edge ids shared by two members (split lines: internal, not outline). */
+  internalEdgeIds: Set<number>;
   /** Rigid placement into the flat pattern (set when placed). */
   placement: Rigid | null;
+  /** Members other than the largest that carry no holes: masking-split candidates. */
+  splitMembers: Face3[];
 };
 
-type Rigid = { cos: number; sin: number; tx: number; ty: number };
+export type Rigid = { cos: number; sin: number; tx: number; ty: number };
 
-function applyRigid(r: Rigid, p: Point): Point {
+export function applyRigid(r: Rigid, p: Point): Point {
   return { x: r.cos * p.x - r.sin * p.y + r.tx, y: r.sin * p.x + r.cos * p.y + r.ty };
 }
 
@@ -255,25 +276,94 @@ function rigidFromPairs(a1: Point, a2: Point, b1: Point, b2: Point): Rigid {
   return { cos, sin, tx: b1.x - (cos * a1.x - sin * a1.y), ty: b1.y - (sin * a1.x + cos * a1.y) };
 }
 
-function flangeOf(face: Face3, chordError: number): Flange | null {
+type PlanarInfo = { face: Face3; normal: Vec3; offset: number; area: number; outer2: Point[] };
+
+function planarInfo(face: Face3, chordError: number): PlanarInfo | null {
   if (face.surface.kind !== "plane" || !face.outer) return null;
   const p = face.surface.placement;
   const normal = face.sameSense ? p.axis : scale3(p.axis, -1);
-  const u = p.ref;
-  const v = norm3(cross3(normal, u));
-  const origin = p.origin;
   const to2 = (q: Vec3): Point => {
-    const d = sub3(q, origin);
-    return { x: dot3(d, u), y: dot3(d, v) };
+    const d = sub3(q, p.origin);
+    return { x: dot3(d, p.ref), y: dot3(d, p.y) };
   };
   const outer2 = loopPolyline(face.outer, chordError).map(to2);
   if (outer2.length < 3) return null;
   let area = polygonArea(outer2);
   for (const hole of face.inner) area -= polygonArea(loopPolyline(hole, chordError).map(to2));
-  return { face, origin, normal, u, v, area: Math.max(0, area), centroid: polygonCentroid(outer2), placement: null };
+  return { face, normal, offset: dot3(normal, p.origin), area: Math.max(0, area), outer2 };
 }
 
-function to2(f: Flange, q: Vec3): Point {
+/** Groups coplanar planar faces that share an edge into flanges. */
+export function buildFlanges(body: Body3, chordError: number): Flange[] {
+  const infos: PlanarInfo[] = [];
+  for (const face of body.faces) {
+    const info = planarInfo(face, chordError);
+    if (info) infos.push(info);
+  }
+  const edgeOwners = new Map<number, PlanarInfo[]>();
+  for (const info of infos) {
+    for (const loop of [info.face.outer as Loop3, ...info.face.inner]) {
+      for (const oe of loop.edges) {
+        if (oe.edge.id < 0) continue;
+        const list = edgeOwners.get(oe.edge.id) ?? [];
+        list.push(info);
+        edgeOwners.set(oe.edge.id, list);
+      }
+    }
+  }
+  // Union-find over coplanar edge-sharing faces.
+  const parent = new Map<PlanarInfo, PlanarInfo>();
+  const find = (a: PlanarInfo): PlanarInfo => {
+    let r = a;
+    while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r) as PlanarInfo;
+    parent.set(a, r);
+    return r;
+  };
+  for (const info of infos) parent.set(info, info);
+  const internal = new Set<number>();
+  for (const [edgeId, owners] of edgeOwners) {
+    if (owners.length < 2) continue;
+    for (let i = 0; i < owners.length; i++) {
+      for (let j = i + 1; j < owners.length; j++) {
+        const a = owners[i];
+        const b = owners[j];
+        if (a === b) continue;
+        if (dot3(a.normal, b.normal) < PARALLEL || Math.abs(a.offset - b.offset) > COPLANAR_MM) continue;
+        internal.add(edgeId);
+        const ra = find(a);
+        const rb = find(b);
+        if (ra !== rb) parent.set(ra, rb);
+      }
+    }
+  }
+  const groups = new Map<PlanarInfo, PlanarInfo[]>();
+  for (const info of infos) {
+    const r = find(info);
+    const list = groups.get(r) ?? [];
+    list.push(info);
+    groups.set(r, list);
+  }
+  const out: Flange[] = [];
+  for (const members of groups.values()) {
+    members.sort((a, b) => b.area - a.area);
+    const main = members[0];
+    const p = main.face.surface.kind === "plane" ? main.face.surface.placement : null;
+    if (!p) continue;
+    const normal = main.normal;
+    const u = p.ref;
+    const v = norm3(cross3(normal, u));
+    const area = members.reduce((s, m) => s + m.area, 0);
+    const internalEdgeIds = new Set<number>();
+    for (const m of members) {
+      for (const loop of [m.face.outer as Loop3, ...m.face.inner]) for (const oe of loop.edges) if (internal.has(oe.edge.id)) internalEdgeIds.add(oe.edge.id);
+    }
+    const splitMembers = members.slice(1).filter((m) => m.face.inner.length === 0 && m.area <= area * SPLIT_FACE_MAX_SHARE).map((m) => m.face);
+    out.push({ faces: members.map((m) => m.face), origin: p.origin, normal, u, v, area, centroid: polygonCentroid(main.outer2), internalEdgeIds, placement: null, splitMembers });
+  }
+  return out;
+}
+
+export function flangeTo2(f: Flange, q: Vec3): Point {
   const d = sub3(q, f.origin);
   return { x: dot3(d, f.u), y: dot3(d, f.v) };
 }
@@ -282,37 +372,152 @@ function centroid3(f: Flange): Vec3 {
   return add3(f.origin, add3(scale3(f.u, f.centroid.x), scale3(f.v, f.centroid.y)));
 }
 
+/* ─── Through / blind features of a sheet face ──────────────── */
+
+export type LoopFeature =
+  | { kind: "through"; loop: Loop3; countersink: { throughRadius: number; topRadius: number; depthMm: number } | null; helical: boolean }
+  | { kind: "recess"; loop: Loop3; depthMm: number }
+  | { kind: "seat"; loop: Loop3; depthMm: number; center: Vec3; diameterMm: number }
+  | { kind: "pocket"; loop: Loop3; depthMm: number; center: Vec3; maxSideMm: number; circular: boolean };
+
+function loopCircle(loop: Loop3, normal: Vec3): { center: Vec3; radius: number } | null {
+  const circles = loop.edges.map((oe) => oe.edge.curve).filter((c): c is Extract<typeof c, { kind: "circle" }> => c.kind === "circle" && Math.abs(dot3(c.placement.axis, normal)) > PARALLEL);
+  if (circles.length === 0 || circles.length !== loop.edges.length) return null;
+  const r = circles[0].radius;
+  if (circles.some((c) => Math.abs(c.radius - r) > 1e-3)) return null;
+  return { center: circles[0].placement.origin, radius: r };
+}
+
+function loopMaxSide(loop: Loop3, chordError: number, f: (q: Vec3) => Point): number {
+  const pts = loopPolyline(loop, chordError).map(f);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of pts) {
+    minX = Math.min(minX, p.x);
+    minY = Math.min(minY, p.y);
+    maxX = Math.max(maxX, p.x);
+    maxY = Math.max(maxY, p.y);
+  }
+  return Math.max(maxX - minX, maxY - minY);
+}
+
+function loopCenter3(loop: Loop3, chordError: number): Vec3 {
+  const pts = loopPolyline(loop, chordError);
+  const n = Math.max(1, pts.length);
+  return scale3(pts.reduce((s, p) => add3(s, p), { x: 0, y: 0, z: 0 }), 1 / n);
+}
+
+/**
+ * Classify an inner loop of a sheet face by the wall faces on its edges:
+ * how deep they reach into the sheet (along −normal), and whether one of
+ * them is a cone (countersink) or a free-form surface (thread).
+ */
+export function classifyLoop(
+  loop: Loop3,
+  face: Face3,
+  normal: Vec3,
+  thicknessMm: number,
+  facesByEdge: Map<number, Face3[]>,
+  chordError: number
+): LoopFeature {
+  const origin = face.surface.kind === "plane" ? face.surface.placement.origin : (loop.edges[0]?.edge.start ?? { x: 0, y: 0, z: 0 });
+  const walls: Face3[] = [];
+  for (const oe of loop.edges) {
+    for (const w of facesByEdge.get(oe.edge.id) ?? []) if (w !== face && !walls.includes(w)) walls.push(w);
+  }
+  let depth = 0;
+  let helical = false;
+  let cone: Face3 | null = null;
+  for (const w of walls) {
+    if (w.surface.kind === "cone") cone = w;
+    if (w.surface.kind === "other") helical = true;
+    const loops: Loop3[] = w.outer ? [w.outer, ...w.inner] : w.inner;
+    for (const l of loops) for (const p of loopPolyline(l, chordError)) depth = Math.max(depth, -dot3(sub3(p, origin), normal));
+  }
+  // No wall found through shared edge ids (tessellated bodies carry no
+  // edge identity): keep today's behaviour and cut the loop.
+  if (walls.length === 0) return { kind: "through", loop, countersink: null, helical: false };
+  if (depth >= thicknessMm - THROUGH_TOL_MM) {
+    let countersink: Extract<LoopFeature, { kind: "through" }>["countersink"] = null;
+    if (cone) {
+      const top = loopCircle(loop, normal);
+      // The through diameter: the smallest circle edge on the cone face (its other rim).
+      let throughR = Infinity;
+      let depthMm = 0;
+      const rims: Loop3[] = cone.outer ? [cone.outer, ...cone.inner] : cone.inner;
+      for (const rim of rims) for (const oe of rim.edges) {
+        const c = oe.edge.curve;
+        if (c.kind === "circle" && c.radius < throughR) throughR = c.radius;
+        for (const p of sampleEdge(oe.edge, chordError)) depthMm = Math.max(depthMm, -dot3(sub3(p, origin), normal));
+      }
+      if (top && Number.isFinite(throughR) && throughR < top.radius) countersink = { throughRadius: throughR, topRadius: top.radius, depthMm };
+    }
+    return { kind: "through", loop, countersink, helical };
+  }
+  if (depth <= MASK_RECESS_MAX_MM) return { kind: "recess", loop, depthMm: depth };
+  const circle = loopCircle(loop, normal);
+  if (circle && circle.radius * 2 <= SEAT_MAX_DIAMETER_MM) return { kind: "seat", loop, depthMm: depth, center: circle.center, diameterMm: circle.radius * 2 };
+  const to2 = (q: Vec3): Point => {
+    const d = sub3(q, origin);
+    return { x: dot3(d, face.surface.kind === "plane" ? face.surface.placement.ref : { x: 1, y: 0, z: 0 }), y: dot3(d, face.surface.kind === "plane" ? face.surface.placement.y : { x: 0, y: 1, z: 0 }) };
+  };
+  return { kind: "pocket", loop, depthMm: depth, center: circle ? circle.center : loopCenter3(loop, chordError), maxSideMm: circle ? circle.radius * 2 : loopMaxSide(loop, chordError, to2), circular: circle !== null };
+}
+
 /* ─── Unfold ────────────────────────────────────────────────── */
+
+export type AllowanceFn = (angleRad: number, innerRadiusMm: number, lengthMm: number) => { allowanceMm: number; source: BendAllowanceSource };
+
+export type UnfoldOptions = {
+  thicknessMm: number;
+  unitScale: number;
+  allowance: AllowanceFn;
+  chordError?: number;
+};
 
 export type UnfoldResult = {
   parsed: ParsedDxf;
   flanges: number;
-  bends: number;
+  bends: SheetBend[];
+  studPositions: Point[];
+  maskingZones: MaskingZone[];
+  countersinks: CountersinkInfo[];
+  blindPockets: BlindPocket[];
+  helicalHoles: Point[];
+  /** Which sheet side was laid out: the drawing is always shown from the inside. */
+  walkedSide: "outside" | "inside";
+  /** Maps a model point lying on (or just above) a placed flange to flat coordinates, else null. */
+  mapToFlat: (p: Vec3) => Point | null;
+  /** True when the point lies over a through hole of the flange it maps to. */
+  overThroughHole: (p: Vec3) => boolean;
+  /** Placed flange area / all planar area of the body. */
+  placedShare: number;
 };
 
 type Tangent = { edge: Edge3; flange: Flange };
 
-export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, chordError = DEFAULT_CHORD_ERROR_MM): UnfoldResult | null {
+/** DIN 6935 neutral-axis allowance: k = 0.65 + 0.5·log10(r/t), capped at 1 for r/t > 5; BA = angle × (r + k·t/2). */
+export function din6935Allowance(angleRad: number, innerRadiusMm: number, thicknessMm: number): number {
+  const ratio = innerRadiusMm / thicknessMm;
+  const k = ratio > 5 ? 1 : Math.min(1, Math.max(0, 0.65 + 0.5 * Math.log10(Math.max(ratio, 1e-6))));
+  return angleRad * (innerRadiusMm + (k * thicknessMm) / 2);
+}
+
+export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | null {
+  const chordError = options.chordError ?? DEFAULT_CHORD_ERROR_MM;
+  const thicknessMm = options.thicknessMm;
   const groups = bendGroups(body, thicknessMm);
-  if (groups.length === 0) return null;
+  const flanges = buildFlanges(body, chordError);
+  if (flanges.length === 0) return null;
+  const planarArea = flanges.reduce((s, f) => s + f.area, 0);
 
-  // Planar faces as flanges, indexed by face.
-  const flanges = new Map<Face3, Flange>();
-  let planarArea = 0;
-  for (const face of body.faces) {
-    const f = flangeOf(face, chordError);
-    if (f) {
-      flanges.set(face, f);
-      planarArea += f.area;
-    }
-  }
-  if (flanges.size === 0) return null;
-
-  // Edge id → planar faces using it (outer loops only: tangent lines are outer edges).
+  // Edge id → faces using it (any loop), and → flange of a planar face.
   const facesByEdge = new Map<number, Face3[]>();
   for (const face of body.faces) {
-    if (!face.outer) continue;
-    for (const oe of face.outer.edges) {
+    const loops: Loop3[] = face.outer ? [face.outer, ...face.inner] : face.inner;
+    for (const loop of loops) for (const oe of loop.edges) {
       if (oe.edge.id < 0) continue;
       const list = facesByEdge.get(oe.edge.id);
       if (list) {
@@ -320,11 +525,12 @@ export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, 
       } else facesByEdge.set(oe.edge.id, [face]);
     }
   }
+  const flangeOfFace = new Map<Face3, Flange>();
+  for (const f of flanges) for (const face of f.faces) flangeOfFace.set(face, f);
 
   // Each bend shows on each sheet side as the cylinder(s) of one radius;
-  // that side's straight edges shared with flanges are its two tangent
-  // lines (a cylinder split into several faces still yields two).
-  type BendInfo = { group: BendGroup; tangents: Tangent[] };
+  // that side's straight edges shared with flanges are its two tangent lines.
+  type BendInfo = { group: BendGroup; radius: number; tangents: Tangent[] };
   const bends: BendInfo[] = [];
   const tangentEdgeIds = new Set<number>();
   for (const group of groups) {
@@ -335,37 +541,39 @@ export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, 
         for (const oe of cyl.outer.edges) {
           const e = oe.edge;
           if (e.curve.kind !== "line") continue;
-          const others = (facesByEdge.get(e.id) ?? []).filter((f) => f !== cyl);
-          for (const other of others) {
-            const flange = flanges.get(other);
+          for (const other of (facesByEdge.get(e.id) ?? []).filter((f) => f !== cyl)) {
+            const flange = flangeOfFace.get(other);
             if (flange && !tangents.some((t) => t.edge.id === e.id)) tangents.push({ edge: e, flange });
           }
         }
       }
       if (tangents.length !== 2) continue;
       if (Math.abs(dist3(tangents[0].edge.start, tangents[0].edge.end) - dist3(tangents[1].edge.start, tangents[1].edge.end)) > EDGE_LENGTH_TOL_MM) continue;
-      bends.push({ group, tangents });
+      bends.push({ group, radius, tangents });
       for (const t of tangents) tangentEdgeIds.add(t.edge.id);
     }
   }
-  if (bends.length === 0) return null;
+  if (groups.length > 0 && bends.length === 0) return null;
 
-  // Root: the largest flange.
+  // Root: the largest flange. Its side is "outside" when its bends attach through the outer radius.
   let root: Flange | null = null;
-  for (const f of flanges.values()) if (!root || f.area > root.area) root = f;
+  for (const f of flanges) if (!root || f.area > root.area) root = f;
   if (!root) return null;
   root.placement = { cos: 1, sin: 0, tx: 0, ty: 0 };
+  const rootBends = bends.filter((b) => b.tangents.some((t) => t.flange === root));
+  const outerCount = rootBends.filter((b) => Math.abs(b.radius - b.group.outerRadius) < RADIUS_TOL_MM).length;
+  const walkedSide: UnfoldResult["walkedSide"] = rootBends.length === 0 ? "outside" : outerCount * 2 >= rootBends.length ? "outside" : "inside";
 
   const out: Flattening = { entities: [], splinesFlattened: 0, ellipsesFlattened: 0 };
   const allPoints: Point[][] = [];
-  let bendCount = 0;
+  const sheetBends: SheetBend[] = [];
+  const placedFlat = (f: Flange, q: Vec3): Point => applyRigid(f.placement as Rigid, flangeTo2(f, q));
 
-  const placedFlat = (f: Flange, q: Vec3): Point => applyRigid(f.placement as Rigid, to2(f, q));
-
-  // Breadth-first over bends from placed flanges.
+  // Breadth-first over bends from placed flanges; one walk per bend group.
   const queue: Flange[] = [root];
-  // One walk per bend: the side reached first is the side being unfolded.
   const usedGroups = new Set<BendGroup>();
+  const flangeVia = new Map<Flange, { bendIndex: number; direction: { nx: number; ny: number }; tangent: { t1: Point; t2: Point } }>();
+  const bendFrom: Flange[] = [];
   while (queue.length) {
     const from = queue.shift() as Flange;
     for (const bend of bends) {
@@ -378,10 +586,8 @@ export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, 
       if (to.placement) continue; // closed loop of flanges: leave the second path out
 
       const d = bend.group.axis;
-      // Tangent edge of `from` in the flat pattern, both ends.
       const A = [mine.edge.start, mine.edge.end];
       const B = [theirs.edge.start, theirs.edge.end];
-      // Match the ends along the bend axis.
       const same = Math.abs(dot3(A[0], d) - dot3(B[0], d)) + Math.abs(dot3(A[1], d) - dot3(B[1], d));
       const swapped = Math.abs(dot3(A[0], d) - dot3(B[1], d)) + Math.abs(dot3(A[1], d) - dot3(B[0], d));
       if (swapped < same) B.reverse();
@@ -400,55 +606,195 @@ export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, 
         ny = -ny;
       }
       const angle = Math.acos(Math.max(-1, Math.min(1, dot3(from.normal, to.normal))));
-      const allowance = angle * (bend.group.innerRadius + K_FACTOR * thicknessMm);
-      const t1 = { x: a1.x + allowance * nx, y: a1.y + allowance * ny };
-      const t2 = { x: a2.x + allowance * nx, y: a2.y + allowance * ny };
+      const lengthMm = dist3(mine.edge.start, mine.edge.end);
+      const { allowanceMm, source } = options.allowance(angle, bend.group.innerRadius, lengthMm);
+      const t1 = { x: a1.x + allowanceMm * nx, y: a1.y + allowanceMm * ny };
+      const t2 = { x: a2.x + allowanceMm * nx, y: a2.y + allowanceMm * ny };
 
-      let placement = rigidFromPairs(to2(to, B[0]), to2(to, B[1]), t1, t2);
+      let placement = rigidFromPairs(flangeTo2(to, B[0]), flangeTo2(to, B[1]), t1, t2);
       let cTo = applyRigid(placement, to.centroid);
       if ((cTo.x - t1.x) * nx + (cTo.y - t1.y) * ny < 0) {
-        // Try the other end correspondence before giving up.
-        placement = rigidFromPairs(to2(to, B[1]), to2(to, B[0]), t1, t2);
+        placement = rigidFromPairs(flangeTo2(to, B[1]), flangeTo2(to, B[0]), t1, t2);
         cTo = applyRigid(placement, to.centroid);
         if ((cTo.x - t1.x) * nx + (cTo.y - t1.y) * ny < 0) return null;
       }
       to.placement = placement;
       queue.push(to);
 
-      // Bend zone: two short sides join the outline; the centre line is the bend line.
       out.entities.push({ originalType: "LINE", layer: "0", segments: [makeLine(a1, t1)], closed: false });
       out.entities.push({ originalType: "LINE", layer: "0", segments: [makeLine(a2, t2)], closed: false });
       const mid3 = scale3(add3(theirs.edge.start, theirs.edge.end), 0.5);
-      const rises = dot3(sub3(centroid3(to), mid3), from.normal) > 0;
-      const c1 = { x: a1.x + (allowance / 2) * nx, y: a1.y + (allowance / 2) * ny };
-      const c2 = { x: a2.x + (allowance / 2) * nx, y: a2.y + (allowance / 2) * ny };
-      out.entities.push({ originalType: "LINE", layer: rises ? "BEND_UP" : "BEND_DOWN", segments: [makeLine(c1, c2)], closed: false });
+      const alongNormal = dot3(sub3(centroid3(to), mid3), from.normal) > 0;
+      // Viewed from the inside: a flange folding towards the inside is BEND_UP.
+      const up = alongNormal === (walkedSide === "inside");
+      const c1 = { x: a1.x + (allowanceMm / 2) * nx, y: a1.y + (allowanceMm / 2) * ny };
+      const c2 = { x: a2.x + (allowanceMm / 2) * nx, y: a2.y + (allowanceMm / 2) * ny };
+      out.entities.push({ originalType: "LINE", layer: up ? "BEND_UP" : "BEND_DOWN", segments: [makeLine(c1, c2)], closed: false });
       allPoints.push([a1, a2, t1, t2]);
-      bendCount++;
+      const index = sheetBends.length;
+      sheetBends.push({
+        id: `sb${index + 1}`,
+        start: c1,
+        end: c2,
+        lengthMm,
+        angleDeg: (angle * 180) / Math.PI,
+        innerRadiusMm: bend.group.innerRadius,
+        allowanceMm,
+        allowanceSource: source,
+        direction: up ? "up" : "down",
+        strip: { a1, a2, t1, t2 },
+        flangeOutsideMm: null,
+        baseFlangeOutsideMm: null,
+      });
+      flangeVia.set(to, { bendIndex: index, direction: { nx, ny }, tangent: { t1, t2 } });
+      bendFrom.push(from);
     }
   }
 
-  // Outlines and holes of the placed flanges.
+  // Outlines, through holes and the features of the placed flanges.
+  const studPositions: Point[] = [];
+  const maskingZones: MaskingZone[] = [];
+  const countersinks: CountersinkInfo[] = [];
+  const blindPockets: BlindPocket[] = [];
+  const helicalHoles: Point[] = [];
+  const throughLoopsByFlange = new Map<Flange, Point[][]>();
+  const placedOutline = new Map<Flange, Point[]>();
   let placedArea = 0;
   let placed = 0;
-  for (const f of flanges.values()) {
-    if (!f.placement || !f.face.outer) continue;
+  const placedFlanges = flanges.filter((f) => f.placement);
+  for (const f of placedFlanges) {
     placed++;
     placedArea += f.area;
     const map: FlatMap = { toFlat: (q) => placedFlat(f, q), normal: f.normal };
-    loopToEntities(f.face.outer, map, tangentEdgeIds, chordError, out);
-    for (const hole of f.face.inner) loopToEntities(hole, map, null, chordError, out);
-    allPoints.push(loopPolyline(f.face.outer, chordError).map((q) => placedFlat(f, q)));
+    const skip = new Set<number>([...tangentEdgeIds, ...f.internalEdgeIds]);
+    const through: Point[][] = [];
+    const outlinePts: Point[] = [];
+    for (const face of f.faces) {
+      if (!face.outer) continue;
+      loopToEntities(face.outer, map, skip, chordError, out);
+      for (const q of loopPolyline(face.outer, chordError)) outlinePts.push(placedFlat(f, q));
+      for (const hole of face.inner) {
+        const feature = classifyLoop(hole, face, f.normal, thicknessMm, facesByEdge, chordError);
+        recordFeature(feature, map, f.normal, chordError, out, through, { studPositions, maskingZones, countersinks, blindPockets, helicalHoles }, "outside", true);
+      }
+    }
+    for (const member of f.splitMembers) {
+      if (!member.outer) continue;
+      const polygon = loopPolyline(member.outer, chordError).map((q) => placedFlat(f, q));
+      maskingZones.push({ kind: "split_face", polygon, areaMm2: polygonArea(polygon), confirmed: false });
+    }
+    throughLoopsByFlange.set(f, through);
+    placedOutline.set(f, outlinePts);
+    allPoints.push(outlinePts);
   }
-  if (bendCount === 0 || placedArea < planarArea * MIN_PLACED_SHARE) return null;
+  if (placedArea < planarArea * MIN_PLACED_SHARE) return null;
+
+  // Features on the other side of each placed flange (faces parallel at thickness distance, overlapping).
+  for (const f of placedFlanges) {
+    const outline = placedOutline.get(f) ?? [];
+    if (outline.length < 3) continue;
+    const map: FlatMap = { toFlat: (q) => placedFlat(f, q), normal: f.normal };
+    for (const other of flanges) {
+      if (other === f || other.placement) continue;
+      if (dot3(other.normal, f.normal) > -PARALLEL) continue;
+      const gap = dot3(sub3(other.origin, f.origin), f.normal);
+      if (Math.abs(Math.abs(gap) - thicknessMm) > COPLANAR_MM * 5) continue;
+      const c = placedFlat(f, centroid3(other));
+      if (!pointInPolygon(c, outline)) continue;
+      for (const face of other.faces) {
+        for (const hole of face.inner) {
+          const feature = classifyLoop(hole, face, other.normal, thicknessMm, facesByEdge, chordError);
+          recordFeature(feature, map, f.normal, chordError, out, null, { studPositions, maskingZones, countersinks, blindPockets, helicalHoles }, "inside", false);
+        }
+      }
+      for (const member of other.splitMembers) {
+        if (!member.outer) continue;
+        const polygon = loopPolyline(member.outer, chordError).map((q) => placedFlat(f, q));
+        maskingZones.push({ kind: "split_face", polygon, areaMm2: polygonArea(polygon), confirmed: false });
+      }
+    }
+  }
+
+  // Flange outside dimensions per bend: farthest outline point of the placed flange beyond its tangent line, + (r + t).
+  for (const [flange, via] of flangeVia) {
+    const bend = sheetBends[via.bendIndex];
+    const outline = placedOutline.get(flange) ?? [];
+    let far = 0;
+    for (const p of outline) far = Math.max(far, (p.x - via.tangent.t1.x) * via.direction.nx + (p.y - via.tangent.t1.y) * via.direction.ny);
+    bend.flangeOutsideMm = far + bend.innerRadiusMm + thicknessMm;
+  }
+  for (let i = 0; i < sheetBends.length; i++) {
+    // The base side: the flange the bend was walked from, measured against the strip normal.
+    const bend = sheetBends[i];
+    const from = bendFrom[i];
+    const nx = bend.strip.t1.x - bend.strip.a1.x;
+    const ny = bend.strip.t1.y - bend.strip.a1.y;
+    const len = Math.hypot(nx, ny) || 1;
+    const dirX = -nx / len;
+    const dirY = -ny / len;
+    let far = 0;
+    for (const p of placedOutline.get(from) ?? []) far = Math.max(far, (p.x - bend.strip.a1.x) * dirX + (p.y - bend.strip.a1.y) * dirY);
+    bend.baseFlangeOutsideMm = far + bend.innerRadiusMm + thicknessMm;
+  }
+
+  // Viewed from the inside: mirror a layout of the outside face.
+  const mirror = walkedSide === "outside";
+  const mx = (p: Point): Point => (mirror ? { x: -p.x, y: p.y } : p);
+  if (mirror) {
+    for (const e of out.entities) {
+      e.segments = e.segments.map((s) => {
+        switch (s.kind) {
+          case "line":
+            return makeLine(mx(s.start), mx(s.end));
+          case "circle":
+            return makeCircle(mx(s.center), s.radius);
+          case "arc": {
+            // Mirroring x reverses the sweep: new start = 180 − old end.
+            return makeArc(mx(s.center), s.radius, 180 - s.endAngleDeg, 180 - s.startAngleDeg);
+          }
+        }
+      });
+    }
+    for (const b of sheetBends) {
+      b.start = mx(b.start);
+      b.end = mx(b.end);
+      b.strip = { a1: mx(b.strip.a1), a2: mx(b.strip.a2), t1: mx(b.strip.t1), t2: mx(b.strip.t2) };
+    }
+    for (let i = 0; i < studPositions.length; i++) studPositions[i] = mx(studPositions[i]);
+    for (const z of maskingZones) z.polygon = z.polygon.map(mx);
+    for (const c of countersinks) c.center = mx(c.center);
+    for (const p of blindPockets) p.center = mx(p.center);
+    for (let i = 0; i < helicalHoles.length; i++) helicalHoles[i] = mx(helicalHoles[i]);
+    for (const [f, pts] of placedOutline) placedOutline.set(f, pts.map(mx));
+    for (const [f, loops] of throughLoopsByFlange) throughLoopsByFlange.set(f, loops.map((l) => l.map(mx)));
+    for (let i = 0; i < allPoints.length; i++) allPoints[i] = allPoints[i].map(mx);
+  }
+
+  // Stud seats as reference marks on IGNORE (a small cross, so the DXF shows the position without cutting).
+  for (const p of studPositions) {
+    out.entities.push({ originalType: "LINE", layer: "IGNORE", segments: [makeLine({ x: p.x - 1, y: p.y }, { x: p.x + 1, y: p.y })], closed: false });
+    out.entities.push({ originalType: "LINE", layer: "IGNORE", segments: [makeLine({ x: p.x, y: p.y - 1 }, { x: p.x, y: p.y + 1 })], closed: false });
+  }
 
   const extents = extentsOf(allPoints);
   const header: DxfHeaderInfo = {
     version: null,
-    units: { insunits: Math.abs(unitScale - 25.4) < 1e-6 ? 1 : 4, detected: "mm", scaleApplied: unitScale },
+    units: { insunits: Math.abs(options.unitScale - 25.4) < 1e-6 ? 1 : 4, detected: "mm", scaleApplied: options.unitScale },
     extmin: extents?.min ?? null,
     extmax: extents?.max ?? null,
-    layers: ["0", "BEND_UP", "BEND_DOWN"],
+    layers: ["0", "BEND_UP", "BEND_DOWN", "IGNORE"],
+  };
+
+  const flangeAt = (p: Vec3): Flange | null => {
+    for (const f of placedFlanges) {
+      const h = dot3(sub3(p, f.origin), f.normal);
+      // On the flange plane (either sheet side) or just above it (a stud base sits on the surface).
+      if (h < -thicknessMm - 0.5 || h > 0.5) continue;
+      const q = mx(placedFlat(f, p));
+      const outline = placedOutline.get(f) ?? [];
+      if (outline.length >= 3 && pointInPolygon(q, outline)) return f;
+    }
+    return null;
   };
   return {
     parsed: {
@@ -461,6 +807,75 @@ export function unfoldBody(body: Body3, thicknessMm: number, unitScale: number, 
       parseError: null,
     },
     flanges: placed,
-    bends: bendCount,
+    bends: sheetBends,
+    studPositions,
+    maskingZones,
+    countersinks,
+    blindPockets,
+    helicalHoles,
+    walkedSide,
+    mapToFlat: (p) => {
+      const f = flangeAt(p);
+      return f ? mx(placedFlat(f, p)) : null;
+    },
+    overThroughHole: (p) => {
+      const f = flangeAt(p);
+      if (!f) return false;
+      const q = mx(placedFlat(f, p));
+      return (throughLoopsByFlange.get(f) ?? []).some((loop) => pointInPolygon(q, loop));
+    },
+    placedShare: planarArea > 0 ? placedArea / planarArea : 0,
   };
+}
+
+type FeatureSinks = { studPositions: Point[]; maskingZones: MaskingZone[]; countersinks: CountersinkInfo[]; blindPockets: BlindPocket[]; helicalHoles: Point[] };
+
+/** Emit a through loop as cut (countersinks as their through circle); record everything else. */
+function recordFeature(
+  feature: LoopFeature,
+  map: FlatMap,
+  normal: Vec3,
+  chordError: number,
+  out: Flattening,
+  through: Point[][] | null,
+  sinks: FeatureSinks,
+  side: "outside" | "inside",
+  emit: boolean
+): void {
+  switch (feature.kind) {
+    case "through": {
+      if (feature.countersink) {
+        const c = loopCircle(feature.loop, normal);
+        const center = c ? map.toFlat(c.center) : map.toFlat(loopCenter3(feature.loop, chordError));
+        if (emit) out.entities.push({ originalType: "CIRCLE", layer: "0", segments: [makeCircle(center, feature.countersink.throughRadius)], closed: true });
+        sinks.countersinks.push({
+          center,
+          throughDiameterMm: feature.countersink.throughRadius * 2,
+          topDiameterMm: feature.countersink.topRadius * 2,
+          depthMm: feature.countersink.depthMm,
+          side,
+          featureCode: null,
+        });
+        through?.push(loopPolyline(feature.loop, chordError).map(map.toFlat));
+        return;
+      }
+      if (emit) {
+        loopToEntities(feature.loop, map, null, chordError, out);
+        through?.push(loopPolyline(feature.loop, chordError).map(map.toFlat));
+      }
+      if (feature.helical) sinks.helicalHoles.push(map.toFlat(loopCenter3(feature.loop, chordError)));
+      return;
+    }
+    case "recess": {
+      const polygon = loopPolyline(feature.loop, chordError).map(map.toFlat);
+      sinks.maskingZones.push({ kind: "recess", polygon, areaMm2: polygonArea(polygon), confirmed: false });
+      return;
+    }
+    case "seat":
+      sinks.studPositions.push(map.toFlat(feature.center));
+      return;
+    case "pocket":
+      sinks.blindPockets.push({ center: map.toFlat(feature.center), maxSideMm: feature.maxSideMm, depthMm: feature.depthMm, circular: feature.circular });
+      return;
+  }
 }

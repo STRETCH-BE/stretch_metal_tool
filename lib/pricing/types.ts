@@ -268,6 +268,11 @@ export type PressBrakeLimits = {
   dieFactor: number;
 };
 
+/** One row of press_brake_tools: a punch or a die. */
+export type PressBrakeTool =
+  | { kind: "punch"; code: string; name: string; heightMm: number; type: "straight" | "gooseneck"; tipRadiusMm: number; throatDepthMm: number | null; placeholder: boolean }
+  | { kind: "die"; code: string; name: string; vMm: number; minFlangeMm: number; placeholder: boolean };
+
 export type RollLimits = {
   maxWidthMm: number;
   minRadiusMm: number;
@@ -293,6 +298,8 @@ export type Machine =
       name: string;
       kind: "press_brake";
       limits: PressBrakeLimits;
+      /** Punches and dies (press_brake_tools table), attached by lib/rates/load.ts for the DFM checks. */
+      tools?: PressBrakeTool[];
     }
   | { code: string; name: string; kind: "roll"; limits: RollLimits }
   | { code: string; name: string; kind: "weld"; limits: WeldLimits };
@@ -502,6 +509,20 @@ export type FlagCode =
   | "finish.not_for_family"
   | "market.margin_below_default"
   | "market.no_cost_version"
+  | "sheet.bend_deduction_unverified"
+  | "sheet.masking_not_priced"
+  | "sheet.hardware_mismatch"
+  | "sheet.revision_mismatch"
+  | "sheet.not_sheet_metal"
+  | "sheet.service_unavailable"
+  | "dfm.relief_too_narrow"
+  | "dfm.hole_near_bend"
+  | "dfm.flange_too_short"
+  | "dfm.bend_collision"
+  | "dfm.laser_cannot_make"
+  | "dfm.flat_mass_mismatch"
+  | "dfm.open_contour"
+  | "dfm.overlapping_cuts"
   /** Market mode: no rate_laser row for exactly this material + thickness (or no thread row) — quote manually. */
   | "market.no_benchmark_rate"
   /** Market mode: the active version has no rows for this operation (bending, welding, …) — quote manually. */
@@ -529,6 +550,8 @@ export type Flag = {
   params: Record<string, number | string>;
   /** Amber flags are overridable with a note; red ones block sending. */
   overridable: boolean;
+  /** Flat-pattern points the viewer circles (DFM checks on STEP sheet parts). */
+  locations?: { x: number; y: number }[];
 };
 
 export type PricedItem = {

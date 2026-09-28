@@ -14,8 +14,12 @@
  */
 
 import type {
+  BendTableRowDb,
+  BendTableVersionRow,
+  HardwareNameRow,
   MachineRow,
   MaterialRow,
+  PressBrakeToolRow,
   RateBendRow,
   RateFeatureRow,
   RateFinishRow,
@@ -30,7 +34,8 @@ import type {
 } from "@/lib/db/types";
 import { PricingError } from "@/lib/pricing/errors";
 import { rowsToMachinePark, rowsToRateSnapshot, type Loose, type RateRows } from "@/lib/pricing/snapshot";
-import type { MachinePark, RateSnapshot } from "@/lib/pricing/types";
+import type { MachinePark, PressBrakeTool, RateSnapshot } from "@/lib/pricing/types";
+import type { BendTableLookup, BendTableRow, HardwareNameRule } from "@/lib/geometry/types";
 import type { AdminSupabase } from "@/lib/supabase/admin";
 import type { ServerSupabase } from "@/lib/supabase/server";
 
@@ -163,8 +168,88 @@ export async function loadCostRateVersionId(supabase: RatesClient, preferred?: s
   return versions.find((v) => v.active)?.id ?? versions[0]?.id ?? null;
 }
 
-/** The machine park with validated limits (throws on malformed limits JSON). */
+/** press_brake_tools rows → the engine's tool list (numeric columns may arrive as strings). */
+export function rowsToPressBrakeTools(list: Loose<PressBrakeToolRow>[]): PressBrakeTool[] {
+  const num = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === "") return null;
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const out: PressBrakeTool[] = [];
+  for (const r of list) {
+    if (r.kind === "punch") {
+      const heightMm = num(r.height_mm);
+      if (heightMm === null || heightMm <= 0) continue;
+      out.push({
+        kind: "punch",
+        code: r.code,
+        name: r.name,
+        heightMm,
+        type: r.type === "gooseneck" ? "gooseneck" : "straight",
+        tipRadiusMm: num(r.tip_radius_mm) ?? 0,
+        throatDepthMm: num(r.throat_depth_mm),
+        placeholder: Boolean(r.placeholder),
+      });
+    } else if (r.kind === "die") {
+      const vMm = num(r.v_mm);
+      if (vMm === null || vMm <= 0) continue;
+      out.push({ kind: "die", code: r.code, name: r.name, vMm, minFlangeMm: num(r.min_flange_mm) ?? 0, placeholder: Boolean(r.placeholder) });
+    }
+  }
+  return out;
+}
+
+/** The machine park with validated limits (throws on malformed limits JSON); the press brake carries its tools. */
 export async function loadMachinePark(supabase: RatesClient): Promise<MachinePark> {
-  const machines = await rows<MachineRow>(supabase.from("machines").select("*").order("code"), "machines");
-  return rowsToMachinePark(machines);
+  const [machines, tools] = await Promise.all([
+    rows<MachineRow>(supabase.from("machines").select("*").order("code"), "machines"),
+    rows<Loose<PressBrakeToolRow>>(supabase.from("press_brake_tools").select("*").order("code"), "press_brake_tools"),
+  ]);
+  const park = rowsToMachinePark(machines);
+  const toolList = rowsToPressBrakeTools(tools);
+  return park.map((m) => (m.kind === "press_brake" ? { ...m, tools: toolList } : m));
+}
+
+/* ─── Bend table + hardware names (STEP intake) ────────────── */
+
+/** Id of the active bend-table version, or null when none is active. */
+export async function loadActiveBendTableVersionId(supabase: RatesClient): Promise<string | null> {
+  const row = await single<Pick<BendTableVersionRow, "id">>(
+    supabase.from("bend_table_versions").select("id").eq("active", true).maybeSingle(),
+    "bend_table_versions"
+  );
+  return row?.id ?? null;
+}
+
+export function rowsToBendTable(list: Loose<BendTableRowDb>[]): BendTableRow[] {
+  return list.map((r) => ({
+    materialFamily: r.material_family,
+    thicknessMm: Number(r.thickness_mm),
+    innerRadiusMm: Number(r.inner_radius_mm),
+    vDieMm: r.v_die_mm === null || r.v_die_mm === undefined ? null : Number(r.v_die_mm),
+    angleDeg: Number(r.angle_deg),
+    bendAllowanceMm: Number(r.bend_allowance_mm),
+    source: r.source === "test_bend" ? "test_bend" : "din6935",
+  }));
+}
+
+/**
+ * Rows of a bend-table version for the geometry engine (the active one
+ * when no id is given). Never throws for a missing version: an empty
+ * table makes the engine fall back to the DIN formula (amber flag).
+ */
+export async function loadBendTable(supabase: RatesClient, versionId?: string | null): Promise<{ versionId: string | null; rows: BendTableRow[] }> {
+  const id = versionId ?? (await loadActiveBendTableVersionId(supabase));
+  if (!id) return { versionId: null, rows: [] };
+  const list = await rows<Loose<BendTableRowDb>>(supabase.from("bend_table").select("*").eq("version_id", id), "bend_table");
+  return { versionId: id, rows: rowsToBendTable(list) };
+}
+
+export function bendTableLookupFor(materialFamily: string | null, rowsOfVersion: readonly BendTableRow[]): BendTableLookup {
+  return { materialFamily, rows: rowsOfVersion };
+}
+
+export async function loadHardwareNames(supabase: RatesClient): Promise<HardwareNameRule[]> {
+  const list = await rows<HardwareNameRow>(supabase.from("hardware_names").select("*").order("pattern"), "hardware_names");
+  return list.map((r) => ({ pattern: r.pattern, kind: r.kind, size: r.size, featureCode: r.feature_code }));
 }

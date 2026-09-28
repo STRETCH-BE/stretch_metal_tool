@@ -676,6 +676,13 @@ export function evaluateBrep(file: StepFile): BrepModel {
   return { unitScale: ev.unitScale, unitName: ev.unitName, bodies, warnings: [...file.warnings, ...ev.warnings] };
 }
 
+/** AXIS2_PLACEMENT_3D reader with the file's unit scale applied (assembly placements). */
+export function placementReader(file: StepFile): (id: number | null) => Placement | null {
+  const ev = new Evaluator(file);
+  ev.resolveUnits();
+  return (id) => ev.placement(id);
+}
+
 /* ─── Curve evaluation ──────────────────────────────────────── */
 
 /** Point of a circle / ellipse at angle `rad` around its placement axis (CCW seen from +axis). */

@@ -108,6 +108,20 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `material.mass_handling` | green | net part mass `> handlingMassLimitKg` | `massKg`, `limitKg`, `surchargeEur` |
 | `bend.force_over_limit` | red | `F > forceKN × 1000` | `bendId`, `forceKN`, `limitKN`, `lengthMm`, `thicknessMm`, `dieVMm`, `rmNmm2` |
 | `bend.length_over_limit` | red | bend length `> bendLengthMm` | `bendId`, `lengthMm`, `limitMm` |
+| `sheet.bend_deduction_unverified` | amber | STEP sheet part: a bend unfolded with a DIN 6935 allowance (table row or formula), not a test bend | `count`, `source`, `allowanceMm` |
+| `sheet.masking_not_priced` | amber | paint-mask recesses / split faces in the model (no masking rate yet) | `count`, `areaMm2`, `confirmed` |
+| `sheet.hardware_mismatch` | amber | drawing parts list quantity ≠ hardware detected in the model | `item`, `drawingQty`, `modelQty` |
+| `sheet.revision_mismatch` | amber | revision letter of the file name ≠ latest row of the drawing's revision table | `fileRevision`, `drawingRevision` |
+| `sheet.not_sheet_metal` | amber | STEP file without a sheet body (machined / solid part) | `bodies` |
+| `sheet.service_unavailable` | amber | external geometry service down, built-in analysis used | — |
+| `dfm.relief_too_narrow` | amber | bend relief / slit narrower than max(kerf, t); carries the proposed fix | `count`, `widthMm`, `minMm`, `proposedWidthMm`, `proposedDepthMm`, `reliefs`, `entityIds` |
+| `dfm.hole_near_bend` | amber | hole edge closer than `2t + r` to a bend line (STEP sheet parts; replaces `bend.hole_near_bend` there) | `bendId`, `count`, `distanceMm`, `minMm`, `loopIds` |
+| `dfm.flange_too_short` | amber | flange outside dimension < smallest `min_flange_mm` of a die with `v_mm ≥ 6t` (replaces `bend.short_flange` on STEP sheet parts) | `bendId`, `flangeMm`, `minMm`, `vMm` |
+| `dfm.bend_collision` | amber | two same-direction bends: no straight punch ≥ W + 10 mm and no gooseneck with throat ≥ min(legs) | `bendA`, `bendB`, `widthMm`, `legMm`, `punchMm`, `thicknessMm` |
+| `dfm.laser_cannot_make` | amber | countersinks (`what = countersink`), blind pockets that are not stud seats (`pocket`), modelled threads (`thread`) | `what`, `count`, `sizeMm`, `topMm`, `depthMm` |
+| `dfm.flat_mass_mismatch` | amber | flat net volume × (1 ± 2 %) does not contain the model's body volume | `flatMm3`, `solidMm3`, `deltaPct`, `thicknessMm` |
+| `dfm.open_contour` | red | flat pattern without a closed outline | — |
+| `dfm.overlapping_cuts` | red | two cut loops intersect | `count` |
 | `bend.hole_crosses_bend` | red | a hole edge crosses the bend line (per bend, aggregated; circles by centre/radius, other holes by their loop polygon) | `bendId`, `count`, `loopIds` |
 | `bend.hole_near_bend` | amber | hole edge `< 2.5 × t` from the bend line (per bend, nearest distance) | `bendId`, `count`, `distanceMm`, `minMm`, `loopIds` |
 | `bend.short_flange` | amber | smaller flange (outline extent or distance to a parallel bend) `< V/2 + r + 2` | `bendId`, `flangeMm`, `minMm`, `dieVMm`, `radiusMm` |

@@ -719,6 +719,20 @@ const FLAG_CODES = {
   "market.bend_too_long": true,
   "market.extrapolated_rate": true,
   "rates.placeholder": true,
+  "sheet.bend_deduction_unverified": true,
+  "sheet.masking_not_priced": true,
+  "sheet.hardware_mismatch": true,
+  "sheet.revision_mismatch": true,
+  "sheet.not_sheet_metal": true,
+  "sheet.service_unavailable": true,
+  "dfm.relief_too_narrow": true,
+  "dfm.hole_near_bend": true,
+  "dfm.flange_too_short": true,
+  "dfm.bend_collision": true,
+  "dfm.laser_cannot_make": true,
+  "dfm.flat_mass_mismatch": true,
+  "dfm.open_contour": true,
+  "dfm.overlapping_cuts": true,
 } satisfies Record<FlagCode, true>;
 
 /** Same shape logic as content/parity.test.ts: every leaf path with its type. */

@@ -18,6 +18,7 @@ import type { WeldProcess } from "@/lib/geometry/types";
 import type { DroppedEntity, TriageReasonCode, TriageState } from "@/lib/geometry/types";
 
 export type TubeLimitKind = "length" | "wall" | "envelope" | "circumscribed" | "kg_per_m" | "raw_weight";
+export type DfmWord = "countersink" | "pocket" | "thread" | "formula" | "table" | "yes" | "no";
 
 export type FlagsContent = {
   title: string;
@@ -54,6 +55,8 @@ export type FlagsContent = {
   laserReasons: Record<LaserLookupReason, string>;
   tubeLimits: Record<TubeLimitKind, string>;
   weldProcesses: Record<WeldProcess, string>;
+  /** Code-valued params of the DFM flags (`what`, `source`, `confirmed`). */
+  dfmWords: Record<DfmWord, string>;
   flags: Record<FlagCode, { label: string; message: string }>;
 };
 
@@ -166,6 +169,15 @@ export const flags: FlagsContent = {
     circumscribed: "okrąg opisany",
     kg_per_m: "masa na metr",
     raw_weight: "masa surówki",
+  },
+  dfmWords: {
+    countersink: "pogłębienie stożkowe",
+    pocket: "kieszeń nieprzelotowa",
+    thread: "gwint modelowany",
+    formula: "wzór",
+    table: "tabela DIN",
+    yes: "tak",
+    no: "nie",
   },
   weldProcesses: {
     mig_mag: "MIG/MAG",
@@ -356,6 +368,62 @@ export const flags: FlagsContent = {
     "market.extrapolated_rate": {
       label: "Stawka ekstrapolowana",
       message: "{operation}: {count} gięć dłuższych niż benchmark ({benchmarkedMaxMm} mm, najdłuższe {longestMm} mm) — wyceniono dopłatą {pricePerM} €/m; sprawdź cenę przed wysłaniem.",
+    },
+    "sheet.bend_deduction_unverified": {
+      label: "Naddatek gięcia niezweryfikowany",
+      message: "{count} gięć rozwinięto naddatkiem z DIN 6935 ({source}: {allowanceMm} mm), nie z gięcia próbnego — potwierdź rozwinięcie przed produkcją albo wpisz wynik gięcia próbnego w tabeli gięć.",
+    },
+    "sheet.masking_not_priced": {
+      label: "Maskowanie lakiernicze niewycenione",
+      message: "Model zawiera {count} stref maskowania (łącznie {areaMm2} mm², potwierdzone na rysunku: {confirmed}). Nie ma jeszcze stawki za maskowanie — wyceń ręcznie.",
+    },
+    "sheet.hardware_mismatch": {
+      label: "Lista części a model",
+      message: "Rysunek i model różnią się w osprzęcie: {item} — rysunek {drawingQty}, model {modelQty}. Sprawdź, co ma być zamontowane.",
+    },
+    "sheet.revision_mismatch": {
+      label: "Niezgodna rewizja",
+      message: "Nazwa pliku wskazuje rewizję {fileRevision}, a tabela rewizji na rysunku — {drawingRevision}. Upewnij się, że model i rysunek są z tej samej rewizji.",
+    },
+    "sheet.not_sheet_metal": {
+      label: "To nie jest część z blachy",
+      message: "W pliku STEP ({bodies} brył) nie ma bryły arkuszowej — część toczona, frezowana lub pełna. Wprowadź ją jako szybką część albo wyceń ręcznie.",
+    },
+    "sheet.service_unavailable": {
+      label: "Serwis geometrii niedostępny",
+      message: "Zewnętrzny serwis analizy STEP nie odpowiada — użyto wbudowanej analizy. Sprawdź wynik przed wysłaniem.",
+    },
+    "dfm.relief_too_narrow": {
+      label: "Za wąskie podcięcie gięcia",
+      message: "{count} podcięć przy gięciach ma szerokość {widthMm} mm — minimum to {minMm} mm (szczelina lasera albo grubość). Propozycja: poszerzyć do {proposedWidthMm} mm i pogłębić do {proposedDepthMm} mm od linii stycznej gięcia (wymaga zatwierdzenia przez admina).",
+    },
+    "dfm.hole_near_bend": {
+      label: "Otwór blisko gięcia",
+      message: "Gięcie {bendId}: {count} otworów w odległości {distanceMm} mm od linii gięcia (minimum 2·t + r = {minMm} mm) — otwór może się zdeformować.",
+    },
+    "dfm.flange_too_short": {
+      label: "Za krótki ramię gięcia",
+      message: "Gięcie {bendId}: ramię ma {flangeMm} mm, a najmniejsza matryca V ≥ 6·t ({vMm} mm) wymaga co najmniej {minMm} mm.",
+    },
+    "dfm.bend_collision": {
+      label: "Kolizja stempla",
+      message: "Gięcia {bendA} i {bendB} w tę samą stronę: szerokość wewnętrzna {widthMm} mm przy ramionach {legMm} mm wymaga stempla prostego o wysokości ≥ {punchMm} mm albo stempla łabędziego z gardłem ≥ {legMm} mm — brak takiego narzędzia w tabeli.",
+    },
+    "dfm.laser_cannot_make": {
+      label: "Laser tego nie wykona",
+      message: "{count} × {what} w modelu (np. {sizeMm} mm, głębokość {depthMm} mm) — laser tnie tylko na wylot; potrzebna obróbka dodatkowa (pogłębianie, gwintowanie, frezowanie).",
+    },
+    "dfm.flat_mass_mismatch": {
+      label: "Masa rozwinięcia ≠ masa modelu",
+      message: "Objętość rozwinięcia {flatMm3} mm³ różni się od bryły w modelu {solidMm3} mm³ o {deltaPct} % (tolerancja ±2 %) — prawdopodobnie pominięty otwór albo źle umieszczona cecha. Sprawdź rozwinięcie.",
+    },
+    "dfm.open_contour": {
+      label: "Otwarty obrys",
+      message: "Rozwinięcie nie ma zamkniętego obrysu — plik nie nadaje się do cięcia.",
+    },
+    "dfm.overlapping_cuts": {
+      label: "Przecinające się cięcia",
+      message: "{count} miejsc, w których pętle cięcia się przecinają — popraw geometrię przed produkcją.",
     },
     "rates.placeholder": {
       label: "Stawki tymczasowe",

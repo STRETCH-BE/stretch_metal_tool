@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { analyseStepSync, summariseStepText } from "@/lib/geometry/step/analyse";
-import { K_FACTOR } from "@/lib/geometry/step/unfold";
+import { din6935Allowance } from "@/lib/geometry/step/unfold";
 import { tessellatedBracket, tessellatedPlate } from "./mesh-fixtures";
 
 describe("mesh reconstruction", () => {
@@ -32,7 +32,7 @@ describe("mesh reconstruction", () => {
     expect(g.triage.state).toBe("green");
     expect(g.measures.bendLines).toHaveLength(1);
     expect(g.measures.bendLines[0].lengthMm).toBeCloseTo(40, 3);
-    const allowance = (Math.PI / 2) * (5 + K_FACTOR * 5);
+    const allowance = din6935Allowance(Math.PI / 2, 5, 5);
     const dims = [g.measures.bbox.width, g.measures.bbox.height].sort((a, b) => a - b);
     expect(dims[0]).toBeCloseTo(40, 3);
     expect(dims[1]).toBeCloseTo(70 + 50 + allowance, 1);

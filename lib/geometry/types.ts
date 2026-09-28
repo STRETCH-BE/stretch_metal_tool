@@ -189,6 +189,11 @@ export type BendLine = {
   lengthMm: number;
   /** Layer-named, user-drawn, or a heuristic candidate awaiting an answer. */
   source: "layer" | "drawn" | "candidate";
+  /** STEP sheet parts: read from the model (lib/geometry/step/sheet.ts); absent for DXF lines. */
+  angleDeg?: number;
+  innerRadiusMm?: number;
+  allowanceMm?: number;
+  allowanceSource?: BendAllowanceSource;
 };
 
 export type SlowContour = {
@@ -342,6 +347,151 @@ export type PartGeometry = {
   partCount: number;
   /** Thickness/density the measures were computed with, if any. */
   material: { thicknessMm: number | null; densityKgM3: number | null };
+  /** STEP sheet-metal parts only: what the model held beyond the flat pattern (sheet.ts). */
+  sheet?: SheetReport;
+};
+
+/* ─── Sheet-metal report (STEP) ───────────────────────────── */
+
+/** Where a bend allowance came from: a test bend of ours, a DIN 6935 table row, or the DIN formula itself. */
+export type BendAllowanceSource = "test_bend" | "din6935_table" | "din6935_formula";
+
+/** One row of the admin bend table (bend_table), as the engine receives it — never read from the DB here. */
+export type BendTableRow = {
+  materialFamily: string;
+  thicknessMm: number;
+  innerRadiusMm: number;
+  vDieMm: number | null;
+  angleDeg: number;
+  bendAllowanceMm: number;
+  source: "din6935" | "test_bend";
+};
+
+/** Bend table handed to the engine: the rows of the pinned version plus the part's material family. */
+export type BendTableLookup = {
+  materialFamily: string | null;
+  rows: readonly BendTableRow[];
+};
+
+/** Admin mapping of a hardware PRODUCT name (substring, case-insensitive) to a hardware line. */
+export type HardwareNameRule = {
+  pattern: string;
+  kind: HardwareKind;
+  size: string;
+  /** rate_feature code the line is priced with, or null (not benchmarked). */
+  featureCode: string | null;
+};
+
+export type HardwareKind = "weld_stud" | "insert" | "unknown";
+
+export type SheetBend = {
+  id: string;
+  start: Point;
+  end: Point;
+  lengthMm: number;
+  angleDeg: number;
+  innerRadiusMm: number;
+  allowanceMm: number;
+  allowanceSource: BendAllowanceSource;
+  direction: "up" | "down";
+  /** Flat-pattern coordinates of the strip: the two tangent lines (start/end of each). */
+  strip: { a1: Point; a2: Point; t1: Point; t2: Point };
+  /** Outside dimension of the flange placed through this bend, perpendicular to the bend line (mm). */
+  flangeOutsideMm: number | null;
+  /** The flange placed before this bend (the side already unfolded). */
+  baseFlangeOutsideMm: number | null;
+};
+
+export type HardwareLine = {
+  kind: HardwareKind;
+  /** e.g. "M4", "M3x8"; null when unknown. */
+  size: string | null;
+  qty: number;
+  featureCode: string | null;
+  /** Name from the STEP product, or null for unnamed bodies. */
+  productName: string | null;
+  source: "name" | "geometry";
+  /** Positions in flat-pattern coordinates when they could be mapped. */
+  positions: Point[];
+  /** Diameter / length measured on the body (mm), for the report. */
+  diameterMm: number | null;
+  lengthMm: number | null;
+};
+
+export type MaskingZone = {
+  kind: "recess" | "split_face";
+  /** Outline in flat-pattern coordinates. */
+  polygon: Point[];
+  areaMm2: number;
+  /** True when the drawing text names paint masking. */
+  confirmed: boolean;
+};
+
+export type CountersinkInfo = {
+  center: Point;
+  throughDiameterMm: number;
+  topDiameterMm: number;
+  depthMm: number;
+  /** Which sheet side carries the cone: the unfolded (outside) face or the other. */
+  side: "outside" | "inside";
+  featureCode: string | null;
+};
+
+export type BlindPocket = {
+  center: Point;
+  maxSideMm: number;
+  depthMm: number;
+  circular: boolean;
+};
+
+/** A slit or corner relief next to a bend strip end (flat coordinates). */
+export type ReliefInfo = {
+  bendId: string;
+  end: "start" | "end";
+  widthMm: number;
+  depthMm: number;
+  /** Centre of the relief mouth. */
+  at: Point;
+  /** Ids of the two parallel outline entities that form the slit. */
+  entityIds: string[];
+};
+
+export type SheetReport = {
+  version: 1;
+  thicknessMm: number;
+  /** How the sheet body was told apart from hardware; false → the file held no sheet body. */
+  isSheetMetal: boolean;
+  bends: SheetBend[];
+  hardware: HardwareLine[];
+  /** Stud seat centres (blind pockets ≤ the seat depth), on the IGNORE layer of the production DXF. */
+  studPositions: Point[];
+  maskingZones: MaskingZone[];
+  countersinks: CountersinkInfo[];
+  /** Blind pockets that are neither seats nor masking recesses (the laser cannot make them). */
+  blindPockets: BlindPocket[];
+  /** Hole walls with a helical / free-form surface (modelled threads). */
+  helicalHoles: Point[];
+  reliefs: ReliefInfo[];
+  /** Volume of the sheet body in the model (mm³), null when a face could not be integrated. */
+  solidVolumeMm3: number | null;
+  /** Net flat area × thickness (mm³). */
+  flatVolumeMm3: number;
+  /** Bodies in the file that were taken as hardware. */
+  hardwareBodies: number;
+  /** Product name of the sheet body, when the file had one. */
+  productName: string | null;
+  /** Cross-checks against the companion drawing text, when one was given. */
+  drawing?: DrawingCrossCheck | null;
+};
+
+export type DrawingCrossCheck = {
+  /** Revision letter in the file name ("M040120_G" → "G"). */
+  fileRevision: string | null;
+  /** Latest revision letter of the drawing's revision table. */
+  drawingRevision: string | null;
+  material: string | null;
+  finish: string | null;
+  hardwareMismatches: { kind: HardwareKind; size: string; drawingQty: number; modelQty: number }[];
 };
 
 /* ─── Annotations (user edits, stored on parts.annotations) ─ */
@@ -456,6 +606,12 @@ export type AnalyzeOptions = {
    * (default 0 = largest outline). Loops keep their own `partIndex`.
    */
   partIndex?: number;
+  /** STEP: bend allowances of the pinned bend-table version (else the DIN 6935 formula). */
+  bendTable?: BendTableLookup | null;
+  /** STEP: admin name → hardware mapping for the PRODUCT names of hardware bodies. */
+  hardwareNames?: readonly HardwareNameRule[];
+  /** STEP: the drawing text (parts list, revision table) for the cross-checks. */
+  drawingText?: string | null;
 };
 
 export type LayerConventions = {

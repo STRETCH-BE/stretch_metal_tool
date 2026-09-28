@@ -116,6 +116,15 @@ export const flags: FlagsContent = {
     kg_per_m: "mass per metre",
     raw_weight: "raw weight",
   },
+  dfmWords: {
+    countersink: "countersink",
+    pocket: "blind pocket",
+    thread: "modelled thread",
+    formula: "formula",
+    table: "DIN table",
+    yes: "yes",
+    no: "no",
+  },
   weldProcesses: {
     mig_mag: "MIG/MAG",
     tig: "TIG",
@@ -302,6 +311,62 @@ export const flags: FlagsContent = {
     "market.extrapolated_rate": {
       label: "Extrapolated rate",
       message: "{operation}: {count} bend(s) longer than the benchmarked {benchmarkedMaxMm} mm (longest {longestMm} mm) — priced with the {pricePerM} €/m extension; check the price before sending.",
+    },
+    "sheet.bend_deduction_unverified": {
+      label: "Bend deduction unverified",
+      message: "{count} bend(s) unfolded with a DIN 6935 allowance ({source}: {allowanceMm} mm), not from a test bend — confirm the flat size before production or enter the test-bend result in the bend table.",
+    },
+    "sheet.masking_not_priced": {
+      label: "Paint masking not priced",
+      message: "The model holds {count} masking zone(s) ({areaMm2} mm² in total, confirmed on the drawing: {confirmed}). There is no masking rate yet — quote it manually.",
+    },
+    "sheet.hardware_mismatch": {
+      label: "Parts list vs model",
+      message: "The drawing and the model disagree on hardware: {item} — drawing {drawingQty}, model {modelQty}. Check what has to be fitted.",
+    },
+    "sheet.revision_mismatch": {
+      label: "Revision mismatch",
+      message: "The file name says revision {fileRevision}, the drawing's revision table {drawingRevision}. Make sure model and drawing are the same revision.",
+    },
+    "sheet.not_sheet_metal": {
+      label: "Not a sheet-metal part",
+      message: "The STEP file ({bodies} bodies) holds no sheet body — a turned, milled or solid part. Enter it as a quick part or quote it manually.",
+    },
+    "sheet.service_unavailable": {
+      label: "Geometry service unavailable",
+      message: "The external STEP analysis service did not answer — the built-in analysis was used. Check the result before sending.",
+    },
+    "dfm.relief_too_narrow": {
+      label: "Bend relief too narrow",
+      message: "{count} relief(s) at bends are {widthMm} mm wide — the minimum is {minMm} mm (laser kerf or thickness). Proposed fix: widen to {proposedWidthMm} mm and deepen to {proposedDepthMm} mm from the bend tangent (needs admin approval).",
+    },
+    "dfm.hole_near_bend": {
+      label: "Hole close to a bend",
+      message: "Bend {bendId}: {count} hole(s) {distanceMm} mm from the bend line (minimum 2·t + r = {minMm} mm) — the hole may deform.",
+    },
+    "dfm.flange_too_short": {
+      label: "Flange too short",
+      message: "Bend {bendId}: the flange is {flangeMm} mm, the smallest die with V ≥ 6·t ({vMm} mm) needs at least {minMm} mm.",
+    },
+    "dfm.bend_collision": {
+      label: "Punch collision",
+      message: "Bends {bendA} and {bendB} fold the same way: inside width {widthMm} mm with {legMm} mm legs needs a straight punch of at least {punchMm} mm or a gooseneck with a throat of at least {legMm} mm — no such tool in the tooling table.",
+    },
+    "dfm.laser_cannot_make": {
+      label: "The laser cannot make this",
+      message: "{count} × {what} in the model (e.g. {sizeMm} mm, depth {depthMm} mm) — the laser only cuts through; a secondary operation is needed (countersinking, tapping, milling).",
+    },
+    "dfm.flat_mass_mismatch": {
+      label: "Flat mass ≠ model mass",
+      message: "The flat pattern's volume {flatMm3} mm³ differs from the model's body {solidMm3} mm³ by {deltaPct} % (tolerance ±2 %) — probably a missed hole or a misplaced feature. Check the flat pattern.",
+    },
+    "dfm.open_contour": {
+      label: "Open contour",
+      message: "The flat pattern has no closed outline — the file cannot be cut.",
+    },
+    "dfm.overlapping_cuts": {
+      label: "Overlapping cuts",
+      message: "{count} place(s) where cut loops intersect — fix the geometry before production.",
     },
     "rates.placeholder": {
       label: "Placeholder rates",

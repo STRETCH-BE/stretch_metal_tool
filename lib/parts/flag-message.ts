@@ -55,7 +55,9 @@ export function translateParams(content: FlagsContent, params: Params): Params {
   }
   if ("family" in out) out.family = lookup(content.families, out.family);
   if ("reason" in out) out.reason = lookup(content.laserReasons, out.reason);
-  if ("what" in out) out.what = lookup(content.tubeLimits, out.what);
+  if ("what" in out) out.what = lookup(content.dfmWords, lookup(content.tubeLimits, out.what));
+  if ("source" in out) out.source = lookup(content.dfmWords, out.source);
+  if ("confirmed" in out) out.confirmed = lookup(content.dfmWords, out.confirmed);
   if ("process" in out) out.process = lookup(content.weldProcesses, out.process);
   if (!("weldId" in out) && "seamId" in out) out.weldId = out.seamId;
   return out;

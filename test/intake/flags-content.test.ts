@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { getContent } from "@/content";
 import type { FlagCode } from "@/lib/pricing/types";
 
-/** The catalogue of lib/pricing/README.md (35 codes). */
+/** The catalogue of lib/pricing/README.md (49 codes). */
 const FLAG_CODES: FlagCode[] = [
   "geometry.manual",
   "geometry.triage_amber",
@@ -55,6 +55,20 @@ const FLAG_CODES: FlagCode[] = [
   "market.bend_too_long",
   "market.extrapolated_rate",
   "rates.placeholder",
+  "sheet.bend_deduction_unverified",
+  "sheet.masking_not_priced",
+  "sheet.hardware_mismatch",
+  "sheet.revision_mismatch",
+  "sheet.not_sheet_metal",
+  "sheet.service_unavailable",
+  "dfm.relief_too_narrow",
+  "dfm.hole_near_bend",
+  "dfm.flange_too_short",
+  "dfm.bend_collision",
+  "dfm.laser_cannot_make",
+  "dfm.flat_mass_mismatch",
+  "dfm.open_contour",
+  "dfm.overlapping_cuts",
 ];
 
 const TRIAGE_STATES = ["green", "amber_bend_candidates", "amber_forming_unknown", "amber_units", "red_drawing_sheet", "red_no_closed_contour", "red_step_manual"] as const;

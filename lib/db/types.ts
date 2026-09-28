@@ -273,6 +273,58 @@ export type FileRow = {
 
 export type IntakeStatusDb = "processing" | "done" | "partial" | "failed";
 
+export type BendTableVersionRow = {
+  id: string;
+  label: string;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+  active: boolean;
+};
+
+export type BendTableSource = "din6935" | "test_bend";
+
+export type BendTableRowDb = {
+  id: string;
+  version_id: string;
+  material_family: MaterialFamilyDb;
+  thickness_mm: number;
+  inner_radius_mm: number;
+  v_die_mm: number | null;
+  angle_deg: number;
+  bend_allowance_mm: number;
+  source: BendTableSource;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type PressBrakeToolRow = {
+  code: string;
+  kind: "punch" | "die";
+  name: string;
+  height_mm: number | null;
+  type: "straight" | "gooseneck" | null;
+  tip_radius_mm: number | null;
+  throat_depth_mm: number | null;
+  v_mm: number | null;
+  min_flange_mm: number | null;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type HardwareNameRow = {
+  id: string;
+  pattern: string;
+  kind: "weld_stud" | "insert" | "unknown";
+  size: string;
+  feature_code: string | null;
+  note: string | null;
+  updated_by: string | null;
+  updated_at: string;
+};
+
 export type QuoteCounterRow = { year: number; last_number: number };
 
 export type QuoteRow = {
@@ -289,6 +341,8 @@ export type QuoteRow = {
   lead_time_text: string | null;
   payment_terms_text: string | null;
   rate_version_id: string | null;
+  /** Bend-table version the STEP flat patterns of the quote were unfolded with (pinned at intake). */
+  bend_table_version_id: string | null;
   /** Market mode: the cost version the margin was computed against (pinned with the price version). */
   cost_rate_version_id: string | null;
   /** Promised lead time in working days (drives the rate_leadtime multiplier in market mode). */
@@ -318,6 +372,8 @@ export type PartRow = {
   file_id: string | null;
   /** The upload the part was derived from (split STEP / IFC: the model file; else = file_id). */
   source_file_id: string | null;
+  /** Production DXF written from the unfolded STEP model (files row, kind export_dxf). */
+  flat_file_id: string | null;
   pdf_file_id: string | null;
   file_hash: string | null;
   material_code: string | null;
@@ -463,6 +519,14 @@ export type Database = {
         Partial<RateLeadtimeRow>
       >;
       machines: Table<MachineRow, Insertable<MachineRow, "code" | "name" | "kind">, Partial<MachineRow>>;
+      bend_table_versions: Table<BendTableVersionRow, Insertable<BendTableVersionRow, "label">, Partial<BendTableVersionRow>>;
+      bend_table: Table<
+        BendTableRowDb,
+        Insertable<BendTableRowDb, "version_id" | "material_family" | "thickness_mm" | "inner_radius_mm" | "angle_deg" | "bend_allowance_mm">,
+        Partial<BendTableRowDb>
+      >;
+      press_brake_tools: Table<PressBrakeToolRow, Insertable<PressBrakeToolRow, "code" | "kind" | "name">, Partial<PressBrakeToolRow>>;
+      hardware_names: Table<HardwareNameRow, Insertable<HardwareNameRow, "pattern" | "kind" | "size">, Partial<HardwareNameRow>>;
       files: Table<
         FileRow,
         Insertable<FileRow, "storage_path" | "original_name" | "mime" | "size" | "sha256">,
@@ -497,6 +561,8 @@ export type Database = {
       next_quote_number: { Args: Record<string, never>; Returns: string };
       activate_rate_version: { Args: { p_version: string }; Returns: undefined };
       clone_rate_version: { Args: { p_source: string; p_label: string }; Returns: string };
+      activate_bend_table_version: { Args: { p_version: string }; Returns: undefined };
+      clone_bend_table_version: { Args: { p_source: string; p_label: string }; Returns: string };
     };
     Enums: {
       user_role: UserRole;
