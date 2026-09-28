@@ -35,6 +35,7 @@ import { parseAnnotations, parseGeometry, type ItemUpdateInput } from "@/lib/quo
 import type { QuoteBundle } from "@/lib/quotes/types";
 import type { PartRow, QuoteItemRow } from "@/lib/db/types";
 import { FlagChip } from "./flag-message";
+import { familyOf } from "@/lib/pricing/eligibility";
 import { ExtrasEditor } from "./extras-editor";
 import type { MoneyFormatter } from "./money";
 import type { QuoteDraft } from "./preview";
@@ -335,6 +336,11 @@ export function QuotePartsTable({
           open
           item={extrasFor}
           partName={partsById.get(extrasFor.part_id)?.name ?? ""}
+          part={{
+            materialCode: partsById.get(extrasFor.part_id)?.material_code ?? null,
+            thicknessMm: partsById.get(extrasFor.part_id)?.thickness_mm == null ? null : Number(partsById.get(extrasFor.part_id)?.thickness_mm),
+            family: rates ? familyOf(rates, partsById.get(extrasFor.part_id)?.material_code ?? null) : null,
+          }}
           extras={draft.extrasById[extrasFor.id] ?? []}
           scrapPct={extrasFor.id in draft.scrapById ? draft.scrapById[extrasFor.id] : null}
           rates={rates}

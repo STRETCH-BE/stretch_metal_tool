@@ -17,6 +17,7 @@ import { Table, TableWrap, Td, Th } from "@/components/ui/table";
 import { formatMm, formatNumber } from "@/lib/format";
 import type { HoleInfo, PartAnnotations } from "@/lib/geometry/types";
 import { THREAD_TABLE } from "@/lib/geometry/threads";
+import { threadBenchmarked, type ThreadOption } from "@/lib/parts/material-choices";
 
 export type ThreadChoice = { mode: "auto" } | { mode: "none" } | { mode: "size"; size: string };
 
@@ -25,6 +26,10 @@ export type HolesTableProps = {
   threads: PartAnnotations["threads"];
   disabled?: boolean;
   onConfirm: (loopIds: string[], choice: ThreadChoice) => void;
+  /** Market version: sizes without a benchmarked price for the part's material / thickness are offered greyed ("not benchmarked"). */
+  threadOptions?: ThreadOption[] | null;
+  materialCode?: string | null;
+  thicknessMm?: number | null;
 };
 
 type Group = { key: string; diameterMm: number; loopIds: string[]; suggestion: HoleInfo["thread"]; circular: boolean };
@@ -52,7 +57,7 @@ function currentChoice(group: Group, threads: PartAnnotations["threads"]): strin
   return "__mixed";
 }
 
-export function HolesTable({ holes, threads, disabled = false, onConfirm }: HolesTableProps) {
+export function HolesTable({ holes, threads, disabled = false, onConfirm, threadOptions = null, materialCode = null, thicknessMm = null }: HolesTableProps) {
   const c = useContent();
   const locale = useLocale();
   const t = c.upload.part.holes;
@@ -112,11 +117,15 @@ export function HolesTable({ holes, threads, disabled = false, onConfirm }: Hole
                       >
                         <option value="__auto">{t.auto}{group.suggestion ? ` (${group.suggestion.size})` : ""}</option>
                         <option value="__none">{t.noThread}</option>
-                        {sizes.map((size) => (
-                          <option key={size} value={size}>
-                            {size}
-                          </option>
-                        ))}
+                        {sizes.map((size) => {
+                          const benchmarked = threadBenchmarked(threadOptions, size, materialCode, thicknessMm);
+                          return (
+                            <option key={size} value={size} disabled={!benchmarked && choice !== size}>
+                              {size}
+                              {benchmarked ? "" : ` — ${c.upload.part.material.notBenchmarked}`}
+                            </option>
+                          );
+                        })}
                       </select>
                     </Td>
                   </tr>

@@ -247,7 +247,7 @@ export function acceptFinishSuggestion(
   if (!code) return { extras, added: false };
   const exists = extras.some((e) => e.type === "finish" && e.code.toLowerCase() === code.toLowerCase());
   if (exists) return { extras, added: false };
-  const noteParts = [finish.ral ? `RAL ${finish.ral}` : null, finish.text].filter((s): s is string => Boolean(s));
-  const extra: ExtraOperation = { type: "finish", code, maskingMinutes: 0, note: noteParts.length ? noteParts.join(" — ") : null };
+  const colour = finish.ral ? `RAL ${finish.ral}` : null;
+  const extra: ExtraOperation = { type: "finish", code, maskingMinutes: 0, note: finish.text ? finish.text : null, colour };
   return { extras: [...extras, extra], added: true };
 }

@@ -20,7 +20,7 @@ import { loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
 import { machineOf } from "@/lib/pricing/lookup";
 import { parseSuggestions } from "@/lib/ai/types";
 import { requirePartReader, type PartReader } from "./access";
-import { materialChoices, type MaterialChoice } from "./material-choices";
+import { materialChoices, threadOptions, type MaterialChoice, type ThreadOption } from "./material-choices";
 import { parseStoredGeometry } from "./intake-db";
 import { parseStoredAnnotations } from "./schema";
 
@@ -35,6 +35,8 @@ export type RatesInfo = {
   materials: MaterialOption[];
   /** Material select options with the benchmarked thicknesses per material (lib/parts/material-choices.ts). */
   choices: MaterialChoice[];
+  /** Market mode: thread sizes with their benchmarked materials / thicknesses; null in cost mode. */
+  threads: ThreadOption[] | null;
   flatLaser: { name: string; limits: FlatLaserLimits } | null;
 };
 
@@ -50,11 +52,12 @@ export async function loadRatesInfo(supabase: ServerSupabase, versionId: string 
       blankMarginMm: rates.general.blankMarginMm,
       materials: rates.materials.map((m) => ({ code: m.code, name: m.name, family: m.family, densityKgM3: m.densityKgM3 })),
       choices: materialChoices({ pricingMode: rates.general.pricingMode, materials: rates.materials, laser: rates.laser }),
+      threads: threadOptions({ pricingMode: rates.general.pricingMode, thread: rates.thread }),
       flatLaser: laser ? { name: laser.name, limits: laser.limits } : null,
     };
   } catch (error) {
     console.error("[parts] rates unavailable", error);
-    return { versionId: null, label: null, pricingMode: "cost", blankMarginMm: 10, materials: [], choices: [], flatLaser: null };
+    return { versionId: null, label: null, pricingMode: "cost", blankMarginMm: 10, materials: [], choices: [], threads: null, flatLaser: null };
   }
 }
 

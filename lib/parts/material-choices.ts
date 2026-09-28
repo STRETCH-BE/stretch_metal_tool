@@ -17,7 +17,8 @@
  */
 
 import { MM_EPSILON } from "@/lib/pricing/lookup";
-import type { LaserRate, MaterialRate, PricingMode, RateSnapshot } from "@/lib/pricing/types";
+import { codeListed, threadThicknesses } from "@/lib/pricing/eligibility";
+import type { LaserRate, MaterialRate, PricingMode, RateSnapshot, ThreadRate } from "@/lib/pricing/types";
 
 /** One option of a material select. `thicknessesMm` = null when the thickness is free (cost mode). */
 export type MaterialChoice = {
@@ -74,4 +75,25 @@ export function isBenchmarked(choice: MaterialChoice | null | undefined, thickne
   if (!choice) return false;
   if (choice.thicknessesMm === null) return true;
   return thicknessMm !== null && choice.thicknessesMm.some((t) => sameMm(t, thicknessMm));
+}
+
+/* ─── Threads ─────────────────────────────────────────────── */
+
+/** A thread size of the version and where it is benchmarked (market mode); `thicknessesMm` empty = any thickness. */
+export type ThreadOption = { size: string; materialCodes: string[] | null; thicknessesMm: number[] };
+
+/** Thread options of a market version; null in cost mode (every size is priced there). */
+export function threadOptions(source: { pricingMode: PricingMode; thread: readonly ThreadRate[] }): ThreadOption[] | null {
+  if (source.pricingMode !== "market") return null;
+  return source.thread.map((t) => ({ size: t.size, materialCodes: t.materialCodes, thicknessesMm: threadThicknesses(t) }));
+}
+
+/** True when a thread size has a benchmarked price for the part's material and thickness (null options = cost mode = always). */
+export function threadBenchmarked(options: readonly ThreadOption[] | null, size: string, materialCode: string | null, thicknessMm: number | null): boolean {
+  if (options === null) return true;
+  const key = size.trim().toUpperCase().replace(/×/g, "X").replace(/\s+/g, "");
+  const option = options.find((o) => o.size.trim().toUpperCase().replace(/×/g, "X").replace(/\s+/g, "") === key);
+  if (!option || !codeListed(option.materialCodes, materialCode)) return false;
+  if (option.thicknessesMm.length === 0) return true;
+  return thicknessMm !== null && option.thicknessesMm.some((t) => sameMm(t, thicknessMm));
 }

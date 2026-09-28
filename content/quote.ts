@@ -172,7 +172,19 @@ export type OperationLabelCode =
   | "order_charge"
   | "packaging_box"
   | "packaging_pallet"
-  | "lead_time";
+  | "lead_time"
+  | "finish_setup"
+  | "thread_setup"
+  | "bend_line_setup"
+  | "feature_setup"
+  | "finish_minimum"
+  | "deburr_nonferrous"
+  | "deburr_one_side"
+  | "edge_round"
+  | "powder"
+  | "zinc"
+  | "hot_dip"
+  | "cert31";
 export type DriverUnitCode = "m" | "mm" | "pierce" | "kg" | "bend" | "min" | "m2" | "each" | "part" | "lot";
 export type WeldProcessCode = "mig_mag" | "tig" | "laser" | "mma";
 export type SendReasonCode =
@@ -484,6 +496,10 @@ export type QuoteBuilderContent = {
     summary: string;
     /** Market version without rows for `{what}` (features / finishes). */
     notBenchmarked: string;
+    colour: string;
+    colourHelp: string;
+    /** Suffix of an option with no eligible row for the part's material / thickness. */
+    unavailable: string;
   };
   audit: {
     title: string;
@@ -673,6 +689,18 @@ const builderPl: QuoteBuilderContent = {
       packaging_box: "Opakowanie — karton",
       packaging_pallet: "Opakowanie — paleta",
       lead_time: "Termin realizacji (mnożnik)",
+      finish_setup: "Przezbrojenie — wykończenie (na pozycję)",
+      thread_setup: "Przezbrojenie — gwintowanie (na pozycję)",
+      bend_line_setup: "Przezbrojenie — linie gięcia",
+      feature_setup: "Przezbrojenie — obróbka otworów (na pozycję)",
+      finish_minimum: "Dopłata do minimum wykończenia",
+      deburr_nonferrous: "Gratowanie (obie strony, aluminium / nierdzewna)",
+      deburr_one_side: "Gratowanie (strona zadziorów)",
+      edge_round: "Zaokrąglanie krawędzi (obie strony)",
+      powder: "Malowanie proszkowe",
+      zinc: "Cynkowanie galwaniczne",
+      hot_dip: "Cynkowanie ogniowe",
+      cert31: "Atest materiałowy 3.1",
     },
     units: {
       m: "m",
@@ -843,6 +871,9 @@ const builderPl: QuoteBuilderContent = {
     none: "brak",
     summary: "{count} dodatków",
     notBenchmarked: "Nie w cenniku — wycena ręczna: {what}. Dodaj pozycję „Inna pozycja” z kwotą ryczałtową.",
+    colour: "Kolor (RAL)",
+    colourHelp: "Jeden kolor na pozycję; minimum liczone na kolor.",
+    unavailable: "nie w cenniku dla tego materiału/grubości",
   },
   audit: {
     title: "Historia zmian",

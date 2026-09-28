@@ -18,7 +18,7 @@ import { useContent, useLocale } from "@/components/providers/locale";
 import { Panel } from "@/components/ui/panel";
 import { NumberInput } from "@/components/ui/number-input";
 import { Table, TableWrap, Td, Th } from "@/components/ui/table";
-import { formatMm } from "@/lib/format";
+import { formatMm, interpolate } from "@/lib/format";
 import type { BendAnnotation, BendLine } from "@/lib/geometry/types";
 import type { BendParams } from "@/lib/parts/schema";
 import { serverKey } from "@/lib/parts/server-key";
@@ -34,9 +34,12 @@ export type BendsTableProps = {
 
 export function BendsTable({ bends, thicknessMm, disabled = false, onSave }: BendsTableProps) {
   const c = useContent();
+  const locale = useLocale();
   const t = c.upload.part.bends;
+  const longestMm = bends.reduce((max, b) => Math.max(max, b.lengthMm), 0);
+  const summary = bends.length > 0 ? interpolate(t.summary, { count: bends.length, longestMm: formatMm(longestMm, locale) }) : null;
   return (
-    <Panel title={c.upload.part.panels.bends} flush>
+    <Panel title={c.upload.part.panels.bends} flush actions={summary ? <span className="text-[12px] text-text-muted">{summary}</span> : undefined}>
       {bends.length === 0 ? (
         <p className="px-4 py-4 text-[13px] text-text-muted">{t.empty}</p>
       ) : (

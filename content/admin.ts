@@ -196,12 +196,29 @@ export type AdminContent = {
         handling_per_part: string;
         setup: string;
       };
-      bend: { thickness_mm: string; length_class_mm: string; price_per_bend: string; setup_per_part_type: string };
+      bend: { thickness_mm: string; length_class_mm: string; price_per_bend: string; setup_per_part_type: string; setup_per_bend_line_eur: string; family_multipliers: string; material_codes: string };
       roll: { thickness_mm: string; radius_class_mm: string; price_per_m: string; setup: string };
       weld: { process: string; bead_mm: string; price_per_mm: string; setup: string; min_order: string };
-      thread: { size: string; price_each: string; setup_per_line_eur: string };
-      feature: { code: string; name: string; price_each: string };
-      finish: { code: string; name: string; unit: string; price: string; minimum: string; setup_per_order_eur: string; setup_per_line_eur: string; min_part_mm: string };
+      thread: { size: string; price_each: string; setup_per_line_eur: string; price_by_thickness: string; material_codes: string };
+      feature: { code: string; name: string; price_each: string; setup_per_line_eur: string; material_codes: string; min_thickness_mm: string; max_thickness_mm: string };
+      finish: {
+        code: string;
+        name: string;
+        unit: string;
+        price: string;
+        minimum: string;
+        setup_per_order_eur: string;
+        setup_per_line_eur: string;
+        min_part_mm: string;
+        material_codes: string;
+        min_thickness_mm: string;
+        max_thickness_mm: string;
+        price_per_part_eur: string;
+        min_lead_time_days: string;
+        minimum_scope: string;
+        tier_multiplier_applies: string;
+        limits: string;
+      };
       leadtime: { working_days: string; multiplier: string };
     };
     options: {
@@ -663,6 +680,9 @@ export const admin: AdminContent = {
         length_class_mm: "Klasa długości (mm)",
         price_per_bend: "Cena gięcia (€)",
         setup_per_part_type: "Przezbrojenie na typ części (€)",
+        setup_per_bend_line_eur: "Przezbrojenie na linię gięcia (€)",
+        family_multipliers: "Mnożniki wg rodziny materiału",
+        material_codes: "Materiały",
       },
       roll: {
         thickness_mm: "Grubość (mm)",
@@ -677,8 +697,16 @@ export const admin: AdminContent = {
         setup: "Przezbrojenie (€)",
         min_order: "Minimum zlecenia (€)",
       },
-      thread: { size: "Rozmiar", price_each: "Cena (€/szt.)", setup_per_line_eur: "Przezbrojenie na pozycję (€)" },
-      feature: { code: "Kod", name: "Nazwa", price_each: "Cena (€/szt.)" },
+      thread: { size: "Rozmiar", price_each: "Cena (€/szt.)", setup_per_line_eur: "Przezbrojenie na pozycję (€)", price_by_thickness: "Cena wg grubości (€/szt.)", material_codes: "Materiały" },
+      feature: {
+        code: "Kod",
+        name: "Nazwa",
+        price_each: "Cena (€/szt.)",
+        setup_per_line_eur: "Przezbrojenie na pozycję (€)",
+        material_codes: "Materiały",
+        min_thickness_mm: "Grubość od (mm)",
+        max_thickness_mm: "Grubość do (mm)",
+      },
       finish: {
         code: "Kod",
         name: "Nazwa",
@@ -688,6 +716,14 @@ export const admin: AdminContent = {
         setup_per_order_eur: "Przezbrojenie na zamówienie (€)",
         setup_per_line_eur: "Przezbrojenie na pozycję (€)",
         min_part_mm: "Minimalny rozmiar części (mm)",
+        material_codes: "Materiały",
+        min_thickness_mm: "Grubość od (mm)",
+        max_thickness_mm: "Grubość do (mm)",
+        price_per_part_eur: "Cena za sztukę (€)",
+        min_lead_time_days: "Min. termin (dni rob.)",
+        minimum_scope: "Zakres minimum",
+        tier_multiplier_applies: "Mnożnik terminu",
+        limits: "Limity",
       },
       leadtime: { working_days: "Dni robocze", multiplier: "Mnożnik ceny" },
     },

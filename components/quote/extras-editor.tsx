@@ -15,6 +15,11 @@
  * says. A market version without feature / finish rows greys those
  * buttons and says "not benchmarked — quote manually" (a lump-sum
  * "other" line is the manual route; the engine flags it market.manual_price).
+ * Options with no eligible row for the part's material / thickness
+ * (lib/pricing/eligibility.ts) are listed disabled with the same suffix;
+ * material variants of a finish (deburr_nonferrous) are hidden — the engine
+ * picks the row. A finish whose minimum is per colour (powder) gets a
+ * colour input, prefilled with DEFAULT_COLOUR.
  */
 
 import { useState } from "react";
@@ -25,12 +30,20 @@ import { NumberInput } from "@/components/ui/number-input";
 import { Notice } from "@/components/ui/notice";
 import type { QuoteItemRow } from "@/lib/db/types";
 import { interpolate } from "@/lib/format";
-import type { ExtraOperation, RateSnapshot } from "@/lib/pricing/types";
+import { featureEligibility, finishEligibility, finishRefused, finishesOffered, resolveFinishRate } from "@/lib/pricing/eligibility";
+import type { ExtraOperation, FeatureRate, FinishRate, MaterialFamily, RateSnapshot } from "@/lib/pricing/types";
+
+/** Prefilled colour of a per-colour finish (the benchmark's default RAL). */
+const DEFAULT_COLOUR = "RAL 9005";
+
+export type ExtrasEditorPart = { materialCode: string | null; thicknessMm: number | null; family: MaterialFamily | null };
 
 export type ExtrasEditorProps = {
   open: boolean;
   item: QuoteItemRow;
   partName: string;
+  /** Material / thickness of the part: options without an eligible row are greyed. */
+  part: ExtrasEditorPart;
   extras: ExtraOperation[];
   scrapPct: number | null;
   rates: RateSnapshot | null;
@@ -40,14 +53,27 @@ export type ExtrasEditorProps = {
   onClose: () => void;
 };
 
-export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending, onChange, onSave, onClose }: ExtrasEditorProps) {
+export function ExtrasEditor({ open, partName, part, extras, scrapPct, rates, pending, onChange, onSave, onClose }: ExtrasEditorProps) {
   const c = useContent();
   const t = c.quote.builder.extras;
   const [scrap, setScrap] = useState<number | null>(scrapPct);
   const features = rates?.feature ?? [];
-  const finishes = rates?.finish ?? [];
+  const finishes = rates ? finishesOffered(rates) : [];
   const market = rates?.general.pricingMode === "market";
   const notBenchmarked = market ? [features.length === 0 ? t.features : null, finishes.length === 0 ? t.finish : null].filter((x): x is string => x !== null) : [];
+  const featureOk = (f: FeatureRate) => !market || featureEligibility(f, part.materialCode, part.thicknessMm) === "ok";
+  const finishOk = (f: FinishRate) => {
+    if (!market || !rates) return true;
+    const rate = resolveFinishRate(rates, f.code, part.materialCode) ?? f;
+    return !finishRefused(finishEligibility(rate, { materialCode: part.materialCode, thicknessMm: part.thicknessMm, family: part.family }));
+  };
+  const finishRate = (code: string): FinishRate | null => (rates ? (resolveFinishRate(rates, code, part.materialCode) ?? null) : null);
+  const firstFeature = features.find(featureOk) ?? features[0];
+  const firstFinish = finishes.find(finishOk) ?? finishes[0];
+  const withColour = (extra: Extract<ExtraOperation, { type: "finish" }>, code: string): Extract<ExtraOperation, { type: "finish" }> => {
+    const perColour = finishRate(code)?.minimumScope === "colour";
+    return { ...extra, code, colour: perColour ? (extra.colour?.trim() ? extra.colour : DEFAULT_COLOUR) : null };
+  };
 
   const update = (index: number, next: ExtraOperation) => {
     const list = extras.map((e, i) => (i === index ? next : e));
@@ -92,7 +118,7 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
             type="button"
             className="btn btn-ghost btn-sm"
             disabled={features.length === 0}
-            onClick={() => add({ type: "feature", code: features[0]?.code ?? "", count: 1 })}
+            onClick={() => add({ type: "feature", code: firstFeature?.code ?? "", count: 1 })}
           >
             {t.add}: {t.features}
           </button>
@@ -100,7 +126,7 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
             type="button"
             className="btn btn-ghost btn-sm"
             disabled={finishes.length === 0}
-            onClick={() => add({ type: "finish", code: finishes[0]?.code ?? "", maskingMinutes: 0, note: null })}
+            onClick={() => add(withColour({ type: "finish", code: firstFinish?.code ?? "", maskingMinutes: 0, note: null }, firstFinish?.code ?? ""))}
           >
             {t.add}: {t.finish}
           </button>
@@ -156,8 +182,9 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
                         onChange={(e) => update(index, { ...extra, code: e.target.value })}
                       >
                         {features.map((f) => (
-                          <option key={f.code} value={f.code}>
+                          <option key={f.code} value={f.code} disabled={!featureOk(f) && f.code !== extra.code}>
                             {f.name}
+                            {featureOk(f) ? "" : ` — ${t.unavailable}`}
                           </option>
                         ))}
                       </Select>
@@ -184,15 +211,28 @@ export function ExtrasEditor({ open, partName, extras, scrapPct, rates, pending,
                         value={extra.code}
                         dense
                         inline
-                        onChange={(e) => update(index, { ...extra, code: e.target.value })}
+                        onChange={(e) => update(index, withColour(extra, e.target.value))}
                       >
                         {finishes.map((f) => (
-                          <option key={f.code} value={f.code}>
+                          <option key={f.code} value={f.code} disabled={!finishOk(f) && f.code !== extra.code}>
                             {f.name}
+                            {finishOk(f) ? "" : ` — ${t.unavailable}`}
                           </option>
                         ))}
                       </Select>
                     </Field>
+                    {finishRate(extra.code)?.minimumScope === "colour" && (
+                      <Field label={t.colour} htmlFor={`extra-${index}-colour`} help={t.colourHelp}>
+                        <Input
+                          id={`extra-${index}-colour`}
+                          value={extra.colour ?? ""}
+                          dense
+                          inline
+                          className="w-[130px]"
+                          onChange={(e) => update(index, { ...extra, colour: e.target.value })}
+                        />
+                      </Field>
+                    )}
                     <Field label={t.maskingMinutes} htmlFor={`extra-${index}-masking`}>
                       <NumberInput
                         id={`extra-${index}-masking`}

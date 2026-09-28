@@ -310,6 +310,7 @@ export const upload: UploadContent = {
       save: "Save",
       sources: { layer: "layer", drawn: "drawn", candidate: "candidate" },
       radiusDefault: "= thickness",
+      summary: "{count} bends · longest line {longestMm} mm",
     },
     welds: {
       process: "Process",

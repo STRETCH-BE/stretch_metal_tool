@@ -59,7 +59,7 @@ export type GridRow = {
 
 function pickValues(table: RateTableName, row: LooseRow): Record<string, unknown> {
   const values: Record<string, unknown> = {};
-  for (const column of RATE_TABLES[table].columns) values[column.name] = row[column.name] ?? null;
+  for (const column of RATE_TABLES[table].columns) if (!column.readOnly) values[column.name] = row[column.name] ?? null;
   return values;
 }
 
@@ -269,7 +269,7 @@ export function RateGrid({ versionId, table, rows, editable, dependants }: RateG
                   {def.columns.map((column) => {
                     const invalid = Boolean(row.fieldErrors[column.name]);
                     const cellId = `${table}-${row.localId}-${column.name}`;
-                    if (!editable) {
+                    if (!editable || column.readOnly) {
                       return (
                         <Td key={column.name} align={column.kind === "number" ? "num" : "left"} className={column.kind === "text" ? "mono" : undefined}>
                           {formatCellValue(c, locale, column, row.values[column.name])}

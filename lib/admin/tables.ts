@@ -58,7 +58,7 @@ export type RateDbTable =
   | "rate_leadtime";
 
 export type ColumnKind = "number" | "text" | "select" | "bool" | "json";
-export type JsonKind = "priceBands" | "sheetFormats" | "marginByClass";
+export type JsonKind = "priceBands" | "sheetFormats" | "marginByClass" | "generic";
 export type OptionGroup = "mode" | "gas" | "process" | "unit" | "family" | "profileFamily" | "pricingMode";
 
 export type ColumnDef = {
@@ -80,6 +80,12 @@ export type ColumnDef = {
   maxLength?: number;
   /** CSV import: the header may omit it (the schema's fallback / null applies) — columns added after the first exports. */
   optional?: boolean;
+  /**
+   * Shown but not edited in the grid, not validated, not written by the grid
+   * or the CSV import (loaded by migrations): the market-v3 eligibility and
+   * pricing columns. Exports still carry them.
+   */
+  readOnly?: boolean;
 };
 
 export type RateTableDef = {
@@ -278,6 +284,9 @@ const BEND_COLUMNS: readonly ColumnDef[] = [
   { name: "length_class_mm", kind: "number", key: true, decimals: 2 },
   { name: "price_per_bend", kind: "number", decimals: 4 },
   { name: "setup_per_part_type", kind: "number", decimals: 4 },
+  { name: "setup_per_bend_line_eur", kind: "number", decimals: 4, readOnly: true },
+  { name: "family_multipliers", kind: "json", jsonKind: "generic", readOnly: true },
+  { name: "material_codes", kind: "text", nullable: true, readOnly: true },
 ];
 
 const ROLL_COLUMNS: readonly ColumnDef[] = [
@@ -299,12 +308,18 @@ const THREAD_COLUMNS: readonly ColumnDef[] = [
   { name: "size", kind: "text", key: true, maxLength: 20 },
   { name: "price_each", kind: "number", decimals: 4 },
   { name: "setup_per_line_eur", kind: "number", decimals: 2, optional: true },
+  { name: "price_by_thickness", kind: "json", jsonKind: "generic", readOnly: true },
+  { name: "material_codes", kind: "text", nullable: true, readOnly: true },
 ];
 
 const FEATURE_COLUMNS: readonly ColumnDef[] = [
   { name: "code", kind: "text", key: true, maxLength: 40 },
   { name: "name", kind: "text", maxLength: 120 },
   { name: "price_each", kind: "number", decimals: 4 },
+  { name: "setup_per_line_eur", kind: "number", decimals: 2, readOnly: true },
+  { name: "material_codes", kind: "text", nullable: true, readOnly: true },
+  { name: "min_thickness_mm", kind: "number", decimals: 2, nullable: true, readOnly: true },
+  { name: "max_thickness_mm", kind: "number", decimals: 2, nullable: true, readOnly: true },
 ];
 
 const FINISH_COLUMNS: readonly ColumnDef[] = [
@@ -316,6 +331,14 @@ const FINISH_COLUMNS: readonly ColumnDef[] = [
   { name: "setup_per_order_eur", kind: "number", decimals: 2, optional: true },
   { name: "setup_per_line_eur", kind: "number", decimals: 2, optional: true },
   { name: "min_part_mm", kind: "text", nullable: true, maxLength: 200, optional: true },
+  { name: "material_codes", kind: "text", nullable: true, readOnly: true },
+  { name: "min_thickness_mm", kind: "number", decimals: 2, nullable: true, readOnly: true },
+  { name: "max_thickness_mm", kind: "number", decimals: 2, nullable: true, readOnly: true },
+  { name: "price_per_part_eur", kind: "number", decimals: 2, readOnly: true },
+  { name: "min_lead_time_days", kind: "number", decimals: 0, readOnly: true },
+  { name: "minimum_scope", kind: "text", readOnly: true },
+  { name: "tier_multiplier_applies", kind: "bool", readOnly: true },
+  { name: "limits", kind: "json", jsonKind: "generic", readOnly: true },
 ];
 
 const LEADTIME_COLUMNS: readonly ColumnDef[] = [
@@ -498,7 +521,7 @@ const KNOWN_CODES = new Set([
 export function validateRateRow(table: RateTableName, input: Record<string, unknown>): ValidatedRow {
   const table_ = RATE_TABLES[table];
   const picked: Record<string, unknown> = {};
-  for (const column of table_.columns) picked[column.name] = input[column.name];
+  for (const column of table_.columns) if (!column.readOnly) picked[column.name] = input[column.name];
   const result = table_.schema.safeParse(picked);
   if (result.success) return { ok: true, values: result.data };
 

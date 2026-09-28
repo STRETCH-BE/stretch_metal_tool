@@ -27,6 +27,12 @@ export function optionLabel(content: Content, column: ColumnDef, value: unknown)
 
 export function jsonSummary(content: Content, column: ColumnDef, value: unknown): string {
   const j = content.admin.rates.json;
+  if (column.jsonKind === "generic") {
+    if (value === null || value === undefined) return j.empty;
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    if (text === "{}" || text === "[]" || text === "") return j.empty;
+    return text.length > 60 ? `${text.slice(0, 57)}…` : text;
+  }
   if (column.jsonKind === "marginByClass") {
     const count = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).length : 0;
     return count === 0 ? j.empty : interpolate(j.margins.summary, { count });
@@ -51,7 +57,8 @@ export function formatCellValue(content: Content, locale: Locale, column: Column
     case "json":
       return jsonSummary(content, column, value);
     default:
-      return value === null || value === undefined || value === "" ? content.admin.rates.grid.none : String(value);
+      if (value === null || value === undefined || value === "") return content.admin.rates.grid.none;
+      return Array.isArray(value) ? value.map(String).join(", ") : String(value);
   }
 }
 

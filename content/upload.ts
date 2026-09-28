@@ -304,6 +304,8 @@ export type UploadContent = {
       save: string;
       sources: { layer: string; drawn: string; candidate: string };
       radiusDefault: string;
+      /** `{count}`, `{longestMm}` placeholders — what the pricing sees. */
+      summary: string;
     };
     welds: {
       process: string;
@@ -697,6 +699,7 @@ export const upload: UploadContent = {
       save: "Zapisz",
       sources: { layer: "warstwa", drawn: "dorysowana", candidate: "kandydat" },
       radiusDefault: "= grubość",
+      summary: "{count} gięć · najdłuższa linia {longestMm} mm",
     },
     welds: {
       process: "Proces",

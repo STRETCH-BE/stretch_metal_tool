@@ -287,6 +287,9 @@ export function PartWorkspace(props: PartWorkspaceProps) {
             <HolesTable
               holes={props.geometry.measures.holes}
               threads={annotations.threads}
+              threadOptions={props.rates.threads}
+              materialCode={props.materialCode}
+              thicknessMm={props.thicknessMm}
               disabled={disabled || busy}
               onConfirm={(loopIds, choice: ThreadChoice) => act(() => confirmThreadGroup(props.partId, loopIds, choice), c.common.actions.saved)}
             />
