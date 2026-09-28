@@ -306,6 +306,7 @@ function mapTubeLaser(row: Loose<RateTubeLaserRow>): TubeLaserRate {
 function mapBend(row: Loose<RateBendRow>): BendRate {
   const context = `rate_bend[${String(row.thickness_mm)}/${String(row.length_class_mm)}]`;
   return {
+    id: typeof row.id === "string" && row.id !== "" ? row.id : null,
     thicknessMm: num(row.thickness_mm, `${context}.thickness_mm`),
     lengthClassMm: num(row.length_class_mm, `${context}.length_class_mm`),
     pricePerBend: num(row.price_per_bend, `${context}.price_per_bend`),

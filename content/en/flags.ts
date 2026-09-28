@@ -303,6 +303,11 @@ export const flags: FlagsContent = {
       label: "Extrapolated rate",
       message: "{operation}: {count} bend(s) longer than the benchmarked {benchmarkedMaxMm} mm (longest {longestMm} mm) — priced with the {pricePerM} €/m extension; check the price before sending.",
     },
+    "market.bend_rate_from_steel": {
+      label: "Bending rate from steel",
+      message:
+        "Bending priced from the {thicknessMm} mm steel rate × {factor} ({family}) — not benchmarked for {materialCode}; check before sending.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

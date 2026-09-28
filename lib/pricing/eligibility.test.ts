@@ -1,18 +1,20 @@
 /**
  * Unit tests for the market-mode eligibility rules: material lists,
  * thickness ranges, finish variants by material family, thread prices by
- * thickness and the exact bend row.
+ * thickness, the exact bend row and the same-thickness steel fallback.
  * File path: /lib/pricing/eligibility.test.ts
  */
 
 import { describe, expect, it } from "vitest";
 import {
+  BEND_FALLBACK_APPLY_FAMILY_FACTOR,
   FINISHES_INCLUDING_EDGE_BREAKING,
   bendExtrapolated,
   bendFamilyFactor,
   bendLengthClasses,
   bendPricePerPiece,
   codeListed,
+  fallbackFamilyFactor,
   familyOf,
   featureEligibility,
   findBendRateExact,
@@ -21,7 +23,9 @@ import {
   finishVariantBase,
   finishesOffered,
   resolveBendRate,
+  resolveBendRateForMaterial,
   resolveFinishRate,
+  steelBendRowsFor,
   thicknessWithin,
   threadPriceFor,
   threadThicknesses,
@@ -167,5 +171,74 @@ describe("bends", () => {
     const materials = [{ code: "1.4301", family: "stainless" as const }];
     expect(familyOf({ materials: materials as never }, "1.4301")).toBe("stainless");
     expect(familyOf({ materials: materials as never }, "S235")).toBeNull();
+  });
+});
+
+describe("bends — same-thickness steel fallback", () => {
+  const row15: BendRate = { id: "row-1.5", thicknessMm: 1.5, lengthClassMm: 4400, pricePerBend: 1.4152, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 0.8136, familyMultipliers: { stainless: 2.233 }, materialCodes: ["DC01", "1.4301"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 200 };
+  const row2: BendRate = { id: "row-2", thicknessMm: 2, lengthClassMm: 4400, pricePerBend: 1.9371, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 1.113, familyMultipliers: {}, materialCodes: ["DC01"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 1460 };
+  const row3: BendRate = { id: "row-3", thicknessMm: 3, lengthClassMm: 4400, pricePerBend: 1.4497, setupPerPartType: 3.3005, placeholder: false, setupPerBendLineEur: 0.8338, familyMultipliers: { aluminium: 2.184 }, materialCodes: ["S235", "AlMg3"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 200 };
+  const row5any: BendRate = { id: "row-5", thicknessMm: 5, lengthClassMm: 3000, pricePerBend: 4, setupPerPartType: 3, placeholder: false, setupPerBendLineEur: 2, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 20, benchmarkedMaxLengthMm: null };
+  const row6ph: BendRate = { id: "row-6", thicknessMm: 6, lengthClassMm: 4400, pricePerBend: 17.5378, setupPerPartType: 2.7747, placeholder: true, setupPerBendLineEur: 10.0829, familyMultipliers: {}, materialCodes: ["S235"], pricePerBendPerM: 29.7292, benchmarkedMaxLengthMm: 200 };
+  const materials = [
+    { code: "DC01", family: "mild_steel" },
+    { code: "DX51D", family: "mild_steel" },
+    { code: "S235", family: "mild_steel" },
+    { code: "1.4301", family: "stainless" },
+    { code: "1.4404", family: "stainless" },
+    { code: "AlMg3", family: "aluminium" },
+    { code: "CuZn37", family: "brass" },
+  ] as never;
+  const rates = { bend: [row15, row2, row3, row5any, row6ph], materials };
+
+  it("the toggle is on by default", () => {
+    expect(BEND_FALLBACK_APPLY_FAMILY_FACTOR).toBe(true);
+  });
+
+  it("steelBendRowsFor: rows at exactly the thickness whose material list holds a mild-steel code (or no list); placeholders never", () => {
+    expect(steelBendRowsFor(rates, 1.5).map((r) => r.id)).toEqual(["row-1.5"]);
+    expect(steelBendRowsFor(rates, 2).map((r) => r.id)).toEqual(["row-2"]);
+    expect(steelBendRowsFor(rates, 3).map((r) => r.id)).toEqual(["row-3"]);
+    expect(steelBendRowsFor(rates, 5).map((r) => r.id)).toEqual(["row-5"]); // material_codes null = generic row
+    expect(steelBendRowsFor(rates, 6)).toEqual([]); // placeholder
+    expect(steelBendRowsFor(rates, 4)).toEqual([]); // no nearest thickness
+    expect(steelBendRowsFor(rates, 1.502)).toEqual([]); // beyond the 0.001 mm tolerance
+    expect(steelBendRowsFor(rates, 1.5008).map((r) => r.id)).toEqual(["row-1.5"]);
+    expect(steelBendRowsFor(rates, null)).toEqual([]);
+    // a row listing only non-steel materials is not a steel row
+    const inoxOnly: BendRate = { ...row15, id: "inox", materialCodes: ["1.4301"] };
+    expect(steelBendRowsFor({ bend: [inoxOnly], materials }, 1.5)).toEqual([]);
+  });
+
+  it("fallbackFamilyFactor: mild steel 1; the row's own multiplier; else the multiplier of another row (by thickness); else 1", () => {
+    expect(fallbackFamilyFactor(rates, row15, "mild_steel")).toBe(1);
+    expect(fallbackFamilyFactor(rates, row15, null)).toBe(1);
+    expect(fallbackFamilyFactor(rates, row15, "stainless")).toBe(2.233); // own
+    expect(fallbackFamilyFactor(rates, row15, "aluminium")).toBe(2.184); // from the 3 mm row
+    expect(fallbackFamilyFactor(rates, row3, "stainless")).toBe(2.233); // from the 1.5 mm row
+    expect(fallbackFamilyFactor(rates, row2, "aluminium")).toBe(2.184);
+    expect(fallbackFamilyFactor(rates, row2, "brass")).toBe(1); // no row of the version knows brass
+    expect(fallbackFamilyFactor({ bend: [row2] }, row2, "aluminium")).toBe(1);
+  });
+
+  it("resolveBendRateForMaterial: exact row first (own factor), else the steel row with the family factor, else nothing", () => {
+    expect(resolveBendRateForMaterial(rates, "DC01", "mild_steel", 1.5, 160)).toMatchObject({ rate: { id: "row-1.5" }, source: "exact", factor: 1, tooLong: false, limitMm: 4400 });
+    expect(resolveBendRateForMaterial(rates, "1.4301", "stainless", 1.5, 160)).toMatchObject({ rate: { id: "row-1.5" }, source: "exact", factor: 2.233 });
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", 3, 160)).toMatchObject({ rate: { id: "row-3" }, source: "exact", factor: 2.184 });
+    // AlMg3 1.5: no row lists it → the 1.5 mm steel row × 2.184 (aluminium, from the 3 mm row)
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", 1.5, 160)).toMatchObject({ rate: { id: "row-1.5" }, source: "steel_fallback", factor: 2.184, tooLong: false, limitMm: 4400 });
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", 1.5, 160, false).factor).toBe(1);
+    expect(resolveBendRateForMaterial(rates, "DX51D", "mild_steel", 2, 160)).toMatchObject({ rate: { id: "row-2" }, source: "steel_fallback", factor: 1 });
+    expect(resolveBendRateForMaterial(rates, "1.4404", "stainless", 3, 160)).toMatchObject({ rate: { id: "row-3" }, source: "steel_fallback", factor: 2.233 });
+    expect(resolveBendRateForMaterial(rates, "CuZn37", "brass", 2, 160)).toMatchObject({ rate: { id: "row-2" }, source: "steel_fallback", factor: 1 });
+    expect(resolveBendRateForMaterial(rates, "CuZn37", "brass", 5, 160)).toMatchObject({ rate: { id: "row-5" }, source: "exact", factor: 1 }); // a row with no material list prices every material
+    // the press-brake limit applies to the steel row too
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", 1.5, 4500)).toEqual({ rate: null, tooLong: true, limitMm: 4400, source: null, factor: 1 });
+    // no steel row at the thickness (none, or only a placeholder) → not benchmarked, no nearest thickness
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", 1, 160)).toEqual({ rate: null, tooLong: false, limitMm: null, source: null, factor: 1 });
+    expect(resolveBendRateForMaterial(rates, "S235", "mild_steel", 4, 160)).toEqual({ rate: null, tooLong: false, limitMm: null, source: null, factor: 1 });
+    expect(resolveBendRateForMaterial(rates, "1.4404", "stainless", 6, 160).rate).toBeNull();
+    expect(resolveBendRateForMaterial(rates, null, null, 1.5, 160)).toMatchObject({ rate: { id: "row-1.5" }, source: "steel_fallback", factor: 1 });
+    expect(resolveBendRateForMaterial(rates, "AlMg3", "aluminium", null, 160).rate).toBeNull();
   });
 });

@@ -718,6 +718,7 @@ const FLAG_CODES = {
   "market.finish_implied": true,
   "market.bend_too_long": true,
   "market.extrapolated_rate": true,
+  "market.bend_rate_from_steel": true,
   "rates.placeholder": true,
 } satisfies Record<FlagCode, true>;
 

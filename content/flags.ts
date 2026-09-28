@@ -357,6 +357,11 @@ export const flags: FlagsContent = {
       label: "Stawka ekstrapolowana",
       message: "{operation}: {count} gięć dłuższych niż benchmark ({benchmarkedMaxMm} mm, najdłuższe {longestMm} mm) — wyceniono dopłatą {pricePerM} €/m; sprawdź cenę przed wysłaniem.",
     },
+    "market.bend_rate_from_steel": {
+      label: "Stawka gięcia ze stali",
+      message:
+        "Gięcie wycenione wg stawki dla stali {thicknessMm} mm × {factor} ({family}) — brak benchmarku dla {materialCode}; sprawdź przed wysłaniem.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

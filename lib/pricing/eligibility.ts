@@ -27,6 +27,15 @@
  *   multiplier (also on the bend-line set-up). A bend longer than the row's
  *   benchmarked_max_length_mm is priced that way but flagged amber
  *   (extrapolated).
+ * - Steel fallback (resolveBendRateForMaterial): when no row lists the
+ *   part's material, the row at the SAME thickness that lists a mild-steel
+ *   material of the version prices the bends instead, times the family
+ *   factor (mild steel 1; otherwise that row's family_multipliers entry,
+ *   else the entry of any other bend row of the version, else 1) — amber
+ *   market.bend_rate_from_steel, never silent. BEND_FALLBACK_APPLY_FAMILY_FACTOR
+ *   switches the factor off (pure steel price). No steel row at the
+ *   thickness → not benchmarked as before; no nearest thickness, no
+ *   interpolation.
  * - Variants: a finish offered as ONE option in the UI but priced from
  *   two rows by material family carries a suffix from
  *   FINISH_VARIANT_SUFFIXES (`deburr` for steel, `deburr_nonferrous` for
@@ -205,6 +214,75 @@ export function resolveBendRate(rates: Pick<RateSnapshot, "bend">, materialCode:
   const limitMm = rows[rows.length - 1].lengthClassMm;
   const rate = rows.find((r) => r.lengthClassMm >= longestBendMm - MM_EPSILON) ?? null;
   return { rate, tooLong: rate === null, limitMm };
+}
+
+/**
+ * Whether the steel fallback multiplies the steel row by the part's family
+ * factor (true) or charges the plain steel price (false).
+ */
+export const BEND_FALLBACK_APPLY_FAMILY_FACTOR = true;
+
+/** "Same thickness" for the steel fallback: |t − row.thickness_mm| ≤ 0.001 mm (no nearest thickness). */
+export const BEND_FALLBACK_THICKNESS_TOLERANCE_MM = 0.001;
+
+export type BendRateSource = "exact" | "steel_fallback";
+
+export type BendResolutionForMaterial = BendResolution & {
+  /** How the row was found; null when nothing prices the bends. */
+  source: BendRateSource | null;
+  /** Family factor on the per-bend prices and the bend-line set-up (1 when none applies). */
+  factor: number;
+};
+
+/** The bend rows of exactly this thickness whose material list holds a mild-steel material of the version (or is open). */
+export function steelBendRowsFor(rates: Pick<RateSnapshot, "bend" | "materials">, thicknessMm: number | null): BendRate[] {
+  if (thicknessMm === null) return [];
+  const steelCodes = rates.materials.filter((m) => m.family === "mild_steel").map((m) => normaliseCode(m.code));
+  return rates.bend
+    .filter(
+      (r) =>
+        !r.placeholder &&
+        Math.abs(r.thicknessMm - thicknessMm) <= BEND_FALLBACK_THICKNESS_TOLERANCE_MM &&
+        (r.materialCodes === null || r.materialCodes.some((c) => steelCodes.includes(normaliseCode(c))))
+    )
+    .sort((a, b) => a.lengthClassMm - b.lengthClassMm);
+}
+
+/** The family multiplier of `family` from the given row, else from any other bend row of the version (by thickness), else 1. */
+export function fallbackFamilyFactor(rates: Pick<RateSnapshot, "bend">, rate: BendRate, family: MaterialFamily | null): number {
+  if (!family || family === "mild_steel") return 1;
+  const own = rate.familyMultipliers[family];
+  if (typeof own === "number" && Number.isFinite(own) && own > 0) return own;
+  const others = rates.bend.filter((r) => r !== rate).sort((a, b) => a.thicknessMm - b.thicknessMm);
+  for (const other of others) {
+    const factor = other.familyMultipliers[family];
+    if (typeof factor === "number" && Number.isFinite(factor) && factor > 0) return factor;
+  }
+  return 1;
+}
+
+/**
+ * Bend row for a part: the exact row for its material first (factor = the
+ * row's own multiplier), else the same-thickness steel row with the family
+ * factor (see the header). `applyFamilyFactor` defaults to the constant.
+ */
+export function resolveBendRateForMaterial(
+  rates: Pick<RateSnapshot, "bend" | "materials">,
+  materialCode: string | null,
+  family: MaterialFamily | null,
+  thicknessMm: number | null,
+  longestBendMm: number,
+  applyFamilyFactor: boolean = BEND_FALLBACK_APPLY_FAMILY_FACTOR
+): BendResolutionForMaterial {
+  const exact = resolveBendRate(rates, materialCode, thicknessMm, longestBendMm);
+  if (exact.rate) return { ...exact, source: "exact", factor: bendFamilyFactor(exact.rate, family) };
+  if (exact.tooLong) return { ...exact, source: null, factor: 1 };
+  const rows = steelBendRowsFor(rates, thicknessMm);
+  if (rows.length === 0) return { rate: null, tooLong: false, limitMm: null, source: null, factor: 1 };
+  const limitMm = rows[rows.length - 1].lengthClassMm;
+  const rate = rows.find((r) => r.lengthClassMm >= longestBendMm - MM_EPSILON) ?? null;
+  if (!rate) return { rate: null, tooLong: true, limitMm, source: null, factor: 1 };
+  return { rate, tooLong: false, limitMm, source: "steel_fallback", factor: applyFamilyFactor ? fallbackFamilyFactor(rates, rate, family) : 1 };
 }
 
 /** EUR per bend per piece for a bend of `lengthMm`: (price_per_bend + price_per_bend_per_m × length beyond the base) × family factor. */
