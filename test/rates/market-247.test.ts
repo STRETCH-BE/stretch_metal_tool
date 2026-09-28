@@ -23,6 +23,7 @@ import { buildQuoteInput } from "@/lib/quotes/mapper";
 
 const FIXTURES = path.join(__dirname, "../fixtures");
 const MARKET_V2_JSON = path.join(FIXTURES, "rates/market-247-v2.json");
+const MARKET_V3_JSON = path.join(FIXTURES, "rates/market-247-v3.json");
 
 type Bundle = { quote: QuoteRow; items: QuoteItemRow[]; parts: PartRow[] };
 type RatesJson = RateRows & { machines: Parameters<typeof rowsToMachinePark>[0]; leadtime?: RateRows["leadtime"] };
@@ -114,8 +115,11 @@ describe("SM-2026-0004 in the placeholder (cost) version", () => {
   });
 });
 
-describe("E9 — SM-2026-0004 on market v2 (market-247+10% v2, 27 Sep 2026)", () => {
-  const market = snapshotFrom(loadJson<RatesJson>(MARKET_V2_JSON));
+describe.each([
+  ["v2 (market-247+10% v2, 27 Sep 2026)", MARKET_V2_JSON, "2a7c0927-0000-4000-8000-000000000002"],
+  ["v3 (market-247+10% v3, 28 Sep 2026) — flat laser copied 1:1, numbers unchanged", MARKET_V3_JSON, "3b8d1a38-0000-4000-8000-000000000003"],
+])("E9 — SM-2026-0004 on market %s", (_label, file, versionId) => {
+  const market = snapshotFrom(loadJson<RatesJson>(file));
   const items = scenarioItems(bundle);
   const input = buildQuoteInput({ quote: { ...bundle.quote, lead_time_days: LEAD_TIME_DAYS }, customer: null, items, parts: bundle.parts, rates: market.rates });
   const priced = priceQuote(input, market.rates, market.machines, { costRates: placeholder.rates });
@@ -123,12 +127,12 @@ describe("E9 — SM-2026-0004 on market v2 (market-247+10% v2, 27 Sep 2026)", ()
   const actualByName = new Map(priced.items.map((item) => [nameOf.get(item.partId) ?? "", item.unitPrice]));
 
   it(`prices every part within ${TOLERANCE_PCT} % of the expected figure`, () => {
-    expect(market.rates.versionId).toBe("2a7c0927-0000-4000-8000-000000000002");
+    expect(market.rates.versionId).toBe(versionId);
     expect(priced.pricingMode).toBe("market");
     expect(priced.leadTimeDays).toBe(LEAD_TIME_DAYS);
     expect(priced.items).toHaveLength(38);
     const rows = EXPECTED_V2.map(([name, expected]) => ({ name, expected, actual: actualByName.get(name) ?? Number.NaN }));
-    console.log(`market v2 — expected vs engine unit prices (EUR)\n${table(rows)}\nparts subtotal ${(priced.subtotalPrice - (priced.quoteLines[0]?.unitCost ?? 0)).toFixed(2)}, packaging ${priced.quoteLines[0]?.label ?? "-"} ${(priced.quoteLines[0]?.unitCost ?? 0).toFixed(2)}, margin vs cost version ${priced.marginPct.toFixed(1)} %`);
+    console.log(`market ${market.rates.label} — expected vs engine unit prices (EUR)\n${table(rows)}\nparts subtotal ${(priced.subtotalPrice - (priced.quoteLines[0]?.unitCost ?? 0)).toFixed(2)}, packaging ${priced.quoteLines[0]?.label ?? "-"} ${(priced.quoteLines[0]?.unitCost ?? 0).toFixed(2)}, margin vs cost version ${priced.marginPct.toFixed(1)} %`);
     for (const row of rows) {
       expect(row.actual, row.name).not.toBeNaN();
       expect((Math.abs(row.actual - row.expected) / row.expected) * 100, `${row.name}: expected ${row.expected}, got ${row.actual.toFixed(2)}`).toBeLessThanOrEqual(TOLERANCE_PCT);

@@ -15,7 +15,7 @@ import { priceCostQuote, priceQuote } from "@/lib/pricing/price-quote";
 import type { Flag, FlagCode, OperationLine, PricingItem, PricingPart, RateSnapshot } from "@/lib/pricing/types";
 import { makeRectPartGeometry } from "@/test/helpers/geometry";
 import { makeItem, makePricingPart, makeQuoteInput } from "@/test/helpers/quote";
-import { MACHINE_PARK, RATE_SNAPSHOT_V1, cloneSnapshot } from "@/test/helpers/rates";
+import { FINISH_V3_DEFAULTS, MACHINE_PARK, RATE_SNAPSHOT_V1, cloneSnapshot } from "@/test/helpers/rates";
 
 const KG_PER_MM3 = 7850e-9;
 
@@ -58,8 +58,8 @@ function marketSnapshot(): RateSnapshot {
   s.feature = [];
   s.thread = [];
   s.finish = [
-    { code: "deburr", name: "Deburring", unit: "m", price: 0.5, minimum: 0, placeholder: false, setupPerOrderEur: 0, setupPerLineEur: 20, minPartMm: "steel 250x60 or 600x50; aluminium/stainless 50x50" },
-    { code: "engrave", name: "Engraving", unit: "part", price: 3, minimum: 0, placeholder: false, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
+    { code: "deburr", name: "Deburring", unit: "m", price: 0.5, minimum: 0, placeholder: false, setupPerOrderEur: 0, setupPerLineEur: 20, minPartMm: "steel 250x60 or 600x50; aluminium/stainless 50x50", ...FINISH_V3_DEFAULTS },
+    { code: "engrave", name: "Engraving", unit: "part", price: 3, minimum: 0, placeholder: false, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null, ...FINISH_V3_DEFAULTS },
   ];
   s.leadtime = [
     { workingDays: 3, multiplier: 1.4, placeholder: false },

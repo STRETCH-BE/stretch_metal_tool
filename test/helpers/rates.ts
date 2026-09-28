@@ -158,6 +158,18 @@ const tubeLaser: TubeLaserRate[] = (["round", "square", "rectangular", "open"] a
   ]
 );
 
+/** Market-v3 finish columns at their DB defaults (open eligibility, no per-piece price, no minimum scope, tiered). */
+export const FINISH_V3_DEFAULTS = {
+  materialCodes: null,
+  minThicknessMm: null,
+  maxThicknessMm: null,
+  pricePerPartEur: 0,
+  minLeadTimeDays: 0,
+  minimumScope: "order" as const,
+  tierMultiplierApplies: true,
+  limits: {},
+};
+
 export const RATE_SNAPSHOT_V1: RateSnapshot = {
   versionId: RATE_VERSION_ID,
   label: "v1 placeholder seed",
@@ -174,13 +186,13 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
   ],
   tubeLaser,
   bend: [
-    { thicknessMm: 6, lengthClassMm: 500, pricePerBend: 0.9, setupPerPartType: 8, placeholder: true },
-    { thicknessMm: 6, lengthClassMm: 1500, pricePerBend: 1.6, setupPerPartType: 8, placeholder: true },
-    { thicknessMm: 6, lengthClassMm: 4420, pricePerBend: 3.0, setupPerPartType: 8, placeholder: true },
+    { thicknessMm: 6, lengthClassMm: 500, pricePerBend: 0.9, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 6, lengthClassMm: 1500, pricePerBend: 1.6, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 6, lengthClassMm: 4420, pricePerBend: 3.0, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
     // +50 % above 6 mm
-    { thicknessMm: 20, lengthClassMm: 500, pricePerBend: 1.35, setupPerPartType: 8, placeholder: true },
-    { thicknessMm: 20, lengthClassMm: 1500, pricePerBend: 2.4, setupPerPartType: 8, placeholder: true },
-    { thicknessMm: 20, lengthClassMm: 4420, pricePerBend: 4.5, setupPerPartType: 8, placeholder: true },
+    { thicknessMm: 20, lengthClassMm: 500, pricePerBend: 1.35, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 20, lengthClassMm: 1500, pricePerBend: 2.4, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 20, lengthClassMm: 4420, pricePerBend: 4.5, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
   ],
   roll: [{ thicknessMm: 6, radiusClassMm: 3000, pricePerM: 12, setup: 25, placeholder: true }],
   weld: [
@@ -190,29 +202,29 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
     { process: "mma", beadMm: 4, pricePerMm: 0.07, setup: 15, minOrder: 60, placeholder: true },
   ],
   thread: [
-    { size: "M3", priceEach: 0.6, setupPerLineEur: 0, placeholder: true },
-    { size: "M4", priceEach: 0.6, setupPerLineEur: 0, placeholder: true },
-    { size: "M5", priceEach: 0.7, setupPerLineEur: 0, placeholder: true },
-    { size: "M6", priceEach: 0.8, setupPerLineEur: 0, placeholder: true },
-    { size: "M8", priceEach: 0.9, setupPerLineEur: 0, placeholder: true },
-    { size: "M10", priceEach: 1.0, setupPerLineEur: 0, placeholder: true },
-    { size: "M10x1", priceEach: 1.0, setupPerLineEur: 0, placeholder: true },
-    { size: "M12", priceEach: 1.2, setupPerLineEur: 0, placeholder: true },
-    { size: "M12x1.5", priceEach: 1.2, setupPerLineEur: 0, placeholder: true },
-    { size: "M16", priceEach: 1.4, setupPerLineEur: 0, placeholder: true },
-    { size: "M20", priceEach: 1.5, setupPerLineEur: 0, placeholder: true },
+    { size: "M3", priceEach: 0.6, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M4", priceEach: 0.6, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M5", priceEach: 0.7, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M6", priceEach: 0.8, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M8", priceEach: 0.9, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M10", priceEach: 1.0, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M10x1", priceEach: 1.0, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M12", priceEach: 1.2, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M12x1.5", priceEach: 1.2, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M16", priceEach: 1.4, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
+    { size: "M20", priceEach: 1.5, setupPerLineEur: 0, priceByThickness: [], materialCodes: null, placeholder: true },
   ],
   feature: [
-    { code: "countersink", name: "Countersink", priceEach: 0.8, placeholder: true }, // [CONFIRM]
-    { code: "bore_h7", name: "H7 bore", priceEach: 4.0, placeholder: true }, // [CONFIRM]
-    { code: "insert", name: "Press-in insert", priceEach: 1.2, placeholder: true }, // [CONFIRM]
-    { code: "stud", name: "Welded stud", priceEach: 1.5, placeholder: true }, // [CONFIRM]
+    { code: "countersink", name: "Countersink", priceEach: 0.8, placeholder: true, setupPerLineEur: 0, materialCodes: null, minThicknessMm: null, maxThicknessMm: null }, // [CONFIRM]
+    { code: "bore_h7", name: "H7 bore", priceEach: 4.0, placeholder: true, setupPerLineEur: 0, materialCodes: null, minThicknessMm: null, maxThicknessMm: null }, // [CONFIRM]
+    { code: "insert", name: "Press-in insert", priceEach: 1.2, placeholder: true, setupPerLineEur: 0, materialCodes: null, minThicknessMm: null, maxThicknessMm: null }, // [CONFIRM]
+    { code: "stud", name: "Welded stud", priceEach: 1.5, placeholder: true, setupPerLineEur: 0, materialCodes: null, minThicknessMm: null, maxThicknessMm: null }, // [CONFIRM]
   ],
   finish: [
-    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
-    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
-    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null },
-    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null }, // [CONFIRM]
+    { code: "powder", name: "Powder coating", unit: "m2", price: 14, minimum: 25, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null, ...FINISH_V3_DEFAULTS },
+    { code: "zinc", name: "Zinc plating", unit: "kg", price: 1.2, minimum: 30, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null, ...FINISH_V3_DEFAULTS },
+    { code: "deburr", name: "Deburring", unit: "m", price: 0.4, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null, ...FINISH_V3_DEFAULTS },
+    { code: "engrave", name: "Engraving / marking", unit: "m", price: 1.0, minimum: 0, placeholder: true, setupPerOrderEur: 0, setupPerLineEur: 0, minPartMm: null, ...FINISH_V3_DEFAULTS }, // [CONFIRM]
   ],
   leadtime: [],
   general: {
@@ -312,6 +324,7 @@ export function cloneMachinePark(): MachinePark {
 /* ─── Snapshot ⇄ DB rows (for the seed test and round-trip tests) ── */
 
 import type {
+  Json,
   MachineRow,
   MaterialRow,
   RateBendRow,
@@ -399,6 +412,9 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     price_per_bend: r.pricePerBend,
     setup_per_part_type: r.setupPerPartType,
     placeholder: r.placeholder,
+    setup_per_bend_line_eur: r.setupPerBendLineEur,
+    family_multipliers: r.familyMultipliers,
+    material_codes: r.materialCodes,
   }));
   const roll: RateRollRow[] = snapshot.roll.map((r) => ({
     id: id(),
@@ -425,6 +441,8 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     size: r.size,
     price_each: r.priceEach,
     setup_per_line_eur: r.setupPerLineEur,
+    price_by_thickness: r.priceByThickness,
+    material_codes: r.materialCodes,
     placeholder: r.placeholder,
   }));
   const feature: RateFeatureRow[] = snapshot.feature.map((r) => ({
@@ -434,6 +452,10 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     name: r.name,
     price_each: r.priceEach,
     placeholder: r.placeholder,
+    setup_per_line_eur: r.setupPerLineEur,
+    material_codes: r.materialCodes,
+    min_thickness_mm: r.minThicknessMm,
+    max_thickness_mm: r.maxThicknessMm,
   }));
   const finish: RateFinishRow[] = snapshot.finish.map((r) => ({
     id: id(),
@@ -447,6 +469,14 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     setup_per_order_eur: r.setupPerOrderEur,
     setup_per_line_eur: r.setupPerLineEur,
     min_part_mm: r.minPartMm,
+    material_codes: r.materialCodes,
+    min_thickness_mm: r.minThicknessMm,
+    max_thickness_mm: r.maxThicknessMm,
+    price_per_part_eur: r.pricePerPartEur,
+    min_lead_time_days: r.minLeadTimeDays,
+    minimum_scope: r.minimumScope,
+    tier_multiplier_applies: r.tierMultiplierApplies,
+    limits: r.limits as Json,
   }));
   const leadtime: RateLeadtimeRow[] = snapshot.leadtime.map((r) => ({
     id: id(),

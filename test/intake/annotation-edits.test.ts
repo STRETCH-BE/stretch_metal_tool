@@ -199,7 +199,7 @@ describe("finish", () => {
     expect(finishRateCodeFor("anodised")).toBe("anodised");
     const first = acceptFinishSuggestion([], { code: "powder_coating", ral: "7016", text: "RAL 7016 powder" });
     expect(first.added).toBe(true);
-    expect(first.extras).toEqual<ExtraOperation[]>([{ type: "finish", code: "powder", maskingMinutes: 0, note: "RAL 7016 — RAL 7016 powder" }]);
+    expect(first.extras).toEqual<ExtraOperation[]>([{ type: "finish", code: "powder", maskingMinutes: 0, note: "RAL 7016 powder", colour: "RAL 7016" }]);
     const again = acceptFinishSuggestion(first.extras, { code: "painted", ral: null, text: null });
     expect(again.added).toBe(false);
     expect(acceptFinishSuggestion([], { code: "none", ral: null, text: null }).added).toBe(false);

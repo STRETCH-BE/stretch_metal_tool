@@ -51,6 +51,7 @@ const FLAG_CODES: FlagCode[] = [
   "market.leadtime_not_offered",
   "market.subcontract",
   "market.manual_price",
+  "market.finish_implied",
   "rates.placeholder",
 ];
 

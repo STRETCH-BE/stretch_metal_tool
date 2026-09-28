@@ -715,6 +715,7 @@ const FLAG_CODES = {
   "market.leadtime_not_offered": true,
   "market.subcontract": true,
   "market.manual_price": true,
+  "market.finish_implied": true,
   "rates.placeholder": true,
 } satisfies Record<FlagCode, true>;
 

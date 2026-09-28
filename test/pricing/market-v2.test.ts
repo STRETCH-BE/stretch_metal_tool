@@ -101,7 +101,8 @@ describe("v2 fixture is the migration", () => {
     expect(V2.laser).toHaveLength(53);
     expect(V2.laser.every((r) => r.mode === "per_m" && !r.placeholder)).toBe(true);
     expect(V2.finish.map((f) => f.code).sort()).toEqual(["deburr", "deburr_one_side", "edge_round", "engrave"]);
-    expect(V2.thread).toEqual([{ size: "M12", priceEach: 0.76, setupPerLineEur: 2.59, placeholder: false }]);
+    expect(V2.thread).toHaveLength(1);
+    expect(V2.thread[0]).toMatchObject({ size: "M12", priceEach: 0.76, setupPerLineEur: 2.59, placeholder: false });
     expect(V2.leadtime.map((l) => [l.workingDays, l.multiplier])).toEqual([
       [4, 1.75],
       [7, 1.12],
@@ -309,13 +310,13 @@ describe("E7 — threads", () => {
     expect(byLabel(four.items[0].operations, "thread_setup")!.unitCost).toBeCloseTo(2.59 / 4, 9);
   });
 
-  it("M6 → red market.not_benchmarked (thread M6), unit price null", () => {
+  it("M6 → red market.no_benchmark_rate (thread M6), unit price null", () => {
     const p = rect({ id: "h16", lengthMm: 200, widthMm: 200, thicknessMm: 3, materialCode: "S235", holes: grid(16, 5, 200), threads: threads(16, "M6") });
     const priced = quote([p], [makeItem({ id: "x", partId: "h16" })]);
     expect(priced.items[0].unitPrice).toBeNull();
-    const flag = priced.items[0].flags.find((f) => f.code === "market.not_benchmarked");
+    const flag = priced.items[0].flags.find((f) => f.code === "market.no_benchmark_rate");
     expect(flag?.severity).toBe("red");
-    expect(flag?.params).toMatchObject({ operation: "thread M6", size: "M6", count: 16 });
+    expect(flag?.params).toMatchObject({ what: "thread M6", size: "M6", count: 16 });
     expect(codes(priced.items[0].flags)).not.toContain("thread.no_rate_row");
   });
 });
