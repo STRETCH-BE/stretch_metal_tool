@@ -57,6 +57,9 @@ export type CommonContent = {
     admin: string;
     rates: string;
     machines: string;
+    bendTable: string;
+    tooling: string;
+    hardware: string;
     calculator: string;
     users: string;
     overrides: string;
@@ -218,6 +221,9 @@ export const common: CommonContent = {
     admin: "Administracja",
     rates: "Cenniki",
     machines: "Maszyny",
+    bendTable: "Tabela gięć",
+    tooling: "Narzędzia prasy",
+    hardware: "Osprzęt (nazwy)",
     calculator: "Kalkulator maszynogodziny",
     users: "Użytkownicy",
     overrides: "Odstępstwa",

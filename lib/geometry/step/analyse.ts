@@ -59,7 +59,7 @@
  * `sheet.isSheetMetal = false` (a machined or solid part).
  */
 
-import type { AnalyzeOptions, BendLine, DxfHeaderInfo, HardwareLine, ModelPart, PartGeometry, Point, ReliefInfo, SheetReport, SplitModel, Triage, TriageReasonCode } from "../types";
+import type { AnalyzeOptions, BendLine, DxfHeaderInfo, HardwareLine, ModelPart, PartGeometry, Point, SheetReport, SplitModel, Triage, TriageReasonCode } from "../types";
 import type { ParsedDxf } from "../parse";
 import { runPipeline, GEOMETRY_VERSION } from "../pipeline";
 import { clampTolerance, emptyHealingReport } from "../heal";
@@ -175,12 +175,19 @@ function thicknessOf(planar: PlanarFace[]): { thicknessMm: number; normal: Vec3 
   for (const a of planar) {
     if (a.area <= 0) continue;
     let best = Infinity;
+    // A pocket floor is a small parallel face just below the sheet face: it
+    // must not shorten the thickness, so partners under a quarter of the
+    // face's area are only used when nothing larger lies behind.
+    let bestLarge = Infinity;
     for (const b of planar) {
       if (a === b || dot3(a.normal, b.normal) > -PARALLEL) continue;
       // Material lies against a's normal: b's plane must be behind a.
       const d = dot3(scale3(a.normal, -1), sub3(b.placement.origin, a.placement.origin));
-      if (d >= MIN_THICKNESS_MM && d <= MAX_THICKNESS_MM && d < best) best = d;
+      if (d < MIN_THICKNESS_MM || d > MAX_THICKNESS_MM) continue;
+      if (d < best) best = d;
+      if (b.area >= a.area * 0.25 && d < bestLarge) bestLarge = d;
     }
+    if (Number.isFinite(bestLarge)) best = bestLarge;
     if (!Number.isFinite(best)) continue;
     const key = Math.round(best / THICKNESS_BUCKET_MM);
     const bucket = buckets.get(key);

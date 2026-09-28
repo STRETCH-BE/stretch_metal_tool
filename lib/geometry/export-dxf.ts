@@ -418,6 +418,11 @@ export function writeProductionDxf(geometry: PartGeometry, annotations: PartAnno
   for (const b of applied.measures.bendLines.filter((x) => x.entityId === null)) {
     emit({ kind: "line", start: b.start, end: b.end }, b.direction === "down" ? "BEND_DOWN" : "BEND_UP");
   }
+  // Stud positions as reference crosses on IGNORE (never cut).
+  for (const p of geometry.sheet?.studPositions ?? []) {
+    emit({ kind: "line", start: { x: p.x - 1.5, y: p.y }, end: { x: p.x + 1.5, y: p.y } }, "IGNORE");
+    emit({ kind: "line", start: { x: p.x, y: p.y - 1.5 }, end: { x: p.x, y: p.y + 1.5 } }, "IGNORE");
+  }
   w.g(0, "ENDSEC");
 
   // OBJECTS: the root dictionary AC1018 readers expect.

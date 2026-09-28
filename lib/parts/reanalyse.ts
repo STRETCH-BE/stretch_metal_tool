@@ -14,7 +14,10 @@
  *     already holds the base result and is copied instead of parsed;
  *   - STEP parts: re-read from the stored model (lib/geometry/step) with
  *     the same hash cache; a STEP part uploaded before the reader existed
- *     (geometry null) gets its first analysis this way;
+ *     (geometry null) gets its first analysis this way. The bend table
+ *     and hardware rules come in through `options.sheet` (the caller
+ *     loads the quote's pinned version); the cache is skipped for sheet
+ *     parts because the flat size depends on that table;
  *   - manual parts: the stored geometry is the base (quick parts are
  *     synthetic rectangles; scale/mirror are not offered for them and are
  *     ignored on re-apply).
@@ -22,7 +25,7 @@
  * light-theme thumbnail.
  */
 
-import type { AnalyzeOptions, PartAnnotations, PartGeometry } from "@/lib/geometry/types";
+import type { AnalyzeOptions, BendTableLookup, HardwareNameRule, PartAnnotations, PartGeometry } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
 import { decodeStepBytes } from "@/lib/geometry/step/part21";
 
@@ -52,7 +55,12 @@ export type ReanalysePart = {
   densityKgM3: number | null;
 };
 
-export type ReanalyseOptions = { toleranceMm: number; blankMarginMm: number };
+export type ReanalyseOptions = {
+  toleranceMm: number;
+  blankMarginMm: number;
+  /** STEP sheet parts: the quote's bend table (rows + the part's material family) and the hardware name rules. */
+  sheet?: { bendTable: BendTableLookup | null; hardwareNames: readonly HardwareNameRule[] } | null;
+};
 
 /** True when the stored (annotated) geometry equals the base analysis for chaining purposes. */
 export function isBaseEquivalent(annotations: PartAnnotations): boolean {
@@ -67,6 +75,7 @@ export function analyseOptionsFor(part: ReanalysePart, options: ReanalyseOptions
     densityKgM3: part.densityKgM3,
     name: part.name,
     pdfText: part.pdfText,
+    ...(options.sheet ? { bendTable: options.sheet.bendTable, hardwareNames: options.sheet.hardwareNames, drawingText: part.pdfText } : {}),
   };
 }
 
@@ -77,7 +86,7 @@ export async function baseGeometryFor(
 ): Promise<{ geometry: PartGeometry; fromCache: boolean; annotations: PartAnnotations }> {
   const analyseOptions = analyseOptionsFor(part, options);
   if ((part.source === "dxf" || part.source === "step") && part.storagePath) {
-    if (part.fileHash) {
+    if (part.fileHash && part.source === "dxf") {
       const cached = await deps.findCachedGeometry(part.fileHash, options.toleranceMm, part.id);
       if (cached) return { geometry: cached, fromCache: true, annotations: part.annotations };
     }

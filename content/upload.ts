@@ -268,6 +268,55 @@ export type UploadContent = {
       quantity: string;
       actions: string;
       pdfText: string;
+      sheet: string;
+    };
+    /** Verification report of a STEP sheet part (components/triage/sheet-report.tsx). */
+    sheet: {
+      notSheet: string;
+      downloadDxf: string;
+      previewLabel: string;
+      legend: string;
+      flatSize: string;
+      cutLength: string;
+      pierces: string;
+      netArea: string;
+      flatMass: string;
+      modelMass: string;
+      /** `{density}` placeholder. */
+      densityNote: string;
+      /** `{count}` placeholder. */
+      bendsTitle: string;
+      up: string;
+      down: string;
+      sources: { test_bend: string; din6935_table: string; din6935_formula: string };
+      /** `{count}` placeholder. */
+      holesTitle: string;
+      /** `{diameter}` placeholder. */
+      holeRound: string;
+      /** `{w}` and `{h}` placeholders. */
+      holeSlot: string;
+      /** `{count}` placeholder. */
+      hardwareTitle: string;
+      hardwareKinds: { weld_stud: string; insert: string; unknown: string };
+      notPriced: string;
+      featuresTitle: string;
+      /** `{count}` and `{area}` placeholders. */
+      masking: string;
+      maskingConfirmed: string;
+      /** `{count}`, `{through}` and `{top}` placeholders. */
+      countersinks: string;
+      /** `{count}` placeholder. */
+      studs: string;
+      /** `{count}` placeholder. */
+      pockets: string;
+      drawingTitle: string;
+      /** `{file}` and `{drawing}` placeholders. */
+      revision: string;
+      /** `{value}` placeholder. */
+      material: string;
+      /** `{value}` placeholder. */
+      finish: string;
+      none: string;
     };
     material: {
       code: string;
@@ -674,6 +723,41 @@ export const upload: UploadContent = {
       quantity: "Ilość i cena",
       actions: "Akcje",
       pdfText: "Tekst z PDF",
+      sheet: "Raport z modelu STEP",
+    },
+    sheet: {
+      notSheet: "Model nie zawiera bryły arkuszowej — część toczona, frezowana lub pełna. Wprowadź ją jako szybką część.",
+      downloadDxf: "Pobierz DXF produkcyjny",
+      previewLabel: "Podgląd rozwinięcia z cechami modelu",
+      legend: "Czarne: cięcie · czerwone: linie gięcia · niebieskie: pozycje kołków · kreskowane: strefy maskowania · czerwone okręgi: miejsca z flagą",
+      flatSize: "Rozwinięcie",
+      cutLength: "Długość cięcia",
+      pierces: "Przebicia",
+      netArea: "Pole netto",
+      flatMass: "Masa rozwinięcia",
+      modelMass: "Masa bryły w modelu",
+      densityNote: "Masy policzone dla gęstości {density} kg/m³.",
+      bendsTitle: "Gięcia ({count})",
+      up: "do góry",
+      down: "w dół",
+      sources: { test_bend: "gięcie próbne", din6935_table: "tabela DIN 6935", din6935_formula: "wzór DIN 6935" },
+      holesTitle: "Otwory ({count})",
+      holeRound: "Ø{diameter}",
+      holeSlot: "{w} × {h}",
+      hardwareTitle: "Osprzęt ({count})",
+      hardwareKinds: { weld_stud: "kołek spawalniczy", insert: "nakrętka wciskana", unknown: "element" },
+      notPriced: "brak stawki",
+      featuresTitle: "Cechy poza cięciem",
+      masking: "Maskowanie lakiernicze: {count} stref, {area} mm²",
+      maskingConfirmed: "potwierdzone na rysunku",
+      countersinks: "Pogłębienia stożkowe: {count} × Ø{through} → Ø{top}",
+      studs: "Pozycje kołków (gniazda 0,1 mm): {count}",
+      pockets: "Kieszenie nieprzelotowe: {count}",
+      drawingTitle: "Rysunek PDF",
+      revision: "Rewizja: plik {file}, rysunek {drawing}",
+      material: "Materiał wg rysunku: {value}",
+      finish: "Wykończenie wg rysunku: {value}",
+      none: "brak",
     },
     material: {
       code: "Materiał",

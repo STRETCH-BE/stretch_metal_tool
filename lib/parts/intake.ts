@@ -50,13 +50,17 @@
 
 import type {
   AnalyzeOptions,
+  BendTableLookup,
+  HardwareNameRule,
   HealingReport,
   ModelPart,
   PartAnnotations,
   PartGeometry,
+  SheetReport,
   SplitModel,
   Triage,
 } from "@/lib/geometry/types";
+import type { ExtraOperation } from "@/lib/pricing/types";
 import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
 import { decodeStepBytes } from "@/lib/geometry/step/part21";
@@ -94,10 +98,12 @@ export type PartInsert = {
   aiSuggestions: Suggestions | null;
   /** Measured sheet thickness (STEP); omitted / null leaves parts.thickness_mm unset. */
   thicknessMm?: number | null;
+  /** Production DXF of a STEP sheet part (files row, kind export_dxf). */
+  flatFileId?: string | null;
 };
 
 export type PartPatch = Partial<
-  Pick<PartInsert, "geometry" | "annotations" | "triage" | "thumbnailSvg" | "pdfFileId" | "pdfText" | "aiSuggestions">
+  Pick<PartInsert, "geometry" | "annotations" | "triage" | "thumbnailSvg" | "pdfFileId" | "pdfText" | "aiSuggestions" | "flatFileId">
 >;
 
 export type ExistingPart = {
@@ -147,7 +153,9 @@ export type IntakeDb = {
   insertPart(row: PartInsert): Promise<{ id: string }>;
   updatePart(id: string, patch: PartPatch): Promise<void>;
   nextItemPosition(quoteId: string): Promise<number>;
-  insertItem(row: { quoteId: string; partId: string; position: number; qty: number }): Promise<{ id: string }>;
+  insertItem(row: { quoteId: string; partId: string; position: number; qty: number; extras?: ExtraOperation[] }): Promise<{ id: string }>;
+  /** Pins the bend-table version the quote's STEP flat patterns were unfolded with (first intake only). */
+  pinBendTableVersion(quoteId: string, versionId: string): Promise<void>;
   /** Progress of the upload's intake on its files row; only the given fields change. */
   updateFileIntake(fileId: string, patch: Partial<IntakeProgress>): Promise<void>;
   /** Parts (with their quote item) stored from this upload, any order. */
@@ -160,8 +168,20 @@ export type IntakeDeps = {
   analyseStep(text: string, options: AnalyzeOptions): Promise<PartGeometry>;
   /** STEP / IFC text → its parts (assemblies split, IFC elements rewritten as STEP), each analysed. */
   splitModel(text: string, options: AnalyzeOptions): Promise<SplitModel>;
-  /** Store a derived per-part STEP file under the quote (Storage object + files row). */
-  saveDerivedFile(input: { quoteId: string; name: string; bytes: Uint8Array; kind: "step" }): Promise<IntakeFile>;
+  /** Store a derived file under the quote (Storage object + files row): a per-part STEP, or the production DXF of a sheet part. */
+  saveDerivedFile(input: { quoteId: string; name: string; bytes: Uint8Array; kind: "step" | "export_dxf" }): Promise<IntakeFile>;
+  /**
+   * STEP sheet parts: the bend-table version to unfold with (rows + id, or
+   * null → DIN formula), the hardware name rules and the material family
+   * assumed before a material is chosen (the DIN seed is mild steel).
+   */
+  sheet?: {
+    bendTable: { versionId: string | null; rows: BendTableLookup["rows"] };
+    hardwareNames: readonly HardwareNameRule[];
+    defaultMaterialFamily: string;
+  };
+  /** Production DXF text of a sheet part (lib/geometry/export-dxf.ts writeProductionDxf). */
+  writeProductionDxf?(geometry: PartGeometry, annotations: PartAnnotations, title: string): string;
   applyAnnotations(geometry: PartGeometry, annotations: PartAnnotations, options: AnalyzeOptions): Promise<PartGeometry>;
   toSvg(geometry: PartGeometry, annotations: PartAnnotations): string;
   /** Text of a PDF; throws on an unreadable file (caught here). */
@@ -293,6 +313,68 @@ async function suggestionsFor(deps: IntakeDeps, bytes: Uint8Array, text: string,
     console.error("[intake] ai prefill failed", error);
   }
   return deps.heuristics(text, partName);
+}
+
+/** Options every STEP / IFC analysis gets: the bend table, the hardware rules and the drawing text. */
+function sheetOptions(deps: IntakeDeps, drawingText: string | null): Pick<AnalyzeOptions, "bendTable" | "hardwareNames" | "drawingText"> {
+  const sheet = deps.sheet;
+  if (!sheet) return { drawingText };
+  return {
+    bendTable: { materialFamily: sheet.defaultMaterialFamily, rows: sheet.bendTable.rows },
+    hardwareNames: sheet.hardwareNames,
+    drawingText,
+  };
+}
+
+/** Quote-item extras for the hardware and countersinks the model holds: one feature line per code with its count. */
+export function hardwareExtras(sheet: SheetReport | undefined): ExtraOperation[] {
+  if (!sheet || !sheet.isSheetMetal) return [];
+  const counts = new Map<string, number>();
+  for (const h of sheet.hardware) {
+    const code = h.featureCode ?? `${h.kind}_${(h.size ?? "unknown").toLowerCase().replace(/×/g, "x")}`;
+    counts.set(code, (counts.get(code) ?? 0) + h.qty);
+  }
+  for (const c of sheet.countersinks) {
+    const code = c.featureCode ?? "csk_unknown";
+    counts.set(code, (counts.get(code) ?? 0) + 1);
+  }
+  return Array.from(counts, ([code, count]) => ({ type: "feature", code, count }));
+}
+
+/** Companion drawing (PDF with the same base name) text for a model, or null. */
+async function drawingTextFor(deps: IntakeDeps, quoteId: string, name: string): Promise<string | null> {
+  const companion = await deps.db.findPdfByBaseName(quoteId, name);
+  if (!companion) return null;
+  try {
+    return await safeText(deps, await deps.download(companion.storagePath));
+  } catch (error) {
+    console.error("[intake] companion pdf unreadable", companion.id, error);
+    return null;
+  }
+}
+
+/** Writes the production DXF of a sheet part as a derived file and links it to the part; never throws. */
+async function storeProductionDxf(deps: IntakeDeps, quoteId: string, partId: string, name: string, geometry: PartGeometry, annotations: PartAnnotations): Promise<string | null> {
+  if (!deps.writeProductionDxf || !geometry.sheet?.isSheetMetal || geometry.entities.length === 0) return null;
+  try {
+    const text = deps.writeProductionDxf(geometry, annotations, name);
+    const file = await deps.saveDerivedFile({ quoteId, name: `${name}_flat.dxf`, bytes: new TextEncoder().encode(text), kind: "export_dxf" });
+    await deps.db.updatePart(partId, { flatFileId: file.id });
+    return file.id;
+  } catch (error) {
+    console.error("[intake] production dxf failed", partId, error);
+    return null;
+  }
+}
+
+async function pinBendTableQuietly(deps: IntakeDeps, quoteId: string): Promise<void> {
+  const versionId = deps.sheet?.bendTable.versionId ?? null;
+  if (!versionId) return;
+  try {
+    await deps.db.pinBendTableVersion(quoteId, versionId);
+  } catch (error) {
+    console.error("[intake] bend table pin failed", quoteId, error);
+  }
 }
 
 async function repriceQuietly(deps: IntakeDeps, quoteId: string): Promise<void> {
@@ -539,14 +621,18 @@ async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry
 }
 
 async function processStep(input: IntakeInput, existing: StoredSourcePart[]): Promise<IntakeResult> {
-  const { deps, file } = input;
+  const { deps, file, quoteId } = input;
   const name = baseName(file.originalName);
   const text = decodeStepBytes(input.buffer);
+  const drawingText = await drawingTextFor(deps, quoteId, name);
   const options: AnalyzeOptions = {
     toleranceMm: deps.toleranceMm ?? INTAKE_TOLERANCE_MM,
     blankMarginMm: deps.blankMarginMm,
     name,
+    pdfText: drawingText,
+    ...sheetOptions(deps, drawingText),
   };
+  await pinBendTableQuietly(deps, quoteId);
   // One solid: the uploaded file is the part's file. Several: one part per
   // solid, each with its own STEP file split out of the upload.
   const split = await deps.splitModel(text, options);
@@ -559,13 +645,15 @@ async function processStep(input: IntakeInput, existing: StoredSourcePart[]): Pr
 
 /** IFC: every element becomes a part with a STEP file of its geometry; the .ifc stays as the upload. */
 async function processIfc(input: IntakeInput, existing: StoredSourcePart[]): Promise<Extract<IntakeResult, { kind: "assembly" }>> {
-  const { deps, file } = input;
+  const { deps, file, quoteId } = input;
   const name = baseName(file.originalName);
   const options: AnalyzeOptions = {
     toleranceMm: deps.toleranceMm ?? INTAKE_TOLERANCE_MM,
     blankMarginMm: deps.blankMarginMm,
     name,
+    ...sheetOptions(deps, null),
   };
+  await pinBendTableQuietly(deps, quoteId);
   const split = await deps.splitModel(decodeStepBytes(input.buffer), options);
   return { kind: "assembly", name, format: "ifc", ...(await storeModelParts(input, name, split, existing)) };
 }
@@ -610,7 +698,8 @@ async function storeStepPart(
     thicknessMm,
   });
   const position = await deps.db.nextItemPosition(quoteId);
-  const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: 1 });
+  const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: 1, extras: hardwareExtras(geometry.sheet) });
+  await storeProductionDxf(deps, quoteId, part.id, name, geometry, annotations);
   await repriceQuietly(deps, quoteId);
   return {
     kind: "step",
@@ -736,7 +825,8 @@ async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile
     aiSuggestions: null,
     thicknessMm,
   });
-  const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: Math.max(1, modelPart.occurrences) });
+  const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: Math.max(1, modelPart.occurrences), extras: hardwareExtras(geometry.sheet) });
+  await storeProductionDxf(deps, quoteId, part.id, name, geometry, annotations);
   return {
     partId: part.id,
     itemId: item.id,

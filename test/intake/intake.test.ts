@@ -51,7 +51,7 @@ type PartRecord = Omit<PartInsert, "source"> & {
   materialCode: string | null;
   createdAt: number;
 };
-type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step" | "ifc"; quoteId: string; bytes: Uint8Array; uploadedBy: string } & Partial<IntakeProgress>;
+type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step" | "ifc" | "export_dxf"; quoteId: string; bytes: Uint8Array; uploadedBy: string } & Partial<IntakeProgress>;
 
 /** In-memory IntakeDb + file store mirroring the production queries. */
 function memoryDb() {
@@ -108,6 +108,9 @@ function memoryDb() {
       const id = `item-${++seq}`;
       items.push({ id, ...row });
       return { id };
+    },
+    async pinBendTableVersion() {
+      return undefined;
     },
     async updateFileIntake(fileId, patch) {
       const file = files.find((f) => f.id === fileId);

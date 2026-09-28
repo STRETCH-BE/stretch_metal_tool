@@ -57,6 +57,7 @@ function partPatchToRow(patch: PartPatch): Partial<PartRow> {
   if ("pdfFileId" in patch) row.pdf_file_id = patch.pdfFileId ?? null;
   if ("pdfText" in patch) row.pdf_text = patch.pdfText ?? null;
   if ("aiSuggestions" in patch) row.ai_suggestions = toJson(patch.aiSuggestions);
+  if ("flatFileId" in patch) row.flat_file_id = patch.flatFileId ?? null;
   return row;
 }
 
@@ -146,6 +147,7 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
           pdf_text: row.pdfText,
           ai_suggestions: toJson(row.aiSuggestions),
           ...(row.thicknessMm !== undefined && row.thicknessMm !== null ? { thickness_mm: row.thicknessMm } : {}),
+          ...(row.flatFileId ? { flat_file_id: row.flatFileId } : {}),
         })
         .select("id")
         .single();
@@ -173,11 +175,16 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
     async insertItem(row) {
       const { data, error } = await client
         .from("quote_items")
-        .insert({ quote_id: row.quoteId, part_id: row.partId, position: row.position, qty: row.qty })
+        .insert({ quote_id: row.quoteId, part_id: row.partId, position: row.position, qty: row.qty, ...(row.extras && row.extras.length > 0 ? { extras: toJson(row.extras) } : {}) })
         .select("id")
         .single();
       if (error || !data) throw new Error(`quote_items insert: ${error?.message ?? "no row"}`);
       return { id: data.id };
+    },
+
+    async pinBendTableVersion(quoteId, versionId) {
+      const { error } = await client.from("quotes").update({ bend_table_version_id: versionId }).eq("id", quoteId).is("bend_table_version_id", null);
+      if (error) throw new Error(`quotes pin bend table: ${error.message}`);
     },
 
     async updateFileIntake(fileId, patch: Partial<IntakeProgress>) {

@@ -45,8 +45,11 @@ import { parseStoredGeometry, toJson } from "./intake-db";
 import { prefillPartSuggestions } from "./prefill";
 import { buildQuickPartColumns } from "./quick-part-columns";
 import { canEditQuoteAs } from "./quote-editor";
+import { loadBendTable, loadHardwareNames } from "@/lib/rates/load";
+import { DEFAULT_SHEET_FAMILY } from "./intake-deps";
 import { loadRatesInfo, parseStoredSuggestions, parseStoredTriage, type RatesInfo } from "./queries";
-import { reanalysePart as reanalyseCore, type ReanalysePart } from "./reanalyse";
+import {
+  type ReanalyseOptions, reanalysePart as reanalyseCore, type ReanalysePart } from "./reanalyse";
 import { makeReanalyseDeps } from "./server-deps";
 import {
   annotationsSchema,
@@ -162,6 +165,16 @@ function toReanalysePart(ctx: Ctx, overrides: Partial<ReanalysePart> = {}): Rean
 }
 
 /** Re-derive the geometry with `annotations`, store geometry/annotations/triage/thumbnail. */
+/** Bend table of the quote's pinned version (else the active one) with the part's material family, plus the hardware name rules. */
+async function sheetOptionsFor(ctx: Ctx): Promise<NonNullable<ReanalyseOptions["sheet"]>> {
+  const [bendTable, hardwareNames] = await Promise.all([
+    loadBendTable(ctx.supabase, ctx.quote.bend_table_version_id).catch(() => ({ versionId: null, rows: [] })),
+    loadHardwareNames(ctx.supabase).catch(() => []),
+  ]);
+  const family = ctx.rates.materials.find((m) => m.code.toLowerCase() === (ctx.part.material_code ?? "").toLowerCase())?.family ?? DEFAULT_SHEET_FAMILY;
+  return { bendTable: { materialFamily: family, rows: bendTable.rows }, hardwareNames };
+}
+
 async function applyAndStore(
   ctx: Ctx,
   annotations: PartAnnotations,
@@ -170,7 +183,8 @@ async function applyAndStore(
   const part = toReanalysePart(ctx, options.partOverrides);
   if (!((part.source === "dxf" || part.source === "step") && part.storagePath) && !part.geometry) fail("no_geometry");
   const toleranceMm = options.toleranceMm ?? ctx.geometry?.healing.toleranceMm ?? 0.01;
-  const result = await reanalyseCore(part, annotations, { toleranceMm, blankMarginMm: ctx.rates.blankMarginMm }, makeReanalyseDeps(ctx.supabase));
+  const sheet = part.source === "step" ? await sheetOptionsFor(ctx) : null;
+  const result = await reanalyseCore(part, annotations, { toleranceMm, blankMarginMm: ctx.rates.blankMarginMm, sheet }, makeReanalyseDeps(ctx.supabase));
   const { error } = await ctx.supabase
     .from("parts")
     .update({
@@ -507,7 +521,7 @@ export async function reanalysePart(partId: string, toleranceMm: number): Promis
     const parsed = toleranceSchema.safeParse(toleranceMm);
     if (!parsed.success) fail("validation");
     const ctx = await context(partId);
-    if (ctx.part.source !== "dxf" || !ctx.file) fail("no_geometry");
+    if ((ctx.part.source !== "dxf" && ctx.part.source !== "step") || !ctx.file) fail("no_geometry");
     const { geometry, fromCache } = await applyAndStore(ctx, ctx.annotations, { toleranceMm: parsed.data });
     await afterChange(ctx.quote.id, partId);
     return { triage: geometry.triage, fromCache };

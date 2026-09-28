@@ -15,6 +15,8 @@
  * bend candidate; IV_TOOL_CENTER(_DOWN) (punch tool centres), IV_ALTREP_*
  * (alternate bend representations) and IV_ROLL_TANGENT (tangent lines of
  * rolled features) are drawing aids and are ignored like IV_TANGENT.
+ * IGNORE is our own export layer (reference marks such as stud positions
+ * on a production DXF): it round-trips as ignored.
  */
 
 import type { EntityRole, LayerConventions } from "./types";
@@ -34,6 +36,7 @@ export const DEFAULT_LAYER_CONVENTIONS: LayerConventions = {
     "IV_ALTREP_BACK",
     "IV_ROLL_TANGENT",
     "DEFPOINTS",
+    "IGNORE",
     "DIM*",
     "TEXT*",
     "FRAME",

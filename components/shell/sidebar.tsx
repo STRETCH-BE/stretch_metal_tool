@@ -34,6 +34,9 @@ const WORK_ITEMS: NavItem[] = [
 const ADMIN_ITEMS: NavItem[] = [
   { key: "rates", href: routes.adminRates },
   { key: "machines", href: routes.adminMachines },
+  { key: "bendTable", href: routes.adminBendTable },
+  { key: "tooling", href: routes.adminTooling },
+  { key: "hardware", href: routes.adminHardware },
   { key: "calculator", href: routes.adminCalculator },
   { key: "users", href: routes.adminUsers },
   { key: "overrides", href: routes.adminOverrides },

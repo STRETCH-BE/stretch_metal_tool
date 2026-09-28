@@ -170,8 +170,14 @@ function collisionFlags(input: DfmInput): Flag[] {
       if (flatBetween <= 0) continue;
       // Inside width between the two flanges: the flat between the tangent lines plus both inner radii.
       const W = flatBetween + a.innerRadiusMm + b.innerRadiusMm;
-      const h1 = a.flangeOutsideMm;
-      const h2 = b.flangeOutsideMm;
+      // Legs: the flange of each bend that is NOT the web shared with the other bend.
+      const shared = [a.fromFlange, a.toFlange].find((f) => f === b.fromFlange || f === b.toFlange);
+      const legOf = (bend: typeof a): number | null => {
+        if (shared === undefined) return bend.flangeOutsideMm;
+        return bend.toFlange === shared ? bend.baseFlangeOutsideMm : bend.flangeOutsideMm;
+      };
+      const h1 = legOf(a);
+      const h2 = legOf(b);
       if (h1 === null || h2 === null) continue;
       const legs = Math.min(h1, h2);
       const neededStraight = W + BEND_COLLISION_CLEARANCE_MM;

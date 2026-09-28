@@ -115,6 +115,7 @@ export default async function PartPage({ params }: { params: Params }) {
       }
       quote={{ currency: quote.currency, fxRate: Number(quote.fx_rate), priced: quote.priced_at !== null }}
       fileId={data.file?.id ?? null}
+      flatFileId={data.flatFile?.id ?? null}
       pdfFileId={data.pdfFile?.id ?? null}
       pdfText={part.pdf_text}
       rates={data.rates}

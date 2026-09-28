@@ -400,6 +400,9 @@ export type SheetBend = {
   flangeOutsideMm: number | null;
   /** The flange placed before this bend (the side already unfolded). */
   baseFlangeOutsideMm: number | null;
+  /** Flange indices of the model (the two flanges the bend joins), for rules that need the shared flange. */
+  fromFlange: number;
+  toFlange: number;
 };
 
 export type HardwareLine = {

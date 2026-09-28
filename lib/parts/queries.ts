@@ -203,6 +203,8 @@ export type PartPageData = {
   flags: Flag[];
   file: FileRow | null;
   pdfFile: FileRow | null;
+  /** Production DXF of a STEP sheet part (parts.flat_file_id). */
+  flatFile: FileRow | null;
   rates: RatesInfo;
   canWrite: boolean;
 };
@@ -210,7 +212,7 @@ export type PartPageData = {
 export async function loadPartPage(partId: string): Promise<PartPageData> {
   const reader = await requirePartReader(partId);
   const { supabase, part, item, quote, session } = reader;
-  const fileIds = [part.file_id, part.pdf_file_id].filter((id): id is string => Boolean(id));
+  const fileIds = [part.file_id, part.pdf_file_id, part.flat_file_id].filter((id): id is string => Boolean(id));
   const [files, rates] = await Promise.all([
     fileIds.length ? supabase.from("files").select("*").in("id", fileIds) : Promise.resolve({ data: [] as FileRow[] }),
     loadRatesInfo(supabase, quote.rate_version_id),
@@ -233,6 +235,7 @@ export async function loadPartPage(partId: string): Promise<PartPageData> {
     flags: parseStoredFlags(item?.flags),
     file: part.file_id ? (byId.get(part.file_id) ?? null) : null,
     pdfFile: part.pdf_file_id ? (byId.get(part.pdf_file_id) ?? null) : null,
+    flatFile: part.flat_file_id ? (byId.get(part.flat_file_id) ?? null) : null,
     rates,
     canWrite,
   };

@@ -115,6 +115,9 @@ function memoryStore(options: { opDelayMs?: number; failPartNames?: string[] } =
       items.push({ id, ...row });
       return { id };
     },
+    async pinBendTableVersion() {
+      return undefined;
+    },
     async updateFileIntake(fileId, patch) {
       const file = files.find((f) => f.id === fileId);
       if (!file) throw new Error("no file");

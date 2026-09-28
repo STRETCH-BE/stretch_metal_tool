@@ -14,7 +14,8 @@
 
 import { randomUUID } from "node:crypto";
 import { env } from "@/lib/env";
-import { geometryEngine, geometryToSvg } from "@/lib/geometry";
+import { geometryEngine, geometryToSvg, writeProductionDxf } from "@/lib/geometry";
+import { loadBendTable, loadHardwareNames } from "@/lib/rates/load";
 import { extractPdfText } from "@/lib/pdf-text";
 import { prefillFromPdf } from "@/lib/ai/prefill";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
@@ -28,17 +29,32 @@ import { loadRatesInfo } from "@/lib/parts/queries";
 
 export type IntakeWriter = Awaited<ReturnType<typeof requireQuoteWriter>>;
 
+/** Material family assumed for the bend table before a material is chosen (the DIN seed is mild steel). [CONFIRM] */
+export const DEFAULT_SHEET_FAMILY = "mild_steel";
+
 export async function createIntakeDeps(writer: IntakeWriter): Promise<IntakeDeps> {
   const { supabase, session, quote } = writer;
-  const rates = await loadRatesInfo(supabase, quote.rate_version_id);
+  const [rates, bendTable, hardwareNames] = await Promise.all([
+    loadRatesInfo(supabase, quote.rate_version_id),
+    loadBendTable(supabase, quote.bend_table_version_id).catch((error: unknown) => {
+      console.error("[intake] bend table unavailable", error);
+      return { versionId: null, rows: [] };
+    }),
+    loadHardwareNames(supabase).catch((error: unknown) => {
+      console.error("[intake] hardware names unavailable", error);
+      return [];
+    }),
+  ]);
   return {
+    sheet: { bendTable, hardwareNames, defaultMaterialFamily: DEFAULT_SHEET_FAMILY },
+    writeProductionDxf: (geometry, annotations, title) => writeProductionDxf(geometry, annotations, { title }),
     analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
     analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),
     splitModel: (text, options) => geometryEngine.splitModel(text, options),
     saveDerivedFile: async ({ quoteId: forQuote, name, bytes, kind }) => {
       const id = randomUUID();
       const objectPath = storagePath(forQuote, id, safeFileName(name));
-      const mime = mimeForKind(kind);
+      const mime = kind === "export_dxf" ? "application/dxf" : mimeForKind(kind);
       await uploadBytes(objectPath, bytes, mime);
       const row = await insertFileRow(supabase, {
         id,

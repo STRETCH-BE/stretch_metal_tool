@@ -24,6 +24,7 @@ import { Notice } from "@/components/ui/notice";
 import { useToast } from "@/components/ui/toast";
 import { PartViewer, type ReanalyseRequest } from "@/components/viewer";
 import { TriagePanel } from "@/components/triage/triage-panel";
+import { SheetReportPanel } from "@/components/triage/sheet-report";
 import { QuickPartModal } from "@/components/intake/quick-part-modal";
 import { routes } from "@/lib/routes";
 import type { PartSourceDb } from "@/lib/db/types";
@@ -80,6 +81,8 @@ export type PartWorkspaceProps = {
   item: { id: string; qty: number; unitCost: number; unitPrice: number | null; finishCodes: string[] } | null;
   quote: { currency: "PLN" | "EUR"; fxRate: number; priced: boolean };
   fileId: string | null;
+  /** Production DXF of a STEP sheet part, when one was written at intake. */
+  flatFileId: string | null;
   pdfFileId: string | null;
   pdfText: string | null;
   rates: RatesInfo;
@@ -325,6 +328,15 @@ export function PartWorkspace(props: PartWorkspaceProps) {
             onReanalyse={onReanalyse}
             onQuickPart={() => setQuickOpen(true)}
           />
+          {props.geometry?.sheet && (
+            <SheetReportPanel
+              geometry={props.geometry}
+              annotations={annotations}
+              flags={props.flags}
+              densityKgM3={props.rates.materials.find((m) => m.code.toLowerCase() === (props.materialCode ?? "").toLowerCase())?.densityKgM3 ?? null}
+              flatFileId={props.flatFileId}
+            />
+          )}
           <AiPanel
             suggestions={props.suggestions}
             current={currentValues}
@@ -353,7 +365,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
           )}
           <PartActions
             partId={props.partId}
-            canReanalyse={props.source === "dxf" && props.fileId !== null}
+            canReanalyse={(props.source === "dxf" || props.source === "step") && props.fileId !== null}
             canExport={props.geometry !== null}
             currentToleranceMm={props.geometry?.healing.toleranceMm ?? null}
             disabled={disabled}

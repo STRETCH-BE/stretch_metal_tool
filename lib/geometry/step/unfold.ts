@@ -28,7 +28,8 @@
  * into one closed outline like a DXF flat pattern. A hole that does not
  * reach the other sheet side is not a cut: a pocket up to
  * MASK_RECESS_MAX_MM deep is a paint-mask recess, a round pocket up to
- * SEAT_MAX_DIAMETER_MM a stud seat (its centre goes to the IGNORE layer),
+ * SEAT_MAX_DIAMETER_MM a stud seat (its centre is reported; the production
+ * DXF draws it on the IGNORE layer),
  * anything else a blind pocket the laser cannot make. A conical wall on
  * a through hole is a countersink: the cut is the through diameter, the
  * cone is reported. A free-form wall is a modelled thread. Features on the
@@ -358,7 +359,10 @@ export function buildFlanges(body: Body3, chordError: number): Flange[] {
       for (const loop of [m.face.outer as Loop3, ...m.face.inner]) for (const oe of loop.edges) if (internal.has(oe.edge.id)) internalEdgeIds.add(oe.edge.id);
     }
     const splitMembers = members.slice(1).filter((m) => m.face.inner.length === 0 && m.area <= area * SPLIT_FACE_MAX_SHARE).map((m) => m.face);
-    out.push({ faces: members.map((m) => m.face), origin: p.origin, normal, u, v, area, centroid: polygonCentroid(main.outer2), internalEdgeIds, placement: null, splitMembers });
+    const flange: Flange = { faces: members.map((m) => m.face), origin: p.origin, normal, u, v, area, centroid: { x: 0, y: 0 }, internalEdgeIds, placement: null, splitMembers };
+    // Centroid in the flange's own right-handed frame (v = normal × u differs from the plane's y on a flipped face).
+    flange.centroid = polygonCentroid(loopPolyline(main.face.outer as Loop3, chordError).map((q) => flangeTo2(flange, q)));
+    out.push(flange);
   }
   return out;
 }
@@ -574,6 +578,9 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
   const usedGroups = new Set<BendGroup>();
   const flangeVia = new Map<Flange, { bendIndex: number; direction: { nx: number; ny: number }; tangent: { t1: Point; t2: Point } }>();
   const bendFrom: Flange[] = [];
+  const bendTo: Flange[] = [];
+  const flangeIndex = new Map<Flange, number>();
+  flanges.forEach((f, i) => flangeIndex.set(f, i));
   while (queue.length) {
     const from = queue.shift() as Flange;
     for (const bend of bends) {
@@ -645,9 +652,12 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
         strip: { a1, a2, t1, t2 },
         flangeOutsideMm: null,
         baseFlangeOutsideMm: null,
+        fromFlange: flangeIndex.get(from) ?? -1,
+        toFlange: flangeIndex.get(to) ?? -1,
       });
       flangeVia.set(to, { bendIndex: index, direction: { nx, ny }, tangent: { t1, t2 } });
       bendFrom.push(from);
+      bendTo.push(to);
     }
   }
 
@@ -715,26 +725,33 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
     }
   }
 
-  // Flange outside dimensions per bend: farthest outline point of the placed flange beyond its tangent line, + (r + t).
-  for (const [flange, via] of flangeVia) {
-    const bend = sheetBends[via.bendIndex];
+  // Outside dimension of a flange as seen from one of its bends: the flat
+  // extent beyond that bend's tangent line, plus r + t for the bend itself,
+  // plus r + t again when the far edge is the tangent line of another bend
+  // (a web between two flanges measures across both radii).
+  const outsideFrom = (flange: Flange, origin: Point, dirX: number, dirY: number, bendIndex: number): number => {
     const outline = placedOutline.get(flange) ?? [];
     let far = 0;
-    for (const p of outline) far = Math.max(far, (p.x - via.tangent.t1.x) * via.direction.nx + (p.y - via.tangent.t1.y) * via.direction.ny);
-    bend.flangeOutsideMm = far + bend.innerRadiusMm + thicknessMm;
-  }
+    for (const p of outline) far = Math.max(far, (p.x - origin.x) * dirX + (p.y - origin.y) * dirY);
+    const here = sheetBends[bendIndex];
+    let total = far + here.innerRadiusMm + thicknessMm;
+    for (let j = 0; j < sheetBends.length; j++) {
+      if (j === bendIndex) continue;
+      if (bendFrom[j] !== flange && bendTo[j] !== flange) continue;
+      const other = sheetBends[j];
+      const line = bendFrom[j] === flange ? [other.strip.a1, other.strip.a2] : [other.strip.t1, other.strip.t2];
+      const d = Math.max(...line.map((p) => (p.x - origin.x) * dirX + (p.y - origin.y) * dirY));
+      if (Math.abs(d - far) < 1e-3) total += other.innerRadiusMm + thicknessMm;
+    }
+    return total;
+  };
   for (let i = 0; i < sheetBends.length; i++) {
-    // The base side: the flange the bend was walked from, measured against the strip normal.
     const bend = sheetBends[i];
-    const from = bendFrom[i];
     const nx = bend.strip.t1.x - bend.strip.a1.x;
     const ny = bend.strip.t1.y - bend.strip.a1.y;
     const len = Math.hypot(nx, ny) || 1;
-    const dirX = -nx / len;
-    const dirY = -ny / len;
-    let far = 0;
-    for (const p of placedOutline.get(from) ?? []) far = Math.max(far, (p.x - bend.strip.a1.x) * dirX + (p.y - bend.strip.a1.y) * dirY);
-    bend.baseFlangeOutsideMm = far + bend.innerRadiusMm + thicknessMm;
+    bend.flangeOutsideMm = outsideFrom(bendTo[i], bend.strip.t1, nx / len, ny / len, i);
+    bend.baseFlangeOutsideMm = outsideFrom(bendFrom[i], bend.strip.a1, -nx / len, -ny / len, i);
   }
 
   // Viewed from the inside: mirror a layout of the outside face.
@@ -770,19 +787,13 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
     for (let i = 0; i < allPoints.length; i++) allPoints[i] = allPoints[i].map(mx);
   }
 
-  // Stud seats as reference marks on IGNORE (a small cross, so the DXF shows the position without cutting).
-  for (const p of studPositions) {
-    out.entities.push({ originalType: "LINE", layer: "IGNORE", segments: [makeLine({ x: p.x - 1, y: p.y }, { x: p.x + 1, y: p.y })], closed: false });
-    out.entities.push({ originalType: "LINE", layer: "IGNORE", segments: [makeLine({ x: p.x, y: p.y - 1 }, { x: p.x, y: p.y + 1 })], closed: false });
-  }
-
   const extents = extentsOf(allPoints);
   const header: DxfHeaderInfo = {
     version: null,
     units: { insunits: Math.abs(options.unitScale - 25.4) < 1e-6 ? 1 : 4, detected: "mm", scaleApplied: options.unitScale },
     extmin: extents?.min ?? null,
     extmax: extents?.max ?? null,
-    layers: ["0", "BEND_UP", "BEND_DOWN", "IGNORE"],
+    layers: ["0", "BEND_UP", "BEND_DOWN"],
   };
 
   const flangeAt = (p: Vec3): Flange | null => {

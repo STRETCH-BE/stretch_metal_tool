@@ -74,6 +74,8 @@ export type MachineHourFieldKey =
   | "toolingEurPerYear"
   | "overheadPct";
 
+export type SheetAdminError = "forbidden" | "validation" | "duplicate" | "versionUsed" | "notFound" | "db";
+
 export type AdminContent = {
   title: string;
   index: {
@@ -309,6 +311,74 @@ export type AdminContent = {
       summary: string;
     };
     errors: Record<RateErrorCode, string>;
+  };
+  /** Sheet-metal import tables: bend table (versioned), press-brake tooling, hardware names. */
+  sheet: {
+    bendTable: {
+      eyebrow: string;
+      title: string;
+      subtitle: string;
+      columns: { label: string; status: string; rows: string; usedBy: string; created: string; actions: string };
+      statusActive: string;
+      statusDraft: string;
+      open: string;
+      activate: string;
+      activateQuestion: string;
+      cloneTitle: string;
+      cloneLabel: string;
+      cloneSubmit: string;
+      empty: string;
+      version: {
+        eyebrow: string;
+        backToList: string;
+        /** `{label}` placeholder. */
+        title: string;
+        immutable: string;
+        columns: { family: string; thickness: string; radius: string; vDie: string; angle: string; allowance: string; source: string; note: string; actions: string };
+        sources: { din6935: string; test_bend: string };
+        addTitle: string;
+        addHelp: string;
+        fields: { family: string; thickness: string; radius: string; vDie: string; angle: string; allowance: string; flatLength: string; legA: string; legB: string; note: string };
+        computedHelp: string;
+        save: string;
+        delete: string;
+        deleteQuestion: string;
+        empty: string;
+      };
+      notices: { saved: string; deleted: string; cloned: string; activated: string };
+    };
+    tooling: {
+      eyebrow: string;
+      title: string;
+      subtitle: string;
+      columns: { code: string; kind: string; name: string; height: string; type: string; tipRadius: string; throat: string; v: string; minFlange: string; placeholder: string; actions: string };
+      kinds: { punch: string; die: string };
+      types: { straight: string; gooseneck: string };
+      placeholderChip: string;
+      addTitle: string;
+      fields: { code: string; kind: string; name: string; height: string; type: string; tipRadius: string; throat: string; v: string; minFlange: string };
+      save: string;
+      delete: string;
+      deleteQuestion: string;
+      empty: string;
+      notices: { saved: string; deleted: string };
+    };
+    hardware: {
+      eyebrow: string;
+      title: string;
+      subtitle: string;
+      columns: { pattern: string; kind: string; size: string; featureCode: string; note: string; actions: string };
+      kinds: { weld_stud: string; insert: string; unknown: string };
+      addTitle: string;
+      addHelp: string;
+      fields: { pattern: string; kind: string; size: string; featureCode: string; note: string };
+      save: string;
+      delete: string;
+      deleteQuestion: string;
+      empty: string;
+      notices: { saved: string; deleted: string };
+    };
+    errors: Record<SheetAdminError, string>;
   };
   machines: {
     eyebrow: string;
@@ -862,6 +932,79 @@ export const admin: AdminContent = {
       marginTooHigh: "Marża musi być mniejsza niż 100 % (cena = koszt ÷ (1 − marża)).",
       materialInUse:
         "Ten materiał ma wiersze cięcia laserem w tej wersji ({count}) — odśwież stronę i potwierdź usunięcie razem z nimi.",
+    },
+  },
+  sheet: {
+    bendTable: {
+      eyebrow: "Rozwinięcia STEP",
+      title: "Tabela gięć",
+      subtitle: "Naddatki gięcia (BA) użyte do rozwinięcia modeli STEP. Wiersze DIN 6935 to wartości ze wzoru — dopiero gięcie próbne zdejmuje flagę „naddatek niezweryfikowany”. Wersja użyta w wycenie jest zamrożona.",
+      columns: { label: "Wersja", status: "Status", rows: "Wiersze", usedBy: "Użyta w wycenach", created: "Utworzona", actions: "Akcje" },
+      statusActive: "Aktywna",
+      statusDraft: "Szkic",
+      open: "Otwórz",
+      activate: "Aktywuj",
+      activateQuestion: "Aktywować tę wersję tabeli gięć? Nowe pliki STEP będą rozwijane jej naddatkami.",
+      cloneTitle: "Sklonuj do edycji",
+      cloneLabel: "Etykieta nowej wersji",
+      cloneSubmit: "Sklonuj",
+      empty: "Brak wersji tabeli gięć — uruchom migrację 20260928130000.",
+      version: {
+        eyebrow: "Tabela gięć",
+        backToList: "Wróć do listy wersji",
+        title: "Wersja {label}",
+        immutable: "Ta wersja jest użyta w wycenie — jest niezmienna. Sklonuj ją, aby edytować.",
+        columns: { family: "Rodzina", thickness: "Grubość (mm)", radius: "Promień wewn. (mm)", vDie: "V matrycy (mm)", angle: "Kąt (°)", allowance: "Naddatek BA (mm)", source: "Źródło", note: "Notatka", actions: "Akcje" },
+        sources: { din6935: "DIN 6935 (wzór)", test_bend: "Gięcie próbne" },
+        addTitle: "Dodaj lub popraw wiersz (gięcie próbne)",
+        addHelp: "Podaj naddatek wprost albo wynik gięcia próbnego: długość rozwinięcia paska i zmierzone ramiona zewnętrzne — BA = rozwinięcie − ramię A − ramię B + 2·(r + t).",
+        fields: { family: "Rodzina materiału", thickness: "Grubość (mm)", radius: "Promień wewnętrzny (mm)", vDie: "V matrycy (mm)", angle: "Kąt gięcia (°)", allowance: "Naddatek BA (mm)", flatLength: "Rozwinięcie paska (mm)", legA: "Ramię A zmierzone (mm)", legB: "Ramię B zmierzone (mm)", note: "Notatka" },
+        computedHelp: "Jeśli pole BA jest puste, naddatek policzymy z pomiaru.",
+        save: "Zapisz wiersz",
+        delete: "Usuń",
+        deleteQuestion: "Usunąć ten wiersz?",
+        empty: "Brak wierszy w tej wersji.",
+      },
+      notices: { saved: "Wiersz zapisany.", deleted: "Wiersz usunięty.", cloned: "Wersja sklonowana.", activated: "Wersja aktywowana." },
+    },
+    tooling: {
+      eyebrow: "Prasa krawędziowa",
+      title: "Narzędzia prasy",
+      subtitle: "Stemple (wysokość, prosty / łabędzi, promień, gardło) i matryce (V, minimalne ramię) dla kontroli DFM: za krótkie ramię i kolizja stempla. Wiersze oznaczone jako placeholder trzeba zastąpić realnymi narzędziami.",
+      columns: { code: "Kod", kind: "Rodzaj", name: "Nazwa", height: "Wys. (mm)", type: "Typ", tipRadius: "R końcówki (mm)", throat: "Gardło (mm)", v: "V (mm)", minFlange: "Min. ramię (mm)", placeholder: "Placeholder", actions: "Akcje" },
+      kinds: { punch: "Stempel", die: "Matryca" },
+      types: { straight: "prosty", gooseneck: "łabędzi" },
+      placeholderChip: "placeholder",
+      addTitle: "Dodaj lub popraw narzędzie",
+      fields: { code: "Kod", kind: "Rodzaj", name: "Nazwa", height: "Wysokość stempla (mm)", type: "Typ stempla", tipRadius: "Promień końcówki (mm)", throat: "Głębokość gardła (mm)", v: "Rozwarcie V (mm)", minFlange: "Minimalne ramię (mm)" },
+      save: "Zapisz narzędzie",
+      delete: "Usuń",
+      deleteQuestion: "Usunąć to narzędzie?",
+      empty: "Brak narzędzi — uruchom migrację 20260928130000.",
+      notices: { saved: "Narzędzie zapisane.", deleted: "Narzędzie usunięte." },
+    },
+    hardware: {
+      eyebrow: "Modele STEP",
+      title: "Nazwy osprzętu",
+      subtitle: "Fragment nazwy PRODUCT w pliku STEP → rodzaj i rozmiar osprzętu oraz kod cechy z cennika, którym jest wyceniany. Bez kodu cechy pozycja pokaże czerwoną flagę „nie wyceniono” z ilością.",
+      columns: { pattern: "Fragment nazwy", kind: "Rodzaj", size: "Rozmiar", featureCode: "Kod cechy", note: "Notatka", actions: "Akcje" },
+      kinds: { weld_stud: "Kołek spawalniczy", insert: "Nakrętka wciskana", unknown: "Nieznany" },
+      addTitle: "Dodaj lub popraw regułę",
+      addHelp: "Dopasowanie bez rozróżniania wielkości liter, np. ACAO470ZP → insert M4 → insert_m4.",
+      fields: { pattern: "Fragment nazwy", kind: "Rodzaj", size: "Rozmiar (np. M4, M3x8)", featureCode: "Kod cechy (rate_feature)", note: "Notatka" },
+      save: "Zapisz regułę",
+      delete: "Usuń",
+      deleteQuestion: "Usunąć tę regułę?",
+      empty: "Brak reguł.",
+      notices: { saved: "Reguła zapisana.", deleted: "Reguła usunięta." },
+    },
+    errors: {
+      forbidden: "Tylko administrator może to zmienić.",
+      validation: "Sprawdź wartości w formularzu.",
+      duplicate: "Taki wiersz już istnieje.",
+      versionUsed: "Ta wersja jest użyta w wycenie i jest niezmienna — sklonuj ją.",
+      notFound: "Nie znaleziono wiersza.",
+      db: "Błąd bazy danych.",
     },
   },
   machines: {
