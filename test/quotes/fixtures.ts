@@ -102,6 +102,7 @@ export function makePartRow(over: Partial<PartRow> = {}): PartRow {
     name: "200164",
     source: "dxf",
     file_id: null,
+    source_file_id: null,
     pdf_file_id: null,
     file_hash: "abc",
     material_code: "DC01",

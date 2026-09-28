@@ -17,16 +17,19 @@
  * converted to a quick part keeps its file_id for the download link but
  * its synthetic annotations must never re-attach to the real drawing
  * (actions.createQuickPart also nulls file_hash on replace).
+ * Intake progress is written to the upload's files row (files_update_intake
+ * policy: the quote's editors, only these four columns are touched here)
+ * and resume reads the parts back by parts.source_file_id.
  */
 
-import type { Json, PartRow } from "@/lib/db/types";
+import type { FileRow, Json, PartRow } from "@/lib/db/types";
 import type { ServerSupabase } from "@/lib/supabase/server";
 import type { AdminSupabase } from "@/lib/supabase/admin";
-import type { PartGeometry } from "@/lib/geometry/types";
+import type { PartGeometry, Triage } from "@/lib/geometry/types";
 import { baseNamesMatch } from "@/lib/files/sniff";
 import { parseStoredAnnotations } from "./schema";
 import { canEditQuoteAs } from "./quote-editor";
-import type { ExistingPart, IntakeDb, IntakeFile, PartInsert, PartPatch } from "./intake";
+import type { ExistingPart, IntakeDb, IntakeFile, IntakeProgress, PartInsert, PartPatch, StoredSourcePart } from "./intake";
 
 export type IntakeClient = ServerSupabase | AdminSupabase;
 
@@ -133,6 +136,7 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
           name: row.name,
           source: row.source,
           file_id: row.fileId,
+          source_file_id: row.sourceFileId,
           file_hash: row.fileHash,
           geometry: toJson(row.geometry),
           annotations: toJson(row.annotations),
@@ -175,5 +179,54 @@ export function createIntakeDb(client: IntakeClient): IntakeDb {
       if (error || !data) throw new Error(`quote_items insert: ${error?.message ?? "no row"}`);
       return { id: data.id };
     },
+
+    async updateFileIntake(fileId, patch: Partial<IntakeProgress>) {
+      const row: Partial<FileRow> = {};
+      if (patch.intakeStatus !== undefined) row.intake_status = patch.intakeStatus;
+      if (patch.partsExpected !== undefined) row.parts_expected = patch.partsExpected;
+      if (patch.partsDone !== undefined) row.parts_done = patch.partsDone;
+      if (patch.intakeError !== undefined) row.intake_error = patch.intakeError;
+      if (Object.keys(row).length === 0) return;
+      const { error } = await client.from("files").update(row).eq("id", fileId);
+      if (error) throw new Error(`files intake update: ${error.message}`);
+    },
+
+    async findPartsBySourceFile(sourceFileId): Promise<StoredSourcePart[]> {
+      const { data, error } = await client
+        .from("parts")
+        .select("id, name, triage, thickness_mm, thumbnail_svg")
+        .eq("source_file_id", sourceFileId);
+      if (error) throw new Error(`parts by source file: ${error.message}`);
+      const rows = data ?? [];
+      if (rows.length === 0) return [];
+      const { data: items, error: itemError } = await client
+        .from("quote_items")
+        .select("id, part_id, qty")
+        .in(
+          "part_id",
+          rows.map((r) => r.id)
+        );
+      if (itemError) throw new Error(`quote_items by part: ${itemError.message}`);
+      const itemByPart = new Map((items ?? []).map((i) => [i.part_id, i] as const));
+      return rows.map((r) => {
+        const item = itemByPart.get(r.id);
+        return {
+          id: r.id,
+          itemId: item?.id ?? null,
+          name: r.name,
+          qty: item ? Number(item.qty) : 1,
+          triage: parseStoredTriage(r.triage),
+          thicknessMm: r.thickness_mm === null ? null : Number(r.thickness_mm),
+          thumbnailSvg: r.thumbnail_svg,
+        };
+      });
+    },
   };
+}
+
+/** Light guard for a stored triage (state + details). */
+function parseStoredTriage(value: unknown): Triage | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const t = value as Partial<Triage>;
+  return typeof t.state === "string" ? (value as Triage) : null;
 }

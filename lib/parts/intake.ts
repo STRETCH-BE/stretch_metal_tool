@@ -35,6 +35,17 @@
  *
  * Nothing from the AI is ever applied: suggestions are stored on the
  * part and shown as amber chips.
+ *
+ * Split models (multi-body STEP, IFC) store their parts in PARALLEL
+ * (MODEL_PART_CONCURRENCY at a time through a local pool): the names are
+ * computed up front in split order, the item positions are read ONCE and
+ * assigned start + index, the results come back in split order and the
+ * quote is re-priced once. A part that fails is collected (the others
+ * finish) and reported on the assembly result; the upload's files row
+ * tracks the run (intake_status processing → done | partial | failed,
+ * parts_expected / parts_done) so the client can poll after a 504 and
+ * resume: `resumeIntake` skips the parts already stored for the same
+ * source file and part name (parts.source_file_id) and stores the rest.
  */
 
 import type {
@@ -71,6 +82,8 @@ export type PartInsert = {
   name: string;
   source: "dxf" | "step";
   fileId: string;
+  /** The upload the part came from (the .ifc / .step itself for split parts, else = fileId); resume keys on it. */
+  sourceFileId: string | null;
   fileHash: string;
   geometry: PartGeometry | null;
   annotations: PartAnnotations;
@@ -99,6 +112,27 @@ export type ExistingPart = {
   fileHash: string | null;
 };
 
+/** Where the intake of an uploaded file stands (files.intake_status). */
+export type IntakeStatus = "processing" | "done" | "partial" | "failed";
+
+export type IntakeProgress = {
+  intakeStatus: IntakeStatus;
+  partsExpected: number | null;
+  partsDone: number | null;
+  intakeError: string | null;
+};
+
+/** A part already stored from an upload (parts.source_file_id), as much as the resume result needs. */
+export type StoredSourcePart = {
+  id: string;
+  itemId: string | null;
+  name: string;
+  qty: number;
+  triage: Triage | null;
+  thicknessMm: number | null;
+  thumbnailSvg: string | null;
+};
+
 export type IntakeDb = {
   /** Latest non-empty annotations of any DXF part (source = dxf only) with this file hash. */
   findAnnotationsByHash(fileHash: string): Promise<PartAnnotations | null>;
@@ -114,6 +148,10 @@ export type IntakeDb = {
   updatePart(id: string, patch: PartPatch): Promise<void>;
   nextItemPosition(quoteId: string): Promise<number>;
   insertItem(row: { quoteId: string; partId: string; position: number; qty: number }): Promise<{ id: string }>;
+  /** Progress of the upload's intake on its files row; only the given fields change. */
+  updateFileIntake(fileId: string, patch: Partial<IntakeProgress>): Promise<void>;
+  /** Parts (with their quote item) stored from this upload, any order. */
+  findPartsBySourceFile(sourceFileId: string): Promise<StoredSourcePart[]>;
 };
 
 export type IntakeDeps = {
@@ -185,8 +223,18 @@ export type IntakeResult =
       kind: "assembly";
       name: string;
       format: "step" | "ifc";
+      /** Stored parts in split order — on a resume the ones stored earlier included. */
       parts: AssemblyPartResult[];
+      /** Parts the model holds (= parts.length + failed.length). */
+      expected: number;
+      /** Parts that could not be stored in this run (the others were; the quote was re-priced). */
+      failed: AssemblyPartFailure[];
+      intakeStatus: "done" | "partial";
+      /** Resume only: parts found already stored and skipped. */
+      skipped: number;
     };
+
+export type AssemblyPartFailure = { name: string; error: string };
 
 export type AssemblyPartResult = {
   partId: string;
@@ -255,16 +303,91 @@ async function repriceQuietly(deps: IntakeDeps, quoteId: string): Promise<void> 
   }
 }
 
+/** Parts of a split model stored at the same time (each = derived file + part row + item row). */
+export const MODEL_PART_CONCURRENCY = 6;
+
+/**
+ * Runs `worker` over `items` with at most `limit` in flight, in order of
+ * start. The worker must not throw (errors are the caller's to collect).
+ */
+export async function runPool<T>(items: readonly T[], limit: number, worker: (item: T, index: number) => Promise<void>): Promise<void> {
+  let next = 0;
+  const lanes = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      await worker(items[index], index);
+    }
+  });
+  await Promise.all(lanes);
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+async function progressQuietly(deps: IntakeDeps, fileId: string, patch: Partial<IntakeProgress>): Promise<void> {
+  try {
+    await deps.db.updateFileIntake(fileId, patch);
+  } catch (error) {
+    console.error("[intake] progress update failed", fileId, error);
+  }
+}
+
+/** Thrown by resumeIntake when the upload's single part is already stored (nothing to resume). */
+export class IntakeAlreadyDoneError extends Error {
+  constructor() {
+    super("intake already done");
+    this.name = "IntakeAlreadyDoneError";
+  }
+}
+
 export async function processUploadedFile(input: IntakeInput): Promise<IntakeResult> {
-  switch (input.kind) {
-    case "dxf":
-      return processDxf(input);
-    case "pdf":
-      return processPdf(input);
-    case "step":
-      return processStep(input);
-    case "ifc":
-      return processIfc(input);
+  return runIntake(input, []);
+}
+
+/**
+ * Re-runs the intake of an upload whose first run did not finish (a 504
+ * mid-way): parts already stored for the file (same source file and part
+ * name) are kept, the missing ones are stored, the quote is re-priced.
+ * Single-part uploads that are already stored throw IntakeAlreadyDoneError.
+ */
+export async function resumeIntake(input: IntakeInput): Promise<IntakeResult> {
+  const existing = await input.deps.db.findPartsBySourceFile(input.file.id);
+  return runIntake(input, existing);
+}
+
+async function runIntake(input: IntakeInput, existing: StoredSourcePart[]): Promise<IntakeResult> {
+  const { deps, file } = input;
+  try {
+    let result: IntakeResult;
+    switch (input.kind) {
+      case "dxf":
+        if (existing.length > 0) throw new IntakeAlreadyDoneError();
+        result = await processDxf(input);
+        break;
+      case "pdf":
+        if (existing.length > 0) throw new IntakeAlreadyDoneError();
+        result = await processPdf(input);
+        break;
+      case "step":
+        result = await processStep(input, existing);
+        break;
+      case "ifc":
+        result = await processIfc(input, existing);
+        break;
+    }
+    if (result.kind !== "assembly") {
+      await progressQuietly(deps, file.id, { intakeStatus: "done", partsExpected: 1, partsDone: 1, intakeError: null });
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof IntakeAlreadyDoneError) {
+      await progressQuietly(deps, file.id, { intakeStatus: "done", partsExpected: 1, partsDone: 1, intakeError: null });
+    } else {
+      await progressQuietly(deps, file.id, { intakeStatus: "failed", intakeError: errorMessage(error) });
+    }
+    throw error;
   }
 }
 
@@ -314,6 +437,7 @@ async function processDxf(input: IntakeInput): Promise<Extract<IntakeResult, { k
     name,
     source: "dxf",
     fileId: file.id,
+    sourceFileId: file.id,
     fileHash: file.sha256,
     geometry,
     annotations,
@@ -414,7 +538,7 @@ async function retriageWithPdf(deps: IntakeDeps, part: ExistingPart & { geometry
   );
 }
 
-async function processStep(input: IntakeInput): Promise<IntakeResult> {
+async function processStep(input: IntakeInput, existing: StoredSourcePart[]): Promise<IntakeResult> {
   const { deps, file } = input;
   const name = baseName(file.originalName);
   const text = decodeStepBytes(input.buffer);
@@ -427,14 +551,14 @@ async function processStep(input: IntakeInput): Promise<IntakeResult> {
   // solid, each with its own STEP file split out of the upload.
   const split = await deps.splitModel(text, options);
   if (split.parts.length === 1 && split.parts[0].stepText === null) {
+    if (existing.length > 0) throw new IntakeAlreadyDoneError();
     return storeStepPart(input, name, file, split.parts[0].geometry, options);
   }
-  const parts = await storeModelParts(input, name, split);
-  return { kind: "assembly", name, format: "step", parts };
+  return { kind: "assembly", name, format: "step", ...(await storeModelParts(input, name, split, existing)) };
 }
 
 /** IFC: every element becomes a part with a STEP file of its geometry; the .ifc stays as the upload. */
-async function processIfc(input: IntakeInput): Promise<Extract<IntakeResult, { kind: "assembly" }>> {
+async function processIfc(input: IntakeInput, existing: StoredSourcePart[]): Promise<Extract<IntakeResult, { kind: "assembly" }>> {
   const { deps, file } = input;
   const name = baseName(file.originalName);
   const options: AnalyzeOptions = {
@@ -443,8 +567,7 @@ async function processIfc(input: IntakeInput): Promise<Extract<IntakeResult, { k
     name,
   };
   const split = await deps.splitModel(decodeStepBytes(input.buffer), options);
-  const parts = await storeModelParts(input, name, split);
-  return { kind: "assembly", name, format: "ifc", parts };
+  return { kind: "assembly", name, format: "ifc", ...(await storeModelParts(input, name, split, existing)) };
 }
 
 /** A single STEP part: annotations restored by hash, thumbnail, measured thickness, one item. */
@@ -475,6 +598,7 @@ async function storeStepPart(
     name,
     source: "step",
     fileId: file.id,
+    sourceFileId: file.id,
     fileHash: file.sha256,
     geometry,
     annotations,
@@ -503,33 +627,93 @@ async function storeStepPart(
   };
 }
 
+type StoredModelParts = Pick<Extract<IntakeResult, { kind: "assembly" }>, "parts" | "expected" | "failed" | "intakeStatus" | "skipped">;
+
 /**
  * Parts of a split model: each gets its derived STEP file (or, without
  * geometry, the upload itself), a part row with the measured thickness and
- * a quote item with the occurrence count as quantity. One re-price at the end.
+ * a quote item with the occurrence count as quantity. Names are fixed up
+ * front (split order, uniqueName), the item positions are read once and
+ * assigned start + index of the parts stored in this run, the parts are
+ * stored MODEL_PART_CONCURRENCY at a time, the results come back in split
+ * order. Parts in `existing` (a resume) are skipped and echoed from the
+ * rows. A failing part is collected; the others finish and the quote is
+ * re-priced once at the end.
  */
-async function storeModelParts(input: IntakeInput, uploadName: string, split: SplitModel): Promise<AssemblyPartResult[]> {
+async function storeModelParts(input: IntakeInput, uploadName: string, split: SplitModel, existing: StoredSourcePart[]): Promise<StoredModelParts> {
   const { deps, quoteId, file } = input;
-  const out: AssemblyPartResult[] = [];
   const used = new Map<string, number>();
-  for (const modelPart of split.parts) {
-    const partName = uniqueName(modelPart.name || uploadName, used);
-    let partFile: IntakeFile = file;
-    if (modelPart.stepText !== null) {
-      partFile = await deps.saveDerivedFile({
-        quoteId,
-        name: `${partName}.step`,
-        bytes: new TextEncoder().encode(modelPart.stepText),
-        kind: "step",
-      });
+  const names = split.parts.map((modelPart) => uniqueName(modelPart.name || uploadName, used));
+  const existingByName = new Map(existing.map((p) => [p.name, p] as const));
+  const todo = names.map((_, index) => index).filter((index) => !existingByName.has(names[index]));
+  const skipped = names.length - todo.length;
+
+  let done = skipped;
+  await progressQuietly(deps, file.id, { intakeStatus: "processing", partsExpected: names.length, partsDone: done, intakeError: null });
+
+  const start = await deps.db.nextItemPosition(quoteId);
+  const stored = new Map<number, AssemblyPartResult>();
+  const failed: AssemblyPartFailure[] = [];
+  await runPool(todo, MODEL_PART_CONCURRENCY, async (index, order) => {
+    const modelPart = split.parts[index];
+    const partName = names[index];
+    try {
+      let partFile: IntakeFile = file;
+      if (modelPart.stepText !== null) {
+        partFile = await deps.saveDerivedFile({
+          quoteId,
+          name: `${partName}.step`,
+          bytes: new TextEncoder().encode(modelPart.stepText),
+          kind: "step",
+        });
+      }
+      stored.set(index, await storeSplitPart(input, partName, partFile, modelPart, start + order));
+      done += 1;
+      await progressQuietly(deps, file.id, { partsDone: done });
+    } catch (error) {
+      console.error("[intake] part failed", file.id, partName, error);
+      failed.push({ name: partName, error: errorMessage(error) });
     }
-    out.push(await storeSplitPart(input, partName, partFile, modelPart));
-  }
+  });
   await repriceQuietly(deps, quoteId);
-  return out;
+
+  const intakeStatus = failed.length === 0 ? "done" : "partial";
+  await progressQuietly(deps, file.id, {
+    intakeStatus,
+    partsExpected: names.length,
+    partsDone: done,
+    intakeError: failed.length === 0 ? null : failed.map((f) => `${f.name}: ${f.error}`).join("; "),
+  });
+
+  const parts: AssemblyPartResult[] = [];
+  names.forEach((name, index) => {
+    const fresh = stored.get(index);
+    if (fresh) {
+      parts.push(fresh);
+      return;
+    }
+    const kept = existingByName.get(name);
+    if (kept) parts.push(fromStoredPart(kept, split.parts[index]));
+  });
+  return { parts, expected: names.length, failed, intakeStatus, skipped };
 }
 
-async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile, modelPart: ModelPart): Promise<AssemblyPartResult> {
+/** An already stored part echoed into the assembly result (triage / thumbnail from the row, warnings from the model). */
+function fromStoredPart(row: StoredSourcePart, modelPart: ModelPart): AssemblyPartResult {
+  return {
+    partId: row.id,
+    itemId: row.itemId ?? "",
+    name: row.name,
+    qty: row.qty,
+    triage: row.triage ?? modelPart.geometry.triage,
+    flat: row.thumbnailSvg !== null,
+    thicknessMm: row.thicknessMm,
+    thumbnailSvg: row.thumbnailSvg,
+    warnings: modelPart.warnings,
+  };
+}
+
+async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile, modelPart: ModelPart, position: number): Promise<AssemblyPartResult> {
   const { deps, quoteId } = input;
   const geometry = modelPart.geometry;
   const flat = geometry.entities.length > 0;
@@ -541,6 +725,7 @@ async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile
     name,
     source: "step",
     fileId: file.id,
+    sourceFileId: input.file.id,
     fileHash: file.sha256,
     geometry,
     annotations,
@@ -551,7 +736,6 @@ async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile
     aiSuggestions: null,
     thicknessMm,
   });
-  const position = await deps.db.nextItemPosition(quoteId);
   const item = await deps.db.insertItem({ quoteId, partId: part.id, position, qty: Math.max(1, modelPart.occurrences) });
   return {
     partId: part.id,

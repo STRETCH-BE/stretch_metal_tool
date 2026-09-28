@@ -26,7 +26,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { ServerSupabase } from "@/lib/supabase/server";
 import type { AdminSupabase } from "@/lib/supabase/admin";
 import { QUOTE_FILES_BUCKET } from "@/lib/env";
-import type { FileKind, FileRow } from "@/lib/db/types";
+import type { FileKind, FileRow, IntakeStatusDb } from "@/lib/db/types";
 import { safeFileName } from "@/lib/files/sniff";
 
 /** Read links expire after 10 minutes (build prompt Step 12). */
@@ -102,6 +102,8 @@ export type InsertFileInput = {
   uploadedBy: string;
   /** Quote the file belongs to — RLS refuses quotes the user cannot edit. */
   quoteId?: string | null;
+  /** Uploads whose intake starts right away: "processing" (derived / generated files leave it null). */
+  intakeStatus?: IntakeStatusDb | null;
 };
 
 /**
@@ -122,6 +124,7 @@ export async function insertFileRow(client: ServerSupabase | AdminSupabase, inpu
       kind: input.kind,
       uploaded_by: input.uploadedBy,
       quote_id: input.quoteId ?? null,
+      intake_status: input.intakeStatus ?? null,
     })
     .select("*")
     .single();

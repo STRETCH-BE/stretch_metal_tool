@@ -27,6 +27,7 @@ import {
   type IntakeDb,
   type IntakeDeps,
   type IntakeFile,
+  type IntakeProgress,
   type PartInsert,
   type PartPatch,
 } from "@/lib/parts/intake";
@@ -50,13 +51,14 @@ type PartRecord = Omit<PartInsert, "source"> & {
   materialCode: string | null;
   createdAt: number;
 };
-type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step" | "ifc"; quoteId: string; bytes: Uint8Array; uploadedBy: string };
+type FileRecord = IntakeFile & { kind: "dxf" | "pdf" | "step" | "ifc"; quoteId: string; bytes: Uint8Array; uploadedBy: string } & Partial<IntakeProgress>;
 
 /** In-memory IntakeDb + file store mirroring the production queries. */
 function memoryDb() {
   const parts: PartRecord[] = [];
   const items: { id: string; quoteId: string; partId: string; position: number; qty: number }[] = [];
   const files: FileRecord[] = [];
+  const intakeUpdates: ({ fileId: string } & Partial<IntakeProgress>)[] = [];
   let seq = 0;
   const db: IntakeDb = {
     async findAnnotationsByHash(fileHash) {
@@ -107,6 +109,20 @@ function memoryDb() {
       items.push({ id, ...row });
       return { id };
     },
+    async updateFileIntake(fileId, patch) {
+      const file = files.find((f) => f.id === fileId);
+      if (!file) throw new Error("no file");
+      Object.assign(file, patch);
+      intakeUpdates.push({ fileId, ...patch });
+    },
+    async findPartsBySourceFile(sourceFileId) {
+      return parts
+        .filter((p) => p.sourceFileId === sourceFileId)
+        .map((p) => {
+          const item = items.find((i) => i.partId === p.id);
+          return { id: p.id, itemId: item?.id ?? null, name: p.name, qty: item?.qty ?? 1, triage: p.triage, thicknessMm: p.thicknessMm, thumbnailSvg: p.thumbnailSvg };
+        });
+    },
   };
   const addFile = (name: string, kind: FileRecord["kind"], bytes: Uint8Array, uploadedBy: string = OWNER): IntakeFile => {
     const id = `file-${++seq}`;
@@ -123,6 +139,7 @@ function memoryDb() {
       name,
       source: "manual",
       fileId,
+      sourceFileId: null,
       fileHash: fileHash ?? "",
       geometry,
       annotations,
@@ -137,7 +154,7 @@ function memoryDb() {
     });
     return id;
   };
-  return { db, parts, items, files, addFile, addManualPart };
+  return { db, parts, items, files, intakeUpdates, addFile, addManualPart };
 }
 
 function makeDeps(store: ReturnType<typeof memoryDb>, overrides: Partial<IntakeDeps> = {}): IntakeDeps {

@@ -263,8 +263,15 @@ export type FileRow = {
   uploaded_by: string | null;
   /** Quote the file belongs to (RLS: insert only into quotes the user can edit). */
   quote_id: string | null;
+  /** Intake run of an upload (null for derived / generated files): processing → done | partial | failed. */
+  intake_status: IntakeStatusDb | null;
+  parts_expected: number | null;
+  parts_done: number | null;
+  intake_error: string | null;
   created_at: string;
 };
+
+export type IntakeStatusDb = "processing" | "done" | "partial" | "failed";
 
 export type QuoteCounterRow = { year: number; last_number: number };
 
@@ -309,6 +316,8 @@ export type PartRow = {
   name: string;
   source: PartSourceDb;
   file_id: string | null;
+  /** The upload the part was derived from (split STEP / IFC: the model file; else = file_id). */
+  source_file_id: string | null;
   pdf_file_id: string | null;
   file_hash: string | null;
   material_code: string | null;
