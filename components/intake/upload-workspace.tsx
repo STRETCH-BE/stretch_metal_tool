@@ -13,6 +13,15 @@
  * same codes the server uses; a DWG row links to the export guide.
  * Rows are keyboard reachable: "open part" is a link, retry / remove
  * are buttons.
+ *
+ * A large model whose analysis outlives the server response (504 / no
+ * JSON → "analysis_timeout" with the file id) does not fail: the row goes
+ * to `processing` and polls GET /api/files/[id]/status ("Processing… X of
+ * Y parts") for up to two minutes, then fetches the full result through
+ * POST /api/files/[id]/resume-intake, which also stores whatever is still
+ * missing and re-prices. A `partial` row (some parts failed) and Retry on
+ * a row whose file the server already has both go through resume, never
+ * through a second upload — so nothing is duplicated.
  */
 
 import Link from "next/link";
@@ -24,17 +33,24 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { Notice } from "@/components/ui/notice";
 import { PartThumbnail } from "@/components/viewer/part-thumbnail";
 import { TriageChip } from "@/components/triage/triage-chip";
-import { createClient } from "@/lib/supabase/client";
+import { browserSupabaseConfig, createClient } from "@/lib/supabase/client";
 import { routes } from "@/lib/routes";
 import { interpolate } from "@/lib/format";
-import { validateUploadRequest } from "@/lib/files/sniff";
+import { MAX_FILE_BYTES, validateUploadRequest } from "@/lib/files/sniff";
 import { healingSentence } from "@/lib/parts/flag-message";
 import type { UploadErrorCode } from "@/content/upload";
 import { Dropzone } from "./dropzone";
 import { QuickPartModal, type QuickPartMaterial } from "./quick-part-modal";
-import { uploadFileToQuote, UploadFlowError, type CompleteResponse, type UploadStage } from "./upload-client";
+import {
+  pollIntakeStatus,
+  resumeIntakeRequest,
+  uploadFileToQuote,
+  UploadFlowError,
+  type CompleteResponse,
+  type UploadStage,
+} from "./upload-client";
 
-type RowStatus = "queued" | UploadStage | "done" | "error";
+type RowStatus = "queued" | UploadStage | "processing" | "partial" | "done" | "error";
 
 type Row = {
   id: string;
@@ -42,10 +58,26 @@ type Row = {
   status: RowStatus;
   error: UploadErrorCode | null;
   result: CompleteResponse | null;
+  /** Set once the server has the upload — Retry / Resume then go through resume-intake. */
+  fileId: string | null;
+  /** Parts stored so far / expected (processing, partial). */
+  progress: { done: number; expected: number } | null;
+  /** Bytes sent during a resumable upload, as a percentage. */
+  uploadPercent: number | null;
 };
 
-const PROGRESS: Record<RowStatus, number> = { queued: 5, signing: 20, uploading: 55, analysing: 85, done: 100, error: 100 };
+const PROGRESS: Record<RowStatus, number> = {
+  queued: 5,
+  signing: 20,
+  uploading: 55,
+  analysing: 85,
+  processing: 92,
+  partial: 100,
+  done: 100,
+  error: 100,
+};
 const GUIDE_ERRORS = new Set<UploadErrorCode>(["dwg", "binary_dxf", "unknown_type", "extension", "type_mismatch"]);
+const MAX_MB = Math.round(MAX_FILE_BYTES / (1024 * 1024));
 
 export type UploadWorkspaceProps = {
   quoteId: string;
@@ -53,6 +85,10 @@ export type UploadWorkspaceProps = {
   canWrite: boolean;
   materials: QuickPartMaterial[];
 };
+
+function progressOf(result: CompleteResponse): Row["progress"] {
+  return result.kind === "assembly" ? { done: result.parts.length, expected: result.expected } : null;
+}
 
 export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: UploadWorkspaceProps) {
   const c = useContent();
@@ -72,22 +108,64 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
     if (active.current) return;
     active.current = true;
     const supabase = createClient();
+    const config = browserSupabaseConfig();
+
+    const settle = (row: Row, result: CompleteResponse) => {
+      const status: RowStatus = result.kind === "assembly" && result.intakeStatus === "partial" ? "partial" : "done";
+      patch(row.id, { status, result, error: null, fileId: result.fileId, progress: progressOf(result), uploadPercent: null });
+      router.refresh();
+    };
+    const fail = (row: Row, error: unknown) => {
+      const flow = error instanceof UploadFlowError ? error : null;
+      patch(row.id, { status: "error", error: flow?.code ?? "generic", fileId: flow?.fileId ?? row.fileId, uploadPercent: null });
+    };
+    /** The complete request timed out: the intake may still be running — poll, then fetch the result through resume. */
+    const afterTimeout = async (row: Row, fileId: string) => {
+      patch(row.id, { status: "processing", fileId, error: null, uploadPercent: null });
+      const final = await pollIntakeStatus(fileId, {
+        onProgress: (status) => patch(row.id, { progress: { done: status.partsDone ?? 0, expected: status.partsExpected ?? 0 } }),
+      });
+      if (final && (final.intakeStatus === "done" || final.intakeStatus === "partial")) {
+        patch(row.id, { status: "analysing" });
+        settle(row, await resumeIntakeRequest(fileId));
+        return;
+      }
+      if (final?.intakeStatus === "failed") throw new UploadFlowError("generic", undefined, fileId);
+      throw new UploadFlowError("analysis_timeout", undefined, fileId);
+    };
+
     try {
       while (queue.current.length > 0) {
         const row = queue.current.shift()!;
         try {
-          const result = await uploadFileToQuote({
-            quoteId,
-            file: row.file,
-            bucket,
-            supabase,
-            onStage: (stage) => patch(row.id, { status: stage }),
-          });
-          patch(row.id, { status: "done", result, error: null });
-          router.refresh();
+          if (row.fileId) {
+            patch(row.id, { status: "analysing", error: null });
+            settle(row, await resumeIntakeRequest(row.fileId));
+          } else {
+            settle(
+              row,
+              await uploadFileToQuote({
+                quoteId,
+                file: row.file,
+                bucket,
+                supabase,
+                supabaseUrl: config.url,
+                supabaseKey: config.key,
+                onStage: (stage) => patch(row.id, { status: stage }),
+                onUploadProgress: (sent, total) => patch(row.id, { uploadPercent: total > 0 ? Math.round((sent / total) * 100) : null }),
+              })
+            );
+          }
         } catch (error) {
-          const code = error instanceof UploadFlowError ? error.code : "generic";
-          patch(row.id, { status: "error", error: code });
+          if (error instanceof UploadFlowError && error.code === "analysis_timeout" && error.fileId) {
+            try {
+              await afterTimeout(row, error.fileId);
+            } catch (later) {
+              fail(row, later);
+            }
+          } else {
+            fail(row, error);
+          }
         }
       }
     } finally {
@@ -100,9 +178,8 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
       const next: Row[] = files.map((file) => {
         const validation = validateUploadRequest({ fileName: file.name, size: file.size });
         const id = `f${++seq.current}`;
-        return validation.ok
-          ? { id, file, status: "queued", error: null, result: null }
-          : { id, file, status: "error", error: validation.code, result: null };
+        const base = { id, file, result: null, fileId: null, progress: null, uploadPercent: null };
+        return validation.ok ? { ...base, status: "queued", error: null } : { ...base, status: "error", error: validation.code };
       });
       setRows((current) => [...next, ...current]);
       queue.current.push(...next.filter((row) => row.status === "queued"));
@@ -111,9 +188,11 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
     [pump]
   );
 
+  /** Retry (error) and Resume (partial) — a row the server already has resumes instead of re-uploading. */
   const retry = (row: Row) => {
-    patch(row.id, { status: "queued", error: null, result: null });
-    queue.current.push({ ...row, status: "queued", error: null, result: null });
+    const queued: Row = { ...row, status: "queued", error: null, result: null, uploadPercent: null };
+    patch(row.id, { status: "queued", error: null, result: null, uploadPercent: null });
+    queue.current.push(queued);
     void pump();
   };
 
@@ -171,6 +250,14 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
   const status = t.status[row.status];
   const result = row.result;
   const sizeKb = Math.max(1, Math.round(row.file.size / 1024));
+  const busy = row.status !== "done" && row.status !== "error" && row.status !== "partial";
+  const settled = row.status === "error" || row.status === "done" || row.status === "partial";
+  const progressText =
+    row.status === "processing" && row.progress
+      ? interpolate(t.results.processingParts, { done: row.progress.done, expected: row.progress.expected })
+      : row.status === "uploading" && row.uploadPercent !== null
+        ? interpolate(t.results.uploadProgress, { percent: row.uploadPercent })
+        : null;
 
   return (
     <>
@@ -189,6 +276,8 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
         <div className="flex flex-wrap items-center gap-2">
           {row.status === "error" ? (
             <StatusChip severity="red" label={status} />
+          ) : row.status === "partial" ? (
+            <StatusChip severity="amber" label={status} />
           ) : row.status === "done" ? (
             result?.kind === "dxf" || result?.kind === "step" ? (
               <TriageChip state={result.triage.state} />
@@ -196,7 +285,7 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
               <StatusChip severity="green" label={status} />
             )
           ) : (
-            <StatusChip severity="neutral" label={status} />
+            <StatusChip severity="neutral" label={progressText ?? status} />
           )}
           {result && result.kind !== "assembly" && result.partId && (
             <Link href={routes.part(result.partId)} className="btn btn-ghost btn-sm">
@@ -206,12 +295,17 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
               </span>
             </Link>
           )}
-          {row.status === "error" && row.error !== "dwg" && row.error !== "extension" && (
+          {row.status === "partial" && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onRetry}>
-              {t.results.retry}
+              {t.results.resume}
             </button>
           )}
-          {(row.status === "error" || row.status === "done") && (
+          {row.status === "error" && row.error !== "dwg" && row.error !== "extension" && row.error !== "intake_done" && (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={onRetry}>
+              {row.fileId ? t.results.resume : t.results.retry}
+            </button>
+          )}
+          {settled && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={onRemove} aria-label={`${t.results.remove}: ${row.file.name}`}>
               {t.results.remove}
             </button>
@@ -219,22 +313,22 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
         </div>
       </div>
 
-      {row.status !== "done" && row.status !== "error" && (
+      {busy && (
         <div
           className="progress"
           role="progressbar"
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={PROGRESS[row.status]}
-          aria-label={`${row.file.name}: ${status}`}
+          aria-valuenow={row.status === "uploading" && row.uploadPercent !== null ? Math.round(20 + row.uploadPercent * 0.6) : PROGRESS[row.status]}
+          aria-label={`${row.file.name}: ${progressText ?? status}`}
         >
-          <span style={{ width: `${PROGRESS[row.status]}%` }} />
+          <span style={{ width: `${row.status === "uploading" && row.uploadPercent !== null ? Math.round(20 + row.uploadPercent * 0.6) : PROGRESS[row.status]}%` }} />
         </div>
       )}
 
       {row.status === "error" && row.error && (
         <Notice tone="error">
-          {c.upload.errors[row.error] ?? c.upload.errors.generic}
+          {interpolate(c.upload.errors[row.error] ?? c.upload.errors.generic, { mb: MAX_MB })}
           {GUIDE_ERRORS.has(row.error) && (
             <>
               {" "}
@@ -244,6 +338,10 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
             </>
           )}
         </Notice>
+      )}
+
+      {row.status === "partial" && row.progress && (
+        <Notice tone="info">{interpolate(t.results.partialParts, { done: row.progress.done, expected: row.progress.expected })}</Notice>
       )}
 
       {result && (
@@ -275,6 +373,10 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
           {result.kind === "assembly" && (
             <>
               <li>{interpolate(result.format === "ifc" ? t.results.ifcSplit : t.results.assemblySplit, { count: result.parts.length })}</li>
+              {result.skipped > 0 && <li>{interpolate(t.results.resumed, { skipped: result.skipped })}</li>}
+              {result.failed.length > 0 && (
+                <li className="text-red">{interpolate(t.results.partsFailed, { names: result.failed.map((f) => f.name).join(", ") })}</li>
+              )}
               {result.parts.map((p) => (
                 <li key={p.partId} className="flex flex-wrap items-center gap-2">
                   {p.thumbnailSvg ? <PartThumbnail svg={p.thumbnailSvg} size={40} label={p.name} /> : <span className="inline-block h-10 w-10 shrink-0 bg-surface" aria-hidden="true" />}

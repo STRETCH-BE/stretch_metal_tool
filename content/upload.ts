@@ -32,7 +32,11 @@ export type UploadErrorCode =
   | "not_uploaded"
   | "conflict"
   | "network"
-  | "upload_failed";
+  | "upload_failed"
+  /** The complete request timed out / answered without JSON during the analysis (the intake may still be running). */
+  | "analysis_timeout"
+  /** Resume asked for an upload whose single part is already stored. */
+  | "intake_done";
 
 export type UploadContent = {
   title: string;
@@ -117,7 +121,18 @@ export type UploadContent = {
       inputLabel: string;
       queueLabel: string;
     };
-    status: { queued: string; signing: string; uploading: string; analysing: string; done: string; error: string };
+    status: {
+      queued: string;
+      signing: string;
+      uploading: string;
+      analysing: string;
+      /** Polling the server after a timeout of the analysis. */
+      processing: string;
+      /** Some parts of the model were not stored. */
+      partial: string;
+      done: string;
+      error: string;
+    };
     results: {
       title: string;
       empty: string;
@@ -142,6 +157,17 @@ export type UploadContent = {
       remove: string;
       retry: string;
       guideLink: string;
+      /** `{done}` and `{expected}` placeholders. */
+      processingParts: string;
+      /** `{done}` and `{expected}` placeholders. */
+      partialParts: string;
+      resume: string;
+      /** `{skipped}` placeholder. */
+      resumed: string;
+      /** `{names}` placeholder — the parts that failed, comma separated. */
+      partsFailed: string;
+      /** `{percent}` placeholder. */
+      uploadProgress: string;
     };
     parts: {
       title: string;
@@ -504,6 +530,8 @@ export const upload: UploadContent = {
       signing: "Przygotowanie",
       uploading: "Wgrywanie",
       analysing: "Analiza geometrii",
+      processing: "Przetwarzanie",
+      partial: "Częściowo",
       done: "Gotowe",
       error: "Błąd",
     },
@@ -527,6 +555,12 @@ export const upload: UploadContent = {
       remove: "Usuń z listy",
       retry: "Ponów",
       guideLink: "Zobacz instrukcję eksportu",
+      processingParts: "Przetwarzanie… {done} z {expected} części",
+      partialParts: "Częściowo: {done} z {expected} części. Wznowić?",
+      resume: "Wznów",
+      resumed: "Wznowiono — {skipped} części było już zapisanych.",
+      partsFailed: "Nie udało się zapisać: {names}",
+      uploadProgress: "{percent}%",
     },
     parts: {
       title: "Części w wycenie",
@@ -786,7 +820,7 @@ export const upload: UploadContent = {
   },
   errors: {
     extension: "Nieobsługiwany typ pliku. Dozwolone: DXF, PDF, STEP / STP, IFC.",
-    size: "Plik jest za duży — limit to 25 MB.",
+    size: "Plik jest za duży — limit to {mb} MB.",
     dwg: "DWG nie jest obsługiwany. Zapisz plik jako DXF (w AutoCAD: Zapisz jako → DXF) i wgraj ponownie.",
     empty: "Plik jest pusty.",
     binary_dxf: "To binarny DXF. Zapisz plik jako ASCII DXF (AutoCAD 2018 lub R12) i wgraj ponownie.",
@@ -798,6 +832,8 @@ export const upload: UploadContent = {
     conflict: "Ten plik został już zarejestrowany. Wgraj go ponownie.",
     network: "Błąd połączenia. Sprawdź sieć i spróbuj ponownie.",
     upload_failed: "Wgrywanie nie powiodło się.",
+    analysis_timeout: "Analiza trwa dłużej niż odpowiedź serwera. Sprawdzamy postęp… Jeśli część elementów się nie zapisała, użyj „Wznów”.",
+    intake_done: "Ten plik został już przetworzony — nie ma czego wznawiać.",
     unauthenticated: "Sesja wygasła — zaloguj się ponownie.",
     forbidden: "Brak uprawnień do edycji tej wyceny.",
     not_found: "Nie znaleziono wyceny lub części.",

@@ -15,6 +15,14 @@ import type { Database } from "@/lib/db/types";
 let browserClient: ReturnType<typeof createBrowserClient<Database>> | null =
   null;
 
+/** Project url + anon key as the browser bundle sees them (the resumable upload endpoint needs both). */
+export function browserSupabaseConfig(): { url: string; key: string } {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    key: (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)!,
+  };
+}
+
 export function createClient() {
   if (browserClient) return browserClient;
   // Both variable names must be spelled out literally so Next.js inlines
