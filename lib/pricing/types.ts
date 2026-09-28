@@ -78,6 +78,8 @@ export type TubeLaserRate = {
 };
 
 export type BendRate = {
+  /** rate_bend.id of the row (null in fixtures without one) — stored on the bend line's cost breakdown for the audit. */
+  id?: string | null;
   thicknessMm: number;
   /** Bend length ≤ lengthClassMm (classes sorted ascending). */
   lengthClassMm: number;
@@ -539,6 +541,7 @@ export type FlagCode =
   | "market.bend_too_long"
   /** Market mode: a bend longer than the benchmarked length — priced with the per-metre extension, amber. */
   | "market.extrapolated_rate"
+  | "market.bend_rate_from_steel"
   | "rates.placeholder";
 
 export type Flag = {

@@ -69,8 +69,11 @@ describe("rowsToRateSnapshot", () => {
       thread: [...RATE_SNAPSHOT_V1.thread].sort((a, b) => cmp(a.size, b.size)),
       feature: [...RATE_SNAPSHOT_V1.feature].sort((a, b) => cmp(a.code, b.code)),
       finish: [...RATE_SNAPSHOT_V1.finish].sort((a, b) => cmp(a.code, b.code)),
+      // the bend rows carry the DB id the round-trip assigned (stored on the bend line's cost breakdown)
+      bend: RATE_SNAPSHOT_V1.bend.map((r, i) => ({ ...r, id: rows.bend[i].id })),
     };
     expect(snapshot).toEqual(sorted);
+    expect(snapshot.bend.every((r) => typeof r.id === "string" && r.id.length > 0)).toBe(true);
   });
 
   it("coerces string numerics from PostgREST into numbers", () => {

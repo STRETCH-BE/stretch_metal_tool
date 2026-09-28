@@ -718,6 +718,7 @@ const FLAG_CODES = {
   "market.finish_implied": true,
   "market.bend_too_long": true,
   "market.extrapolated_rate": true,
+  "market.bend_rate_from_steel": true,
   "rates.placeholder": true,
   "sheet.bend_deduction_unverified": true,
   "sheet.masking_not_priced": true,

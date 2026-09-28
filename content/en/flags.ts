@@ -368,6 +368,11 @@ export const flags: FlagsContent = {
       label: "Overlapping cuts",
       message: "{count} place(s) where cut loops intersect — fix the geometry before production.",
     },
+    "market.bend_rate_from_steel": {
+      label: "Bending rate from steel",
+      message:
+        "Bending priced from the {thicknessMm} mm steel rate × {factor} ({family}) — not benchmarked for {materialCode}; check before sending.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

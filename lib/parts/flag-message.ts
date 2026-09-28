@@ -9,7 +9,9 @@
  *
  * Decisions:
  * - Numbers are formatted per locale when one is given (PL "2 224,5",
- *   max 2 decimals) so a message never shows "2224.5000000001".
+ *   max 2 decimals) so a message never shows "2224.5000000001". The
+ *   `factor` param (rate multipliers such as 2.184) keeps 3 decimals so
+ *   the message shows the multiplier the engine applied.
  * - Code-valued params are translated before interpolation: `state`
  *   (TriageState → triage label), `family` (material family), `reason`
  *   (laser lookup reason), `what` (tube limit kind), `process` (weld
@@ -28,10 +30,10 @@ export type FlagLike = { code: FlagCode; params?: Record<string, string | number
 
 type Params = Record<string, string | number>;
 
-function formatParam(value: string | number, locale?: Locale): string {
+function formatParam(value: string | number, locale?: Locale, key?: string): string {
   if (typeof value === "number") {
     if (!Number.isFinite(value)) return "—";
-    return locale ? formatNumber(value, locale, { maximumFractionDigits: 2 }) : String(value);
+    return locale ? formatNumber(value, locale, { maximumFractionDigits: key === "factor" ? 3 : 2 }) : String(value);
   }
   return value;
 }
@@ -39,7 +41,7 @@ function formatParam(value: string | number, locale?: Locale): string {
 /** interpolate() variant: missing keys → "—", numbers formatted per locale. */
 export function fillTemplate(template: string, params: Params, locale?: Locale): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) =>
-    key in params ? formatParam(params[key], locale) : "—"
+    key in params ? formatParam(params[key], locale, key) : "—"
   );
 }
 

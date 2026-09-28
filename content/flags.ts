@@ -425,6 +425,11 @@ export const flags: FlagsContent = {
       label: "Przecinające się cięcia",
       message: "{count} miejsc, w których pętle cięcia się przecinają — popraw geometrię przed produkcją.",
     },
+    "market.bend_rate_from_steel": {
+      label: "Stawka gięcia ze stali",
+      message:
+        "Gięcie wycenione wg stawki dla stali {thicknessMm} mm × {factor} ({family}) — brak benchmarku dla {materialCode}; sprawdź przed wysłaniem.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

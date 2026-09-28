@@ -4,7 +4,8 @@
  * owner's cases F1–F3 (threads by thickness), B1–B5 (bending), C1–C2
  * (features), P1–P3 (powder coating), Z1–Z2 (zinc, hot-dip), K1
  * (certificates), D1–D2 (edge finishing) and V2 (the v2 numbers are
- * unchanged), ±1 %, plus one check per rule 14–24 of the v3 prompt.
+ * unchanged), ±1 %, plus one check per rule 14–24 of the v3 prompt, and
+ * B6–B7 for the same-thickness steel fallback of the bending rate.
  * Rates come only from test/fixtures/rates/market-247-v3.json, the DB rows
  * of migration 20260928090000_rates_v3_market.sql (flat laser = v2 copied).
  * File path: /test/pricing/market-v3.test.ts
@@ -13,6 +14,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { getContent } from "@/content";
+import { flagMessage } from "@/lib/parts/flag-message";
 import { priceQuote } from "@/lib/pricing/price-quote";
 import { rowsToMachinePark, rowsToRateSnapshot, type RateRows } from "@/lib/pricing/snapshot";
 import type { Flag, FlagCode, OperationLine, PricedQuote, PricingItem, PricingPart, QuoteInput } from "@/lib/pricing/types";
@@ -259,15 +262,110 @@ describe("B — bending (rule 14)", () => {
     expect(codes(tooLong.items[0].flags)).not.toContain("market.not_benchmarked");
   });
 
-  it("B6: a bend in DC01 3 mm, S235 4 mm or DX51D 2 mm → red market.not_benchmarked: bending", () => {
-    const cases = [L("DC01", 3, [160], "a"), L("S235", 4, [160], "a"), L("DX51D", 2, [160], "a")];
+  it("B6: a bend at a thickness with no steel row either (S235 4 mm, AlMg3 1.0 mm) → red market.not_benchmarked: bending, no price, no nearest thickness", () => {
+    const cases = [L("S235", 4, [160], "a"), L("AlMg3", 1, [160], "a"), L("AlMg3", 1, [160, 160, 160], "a")];
     for (const part of cases) {
       const priced = quote([part], [makeItem({ id: "x", partId: "a" })]);
       expect(priced.items[0].unitPrice, `${part.materialCode} ${part.thicknessMm}`).toBeNull();
       const flag = priced.items[0].flags.find((f) => f.code === "market.not_benchmarked" && f.params.operation === "bending");
       expect(flag?.severity, `${part.materialCode} ${part.thicknessMm}`).toBe("red");
       expect(flag?.params).toMatchObject({ count: part.geometry.measures.bendLines.length });
+      expect(codes(priced.items[0].flags)).not.toContain("market.bend_rate_from_steel");
+      expect(priced.items[0].operations.filter((o) => o.type === "bend")).toEqual([]);
     }
+  });
+
+  const STEEL_ROW = { 1.5: "6fcf5918-080a-4cc0-85b2-3c9a5cd31237", 2: "0a78eaed-4837-4552-bf7b-d50f4e882d19", 3: "e56f4607-373a-4c76-94a9-613a505add0e" } as const;
+
+  it("B7: AlMg3 1.5 mm, 3 bends ≤ 200 mm, qty 1 → €17.38 from the 1.5 mm steel row × 2.184 (aluminium, from the 3 mm row), amber market.bend_rate_from_steel, no red", () => {
+    const r = addOn(L("AlMg3", 1.5, [160, 160, 160]), flat("AlMg3", 1.5, 160), {});
+    within1pct(r.addOn, 17.38);
+    expect(r.addOn).toBeCloseTo(2.7747 + 3 * (0.8136 + 1.4152) * 2.184, 6);
+    const item = r.priced.items[0];
+    expect(item.unitPrice).not.toBeNull();
+    const ops = item.operations;
+    expect(byLabel(ops, "bend_setup")!.unitCost).toBeCloseTo(2.7747, 9); // setup_per_part_type is never multiplied
+    expect(byLabel(ops, "bend_line_setup")!.unitCost).toBeCloseTo(3 * 0.8136 * 2.184, 9);
+    const bend = byLabel(ops, "bend")!;
+    expect(bend).toMatchObject({ driverQty: 3, driverUnit: "bend" });
+    expect(bend.unitCost).toBeCloseTo(3 * 1.4152 * 2.184, 9);
+    // the breakdown records which row priced it and how
+    for (const label of ["bend_setup", "bend_line_setup", "bend"]) {
+      expect(byLabel(ops, label)!.rateRef, label).toMatchObject({ table: "rate_bend", key: "1.5/4400", values: { rateBendId: STEEL_ROW[1.5], source: "steel_fallback", familyFactor: 2.184, thicknessMm: 1.5 } });
+    }
+    expect(bend.details).toMatchObject({ rateSource: "steel_fallback", rateBendId: STEEL_ROW[1.5], factor: 2.184, extrapolatedBends: 0 });
+    const amber = item.flags.find((f) => f.code === "market.bend_rate_from_steel");
+    expect(amber?.severity).toBe("amber");
+    expect(amber?.params).toMatchObject({ thicknessMm: 1.5, factor: 2.184, family: "aluminium", materialCode: "AlMg3", count: 3 });
+    expect(codes(item.flags)).not.toContain("market.not_benchmarked");
+    expect(codes(item.flags)).not.toContain("market.extrapolated_rate");
+    expect(reds(item.flags)).toEqual([]);
+    expect(flagMessage(getContent("en").flags, amber!, "en")).toBe("Bending priced from the 1.5 mm steel rate × 2.184 (aluminium) — not benchmarked for AlMg3; check before sending.");
+    expect(flagMessage(getContent("pl").flags, amber!, "pl")).toBe("Gięcie wycenione wg stawki dla stali 1,5 mm × 2,184 (aluminium) — brak benchmarku dla AlMg3; sprawdź przed wysłaniem.");
+    // the quote-level flags carry it too (quote line, admin override view read the same list)
+    expect(r.priced.flags.some((f) => f.code === "market.bend_rate_from_steel" && f.partId === item.partId)).toBe(true);
+  });
+
+  it("B7: the fallback keeps the rest of rule 14 — set-up spread over qty, per-metre extension + amber beyond the benchmarked length, the 4 400 mm limit, the lead-time multiplier", () => {
+    const qty10 = addOn(L("AlMg3", 1.5, [160, 160, 160]), flat("AlMg3", 1.5, 160), { qty: 10 });
+    expect(qty10.addOn).toBeCloseTo(2.7747 / 10 + (3 * 0.8136 * 2.184) / 10 + 3 * 1.4152 * 2.184, 6);
+    const long = addOn(rect({ id: "b", lengthMm: 300, widthMm: 1000, thicknessMm: 1.5, materialCode: "AlMg3", bendLengthsMm: [1000] }), rect({ id: "b", lengthMm: 300, widthMm: 1000, thicknessMm: 1.5, materialCode: "AlMg3" }), {});
+    expect(long.addOn).toBeCloseTo(2.7747 + 0.8136 * 2.184 + (1.4152 + 14.8646 * 0.8) * 2.184, 6);
+    expect(codes(long.priced.items[0].flags)).toEqual(expect.arrayContaining(["market.bend_rate_from_steel", "market.extrapolated_rate"]));
+    const tooLong = quote([rect({ id: "b", lengthMm: 300, widthMm: 4500, thicknessMm: 1.5, materialCode: "AlMg3", bendLengthsMm: [4500] })], [makeItem({ id: "x", partId: "b" })]);
+    expect(tooLong.items[0].unitPrice).toBeNull();
+    expect(tooLong.items[0].flags.find((f) => f.code === "market.bend_too_long")?.params).toMatchObject({ longestMm: 4500, limitMm: 4400 });
+    expect(codes(tooLong.items[0].flags)).not.toContain("market.bend_rate_from_steel");
+    const rush = addOn(L("AlMg3", 1.5, [160, 160, 160]), flat("AlMg3", 1.5, 160), {}, 4);
+    expect(rush.addOn).toBeCloseTo((2.7747 + 3 * (0.8136 + 1.4152) * 2.184) * 1.75, 6);
+  });
+
+  it("B7: exact rows are untouched — DC01 1.5 (factor 1) and AlMg3 3 mm (own factor 2.184) carry source = exact and no fallback flag", () => {
+    const dc = addOn(L("DC01", 1.5, [160]), flat("DC01", 1.5, 160), {});
+    within1pct(dc.addOn, 5.0);
+    expect(byLabel(dc.priced.items[0].operations, "bend")!.rateRef.values).toMatchObject({ rateBendId: STEEL_ROW[1.5], source: "exact", familyFactor: 1 });
+    expect(codes(dc.priced.items[0].flags)).not.toContain("market.bend_rate_from_steel");
+    const al3 = addOn(L("AlMg3", 3, [160]), flat("AlMg3", 3, 160), {});
+    within1pct(al3.addOn, 8.29);
+    expect(byLabel(al3.priced.items[0].operations, "bend")!.rateRef.values).toMatchObject({ rateBendId: STEEL_ROW[3], source: "exact", familyFactor: 2.184 });
+    expect(codes(al3.priced.items[0].flags)).not.toContain("market.bend_rate_from_steel");
+  });
+
+  it("B7: DX51D 2 mm (steel, factor 1), 1.4404 3 mm (× 2.233 from the 1.5 mm row), CuZn37 2 mm (brass, no multiplier anywhere → 1), DC01 3 mm (factor 1) → priced from the steel row, amber", () => {
+    const cases: [string, number, number, string][] = [
+      ["DX51D", 2, 1, STEEL_ROW[2]],
+      ["1.4404", 3, 2.233, STEEL_ROW[3]],
+      ["CuZn37", 2, 1, STEEL_ROW[2]],
+      ["DC01", 3, 1, STEEL_ROW[3]],
+    ];
+    for (const [materialCode, t, factor, rowId] of cases) {
+      const r = addOn(L(materialCode, t, [160], "a"), flat(materialCode, t, 160, "a"), {});
+      const item = r.priced.items[0];
+      const row = V3.bend.find((b) => b.id === rowId)!;
+      expect(item.unitPrice, `${materialCode} ${t}`).not.toBeNull();
+      expect(r.addOn, `${materialCode} ${t}`).toBeCloseTo(row.setupPerPartType + (row.setupPerBendLineEur + row.pricePerBend) * factor, 6);
+      expect(byLabel(item.operations, "bend")!.rateRef.values, `${materialCode} ${t}`).toMatchObject({ rateBendId: rowId, source: "steel_fallback", familyFactor: factor });
+      const amber = item.flags.find((f) => f.code === "market.bend_rate_from_steel");
+      expect(amber?.severity, `${materialCode} ${t}`).toBe("amber");
+      expect(amber?.params, `${materialCode} ${t}`).toMatchObject({ thicknessMm: t, factor, materialCode, count: 1 });
+      expect(reds(item.flags), `${materialCode} ${t}`).toEqual([]);
+      expect(codes(item.flags)).not.toContain("market.not_benchmarked");
+    }
+  });
+
+  it("B7: the production part 0737475.000-AA (AlMg3 1.5 mm, bends 33 / 51 / 35.5 mm, qty 20, 11 days) prices at ≈ €9.68 per piece for bending", () => {
+    const part = rect({ id: "traegerblech", lengthMm: 250, widthMm: 120, thicknessMm: 1.5, materialCode: "AlMg3", bendLengthsMm: [33, 51, 35.5] });
+    const plain = rect({ id: "traegerblech", lengthMm: 250, widthMm: 120, thicknessMm: 1.5, materialCode: "AlMg3" });
+    const r = addOn(part, plain, { qty: 20 }, 11);
+    const ops = r.priced.items[0].operations;
+    expect(byLabel(ops, "bend_setup")!.unitCost).toBeCloseTo(2.7747 / 20, 9);
+    expect(byLabel(ops, "bend_line_setup")!.unitCost).toBeCloseTo((3 * 0.8136 * 2.184) / 20, 9);
+    expect(byLabel(ops, "bend")!.unitCost).toBeCloseTo(3 * 1.4152 * 2.184, 9);
+    expect(r.addOn).toBeCloseTo(0.138735 + 0.26653536 + 9.27239, 4);
+    within1pct(r.addOn, 9.68);
+    const amber = r.priced.items[0].flags.find((f) => f.code === "market.bend_rate_from_steel");
+    expect(amber?.params).toMatchObject({ thicknessMm: 1.5, factor: 2.184, family: "aluminium", materialCode: "AlMg3", count: 3 });
+    expect(reds(r.priced.items[0].flags)).toEqual([]);
   });
 
   it("rule 14: a part marked bent with no bend line recognised is flagged, never priced flat; angle does not matter", () => {

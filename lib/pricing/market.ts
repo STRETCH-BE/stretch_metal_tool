@@ -14,7 +14,10 @@
  *              + Σ over bend lines of (price_per_bend + price_per_bend_per_m × max(0, L − 0.2 m)) × f
  *              (n = bend lines, f = family multiplier, row by exact thickness and
  *              material list; L > length_class_mm (press brake) → red bend_too_long,
- *              L > benchmarked_max_length_mm → priced, amber extrapolated_rate)
+ *              L > benchmarked_max_length_mm → priced, amber extrapolated_rate;
+ *              no row for the material → the same-thickness steel row × the
+ *              family factor, amber bend_rate_from_steel; no steel row → red
+ *              not_benchmarked)
  *   + threads: setup_per_line ÷ qty + count × price_by_thickness[t]
  *   + features: setup_per_line ÷ qty + count × price_each (material + thickness range)
  *   + finishes: setup_per_line ÷ qty + price_per_part + units × price
@@ -74,13 +77,14 @@ import { buildPartContext, type PartContext } from "./context";
 import {
   FINISHES_INCLUDING_EDGE_BREAKING,
   bendExtrapolated,
-  bendFamilyFactor,
   bendPricePerPiece,
   featureEligibility,
   finishEligibility,
   finishRefused,
   finishVariantBase,
-  resolveBendRate,
+  BEND_FALLBACK_APPLY_FAMILY_FACTOR,
+  resolveBendRateForMaterial,
+  type BendRateSource,
   resolveFinishRate,
   threadPriceFor,
   type FinishEligibility,
@@ -204,11 +208,13 @@ function featureRef(rate: FeatureRate): RateRef {
   };
 }
 
-function bendRef(rate: BendRate, factor: number): RateRef {
+function bendRef(rate: BendRate, factor: number, source: BendRateSource): RateRef {
   return {
     table: "rate_bend",
     key: `${rate.thicknessMm}/${rate.lengthClassMm}`,
     values: {
+      rateBendId: rate.id ?? null,
+      source,
       thicknessMm: rate.thicknessMm,
       lengthClassMm: rate.lengthClassMm,
       pricePerBend: rate.pricePerBend,
@@ -245,6 +251,8 @@ export type PlannedFinish = {
 export type PlannedBend = {
   rate: BendRate;
   factor: number;
+  /** The part's own row, or the same-thickness steel row (amber market.bend_rate_from_steel). */
+  source: BendRateSource;
   count: number;
   longestMm: number;
   bendIds: string[];
@@ -305,16 +313,28 @@ function assessPart(ctx: PartContext): Verdict {
     notes.push(partFlag(ctx, "market.subcontract", "amber", { materialCode: material.code, thicknessMm, supplier: ctx.laser.row.supplier ?? "" }));
   }
 
-  // Bending: every bend line of the part, priced from the row that matches exactly.
+  // Bending: every bend line of the part, priced from the row that matches
+  // exactly, else from the same-thickness steel row (amber, never silent).
   let bend: PlannedBend | null = null;
   const bends = ctx.bends.filter((b) => b.lengthMm > 0);
   if (bends.length > 0) {
     const longestMm = Math.max(...bends.map((b) => b.lengthMm));
-    const resolved = resolveBendRate(rates, materialCode, thicknessMm, longestMm);
-    if (resolved.rate) {
+    const resolved = resolveBendRateForMaterial(rates, materialCode, ctx.family, thicknessMm, longestMm, BEND_FALLBACK_APPLY_FAMILY_FACTOR);
+    if (resolved.rate && resolved.source) {
       const rate = resolved.rate;
       const extrapolated = bends.filter((b) => bendExtrapolated(rate, b.lengthMm)).length;
-      bend = { rate, factor: bendFamilyFactor(rate, ctx.family), count: bends.length, longestMm, bendIds: bends.map((b) => b.id), lengthsMm: bends.map((b) => b.lengthMm), extrapolated };
+      bend = { rate, factor: resolved.factor, source: resolved.source, count: bends.length, longestMm, bendIds: bends.map((b) => b.id), lengthsMm: bends.map((b) => b.lengthMm), extrapolated };
+      if (resolved.source === "steel_fallback") {
+        notes.push(
+          partFlag(ctx, "market.bend_rate_from_steel", "amber", {
+            thicknessMm: rate.thicknessMm,
+            factor: resolved.factor,
+            family: ctx.family ?? "",
+            materialCode: materialCode ?? "",
+            count: bends.length,
+          })
+        );
+      }
       if (extrapolated > 0) {
         notes.push(
           partFlag(ctx, "market.extrapolated_rate", "amber", {
@@ -504,9 +524,9 @@ function orderChargeLine(ctx: PartContext, totalPieces: number): OperationLine |
 
 /** Bending (rule 14): set-up per part type, set-up per bend line and the per-bend price (with the per-metre extension), family factor on the last two. */
 function bendLinesMarket(ctx: PartContext, plan: PlannedBend): OperationLine[] {
-  const { rate, factor, count, longestMm, bendIds, lengthsMm, extrapolated } = plan;
+  const { rate, factor, source, count, longestMm, bendIds, lengthsMm, extrapolated } = plan;
   const qty = ctx.item.qty;
-  const ref = bendRef(rate, factor);
+  const ref = bendRef(rate, factor, source);
   const lines: OperationLine[] = [];
   if (rate.setupPerPartType > 0) {
     const share = rate.setupPerPartType / qty;
@@ -558,6 +578,8 @@ function bendLinesMarket(ctx: PartContext, plan: PlannedBend): OperationLine[] {
         pricePerBendPerM: rate.pricePerBendPerM,
         extrapolatedBends: extrapolated,
         factor,
+        rateSource: source,
+        rateBendId: rate.id ?? null,
         bendIds: bendIds.join(","),
       },
     })
