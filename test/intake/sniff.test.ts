@@ -2,7 +2,7 @@
  * File sniffing + upload validation (lib/files/sniff.ts) — customer
  * fixtures and synthetic buffers: DXF (CRLF, BOM, 999 comments, cp1250
  * bytes), binary DXF, PDF (junk before the header), STEP, DWG, unknown;
- * extension whitelist, 25 MB limit, base-name companion matching.
+ * extension whitelist, 100 MB limit, base-name companion matching.
  * File path: /test/intake/sniff.test.ts
  */
 import fs from "node:fs";
@@ -80,7 +80,9 @@ describe("validateUploadRequest", () => {
     expect(validateUploadRequest({ fileName: "a.dxf", size: 0 })).toEqual({ ok: false, code: "empty" });
     expect(validateUploadRequest({ fileName: "a.dxf", size: MAX_FILE_BYTES + 1 })).toEqual({ ok: false, code: "size" });
     expect(validateUploadRequest({ fileName: "a.dxf", size: MAX_FILE_BYTES })).toMatchObject({ ok: true });
-    expect(MAX_FILE_BYTES).toBe(25 * 1024 * 1024);
+    expect(MAX_FILE_BYTES).toBe(100 * 1024 * 1024);
+    expect(validateUploadRequest({ fileName: "hall.ifc", size: 99 * 1024 * 1024 })).toMatchObject({ ok: true, kind: "ifc" });
+    expect(validateUploadRequest({ fileName: "hall.ifc", size: 101 * 1024 * 1024 })).toEqual({ ok: false, code: "size" });
   });
 });
 

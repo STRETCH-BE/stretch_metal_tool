@@ -17,8 +17,11 @@
  * the file name without its LAST extension only, case-insensitively —
  * so "Bracket.v2.DXF" pairs with "bracket.v2.pdf".
  *
- * Limits: 25 MB per file (MAX_FILE_BYTES) and the whitelist .dxf .pdf
- * .step .stp. A .dwg gets its own rejection code so the UI can show the
+ * Limits: 100 MB per file (MAX_FILE_BYTES — the bucket's file_size_limit
+ * and the Supabase project's global upload limit must be at least that,
+ * see README "Deploy checklist") and the whitelist .dxf .pdf .step .stp
+ * .ifc. Files above 6 MB go up as resumable (TUS) uploads, the rest in
+ * one request (components/intake/upload-client.ts). A .dwg gets its own rejection code so the UI can show the
  * "save as DXF" message with the guide link.
  */
 
@@ -26,7 +29,7 @@ import type { FileKind } from "@/lib/db/types";
 
 export type SniffedType = "dxf" | "pdf" | "step" | "ifc" | "dwg" | "dxf_binary" | "unknown";
 
-export const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_FILE_BYTES = 100 * 1024 * 1024;
 export const ALLOWED_EXTENSIONS = ["dxf", "pdf", "step", "stp", "ifc"] as const;
 export type AllowedExtension = (typeof ALLOWED_EXTENSIONS)[number];
 

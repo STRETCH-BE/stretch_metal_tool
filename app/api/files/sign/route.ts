@@ -5,7 +5,7 @@
  * File path: /app/api/files/sign/route.ts
  *
  * Checks, in order: session with a write role + can_edit_quote + editable
- * quote (lib/parts/access.ts), then extension whitelist / 25 MB / DWG
+ * quote (lib/parts/access.ts), then extension whitelist / MAX_FILE_BYTES (100 MB) / DWG
  * (lib/files/sniff.ts — a .dwg answers 400 { error: "dwg" } so the UI
  * shows "save as DXF" with the guide link). No file bytes pass through
  * here: the browser uploads to Storage with the ticket.
