@@ -86,6 +86,7 @@ export const annotationsSchema = z.object({
   forming: z.enum(["flat", "bent", "rolled"]).nullable(),
   deletedEntityIds: z.array(z.string()),
   mirrored: z.boolean(),
+  reliefFix: z.boolean().optional(),
 });
 
 /** Lenient reader for a stored parts.annotations value. */

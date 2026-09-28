@@ -573,6 +573,12 @@ export type PartAnnotations = {
   deletedEntityIds: string[];
   /** Whether the outline was mirrored by the clean-up tool. */
   mirrored: boolean;
+  /**
+   * STEP sheet parts: the RELIEF_TOO_NARROW proposed fix (widen to t, deepen
+   * to the bend tangent + t) is applied to the flat pattern. Set by the
+   * approval of that override (lib/parts/relief-fix.ts), never by hand.
+   */
+  reliefFix?: boolean;
 };
 
 export const EMPTY_ANNOTATIONS: PartAnnotations = {

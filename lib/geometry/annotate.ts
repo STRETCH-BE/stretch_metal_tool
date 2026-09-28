@@ -16,7 +16,10 @@
  *    stitch × sides) and summed into measures.weldLengthMm;
  * 7. thread confirmations replace the automatic suggestion per hole;
  * 8. triage is re-evaluated with the amber answers (unitsConfirmed,
- *    forming/roll/bends given) so an answered question turns green.
+ *    forming/roll/bends given) so an answered question turns green;
+ * 9. STEP sheet parts: an approved relief fix (annotations.reliefFix) is
+ *    applied to the slit entities before chaining and the sheet report's
+ *    reliefs / flat volume follow the edited flat pattern.
  * Annotation coordinates are taken as already in the final (scaled /
  * mirrored) coordinate system, i.e. what the viewer showed when the
  * user drew them.
@@ -41,6 +44,8 @@ import { classify } from "./classify";
 import { measure } from "./measure";
 import { evaluateTriage } from "./triage";
 import { threadForSize } from "./threads";
+import { applyReliefFix } from "./step/relief-fix";
+import { detectReliefs } from "./step/reliefs";
 
 /* ─── Annotation normalisation ───────────────────────────── */
 
@@ -126,6 +131,12 @@ export function applyAnnotationsSync(
     );
   }
 
+  // 2b. Approved relief fix on a STEP sheet part: widen the narrow slits before chaining.
+  const sheet = geometry.sheet;
+  if (ann.reliefFix && sheet && sheet.isSheetMetal && sheet.reliefs.length > 0) {
+    entities = applyReliefFix(entities, sheet.reliefs, sheet.bends, sheet.thicknessMm);
+  }
+
   // 3. Reset roles: override > layer > unknown (classification decides the rest).
   entities = entities.map((e) => ({
     ...e,
@@ -180,7 +191,7 @@ export function applyAnnotationsSync(
     formingAnswered,
   });
 
-  return {
+  const result: PartGeometry = {
     ...geometry,
     entities: classified.entities,
     loops: classified.loops,
@@ -191,4 +202,9 @@ export function applyAnnotationsSync(
     partCount: classified.partCount,
     material: { thicknessMm: thicknessMm ?? null, densityKgM3: densityKgM3 ?? null },
   };
+  // 9. Sheet report follows the edited flat: reliefs re-measured, flat volume from the new net area.
+  if (sheet && sheet.isSheetMetal) {
+    result.sheet = { ...sheet, reliefs: detectReliefs(result, sheet.bends, sheet.thicknessMm), flatVolumeMm3: result.measures.netAreaMm2 * sheet.thicknessMm };
+  }
+  return result;
 }

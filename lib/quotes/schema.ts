@@ -177,6 +177,7 @@ export const annotationsGuard = z.looseObject({
   forming: z.enum(["flat", "bent", "rolled"]).nullable().default(null),
   deletedEntityIds: z.array(z.string()).default([]),
   mirrored: z.boolean().default(false),
+  reliefFix: z.boolean().optional(),
 });
 
 /** Stored annotations JSON → PartAnnotations (missing keys filled from EMPTY_ANNOTATIONS). */

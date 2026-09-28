@@ -121,6 +121,68 @@ An operation is a rate-table row plus a pure pricing function; the UI renders wh
 3. Add the labels: operation names in `content/quote.ts` + `content/en/quote.ts` and `content/pdf.ts`, flag messages in `content/flags.ts` + `content/en/flags.ts` (the typed `Record<FlagCode, …>` fails to compile until both locales have the new code).
 4. Run `npm run test` — the pricing scenario tests and the content parity test guard the change.
 
+## STEP sheet-metal import (unfolding, hardware, DFM)
+
+A STEP (or an IFC element) goes through `lib/geometry/step/`: `analyse.ts` →
+`sheet.ts` (bodies placed in the assembly frame, sheets vs hardware) →
+`unfold.ts` (flange graph, bend allowance, through vs blind features) →
+the ordinary DXF pipeline. The result is a `PartGeometry` whose
+`sheet` field (`lib/geometry/types.ts` `SheetReport`) carries what the
+model held beyond the outline: bends (angle, inner radius, allowance and
+its source), hardware lines, stud seats, masking zones, countersinks,
+blind pockets, modelled threads, reliefs, the model's volume, and the
+drawing cross-check. No separate geometry service was needed: the
+TypeScript B-rep evaluator already gives face adjacency and exact
+cylinders / cones, so everything runs inside the Vercel function
+(`sheet.service_unavailable` is reserved for a future external service).
+
+- **Bend allowance** comes from the admin **bend table**
+  (`/admin/bend-table`, tables `bend_table_versions` / `bend_table`,
+  migration `20260928130000_sheetmetal_tables.sql`): exact material
+  family + thickness + inner radius + angle. A `test_bend` row is trusted;
+  a `din6935` row or no row at all falls back to the DIN 6935 formula
+  (`k = 0.65 + 0.5·log10(r/t)`, capped at 1; `BA = angle × (r + k·t/2)`) and
+  raises the amber `sheet.bend_deduction_unverified` flag. The seed holds
+  DIN rows for mild steel 1–6 mm at 90° with placeholder punch radii
+  (`-- [CONFIRM]`). The version is pinned on `quotes.bend_table_version_id`
+  at the first STEP intake; a pinned version is immutable — clone it to
+  edit (RPCs `clone_bend_table_version`, `activate_bend_table_version`).
+  Before a material is chosen the intake assumes `mild_steel`
+  (`DEFAULT_SHEET_FAMILY` in `lib/parts/intake-deps.ts`); the part page
+  re-analyses with the part's family.
+- **Hardware** bodies are matched by the **hardware names** table
+  (`/admin/hardware`, `hardware_names`: PRODUCT-name fragment → kind, size,
+  `rate_feature` code; seeded with SST's `ACAO470ZP` = insert M4 and
+  `ACAO610ZP` = insert M6), else by geometry (a cylinder standing on a
+  sheet face = weld stud `M<d>x<length>`, a body in a through hole = insert
+  sized from the hole, `INSERT_HOLE_SIZES` in `sheet.ts`). Every hardware
+  line becomes a `{type: "feature"}` extra on the quote item
+  (`insert_m6` prices, `insert_m4` / `stud_m3x8` are refused red by the
+  market engine with the quantity). Countersinks map to `csk_m<size>`.
+- **Blind features** never cut: pockets ≤ 0.05 mm are paint-mask
+  recesses (with split coplanar faces → `sheet.masking_not_priced`), round
+  pockets ≤ Ø12 are stud seats (crosses on the `IGNORE` layer of the
+  production DXF), the rest are blind pockets (`dfm.laser_cannot_make`).
+- **Production DXF** (`writeProductionDxf`, AC1018, `$INSUNITS` 4, layers
+  `CUT` / `BEND_UP` / `BEND_DOWN` / `IGNORE`, viewed from the side the
+  flanges bend towards) is written at intake as a derived file
+  (`parts.flat_file_id`) and offered on the part page.
+- **DFM checks** (`lib/pricing/dfm.ts`, flags in the catalogue of
+  `lib/pricing/README.md`): relief too narrow (with the proposed fix —
+  applied only when an admin approves the override; the approval calls
+  `lib/parts/relief-fix.ts`, which rewrites the flat and the DXF), hole
+  near bend (2t + r), flange too short (dies), bend collision (punches),
+  laser cannot make, flat mass vs model mass (±2 %), open contour and
+  overlapping cuts. Tooling lives in `/admin/tooling`
+  (`press_brake_tools`, seeded with placeholders `placeholder = true` —
+  replace them with the real punches and dies).
+- **Verification report**: the part page's "STEP model report" panel and
+  the flat-pattern preview with stud positions, masking zones and the
+  flagged spots circled. The SST fixture suite
+  (`test/geometry/sst-fixtures.test.ts`) runs when the customer files are
+  present in `test/fixtures/sst/` and is skipped otherwise — those files
+  are never committed.
+
 ## Adding a rate table
 
 1. Migration: a `rate_<name>` table with `rate_version_id uuid references rate_versions(id) on delete cascade`, a natural unique key, `placeholder boolean default true`, RLS policies (all read, admin write — copy the block in the initial migration) and a line in `clone_rate_version()` so versions copy the new rows.

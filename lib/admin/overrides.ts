@@ -17,6 +17,7 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
+import { applyApprovedReliefFix } from "@/lib/parts/relief-fix";
 import { logAudit } from "@/lib/audit";
 import type { Json, OverrideRow, OverrideStatus, ProfileRow } from "@/lib/db/types";
 import type { AdminClient } from "@/lib/admin/rates";
@@ -177,6 +178,20 @@ export async function decideOverride(
     before: asJson(before),
     after: asJson(after),
   });
+
+  // An approved relief fix is applied to the part now (flat pattern, production DXF, reprice).
+  if (input.decision === "approve" && after.rule_code === "dfm.relief_too_narrow" && after.part_id) {
+    const fix = await applyApprovedReliefFix(after.part_id, input.actorId, supabase);
+    if (!fix.ok) console.error("[admin/overrides] relief fix not applied", after.part_id, fix.reason);
+    await logAudit({
+      actor: input.actorId,
+      action: "part.relief_fix",
+      entity: "parts",
+      entityId: after.part_id,
+      before: null,
+      after: asJson({ applied: fix.ok, reason: fix.ok ? null : fix.reason, overrideId: after.id }),
+    });
+  }
 
   // Quote back to draft when nothing is pending any more.
   let quoteReverted = false;
