@@ -153,6 +153,10 @@ export type RateBendRow = {
   family_multipliers: Json;
   /** Market mode: material codes the row was benchmarked for; null = any. */
   material_codes: string[] | null;
+  /** Market mode: EUR per metre of bend beyond 200 mm, added to price_per_bend per bend per piece. */
+  price_per_bend_per_m: number;
+  /** Market mode: longest bend benchmarked; longer bends are extrapolated and flagged amber. */
+  benchmarked_max_length_mm: number | null;
 };
 
 export type RateRollRow = {

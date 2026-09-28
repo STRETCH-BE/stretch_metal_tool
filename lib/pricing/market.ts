@@ -10,9 +10,11 @@
  *   + order_charge_eur ÷ pieces in the quote
  *   + net area × t × density × price_per_kg(t)          (material on NET area)
  *   + cut length × price_per_m + pierces × price_per_pierce
- *   + bending: (setup_per_part_type + n × setup_per_bend_line × f) ÷ qty + n × price_per_bend × f
- *              (n = bend lines, f = family multiplier, row by exact thickness,
- *              material list and the smallest length class ≥ the longest bend)
+ *   + bending: (setup_per_part_type + n × setup_per_bend_line × f) ÷ qty
+ *              + Σ over bend lines of (price_per_bend + price_per_bend_per_m × max(0, L − 0.2 m)) × f
+ *              (n = bend lines, f = family multiplier, row by exact thickness and
+ *              material list; L > length_class_mm (press brake) → red bend_too_long,
+ *              L > benchmarked_max_length_mm → priced, amber extrapolated_rate)
  *   + threads: setup_per_line ÷ qty + count × price_by_thickness[t]
  *   + features: setup_per_line ÷ qty + count × price_each (material + thickness range)
  *   + finishes: setup_per_line ÷ qty + price_per_part + units × price
@@ -31,8 +33,10 @@
  *   material band at exactly this thickness, a material code the version
  *   does not list, a thread size without a price at this thickness / for
  *   this material, or a feature outside its material list / thickness range;
- * - market.not_benchmarked {operation}: bends with no matching rate_bend
- *   row (also bends recognised as 0 on a part marked bent), rolling /
+ * - market.bend_too_long: a bend longer than the longest length class the
+ *   version prices for the material / thickness (the 4 400 mm press brake);
+ * - market.not_benchmarked {operation}: bends with no rate_bend row for the
+ *   material / thickness (also bends recognised as 0 on a part marked bent), rolling /
  *   welding / tube parts without rows, a finish or feature code the version
  *   has no row for, a finish outside its material list / thickness range,
  *   a hot-dip order above limits.maxOrderNetKg (quote level);
@@ -42,8 +46,10 @@
  * Amber (informational, priced): market.subcontract for in_house = false
  * rows, market.manual_price for user-typed lines, finish.part_too_small /
  * finish.not_for_family when a finish is not available for the part by its
- * min_part_mm rule (no charge, price unchanged). Green: market.finish_implied
- * when a coating that includes edge breaking drops a deburring option.
+ * min_part_mm rule (no charge, price unchanged), market.extrapolated_rate when a
+ * bend is longer than the row's benchmarked length (priced per metre). Green:
+ * market.finish_implied when a coating that includes edge breaking drops a
+ * deburring option.
  * The cost-mode "*.no_rate_row" / subcontract flags are replaced by these;
  * geometry, bend-geometry and bed-size flags still apply.
  *
@@ -67,12 +73,14 @@
 import { buildPartContext, type PartContext } from "./context";
 import {
   FINISHES_INCLUDING_EDGE_BREAKING,
+  bendExtrapolated,
   bendFamilyFactor,
+  bendPricePerPiece,
   featureEligibility,
-  findBendRateExact,
   finishEligibility,
   finishRefused,
   finishVariantBase,
+  resolveBendRate,
   resolveFinishRate,
   threadPriceFor,
   type FinishEligibility,
@@ -206,6 +214,8 @@ function bendRef(rate: BendRate, factor: number): RateRef {
       pricePerBend: rate.pricePerBend,
       setupPerPartType: rate.setupPerPartType,
       setupPerBendLineEur: rate.setupPerBendLineEur,
+      pricePerBendPerM: rate.pricePerBendPerM,
+      benchmarkedMaxLengthMm: rate.benchmarkedMaxLengthMm,
       familyFactor: factor,
       materialCodes: rate.materialCodes ? rate.materialCodes.join(",") : null,
       placeholder: rate.placeholder,
@@ -232,7 +242,17 @@ export type PlannedFinish = {
   selected: boolean;
 };
 
-export type PlannedBend = { rate: BendRate; factor: number; count: number; longestMm: number; bendIds: string[] };
+export type PlannedBend = {
+  rate: BendRate;
+  factor: number;
+  count: number;
+  longestMm: number;
+  bendIds: string[];
+  /** Length of every bend line (mm), each priced with its own length. */
+  lengthsMm: number[];
+  /** Bends longer than the row's benchmarked length (priced by extrapolation). */
+  extrapolated: number;
+};
 export type PlannedThread = { rate: ThreadRate; size: string; count: number; priceEach: number; loopIds: string[] };
 export type PlannedFeature = { index: number; rate: FeatureRate; count: number };
 
@@ -290,9 +310,24 @@ function assessPart(ctx: PartContext): Verdict {
   const bends = ctx.bends.filter((b) => b.lengthMm > 0);
   if (bends.length > 0) {
     const longestMm = Math.max(...bends.map((b) => b.lengthMm));
-    const rate = findBendRateExact(rates, materialCode, thicknessMm, longestMm);
-    if (rate) {
-      bend = { rate, factor: bendFamilyFactor(rate, ctx.family), count: bends.length, longestMm, bendIds: bends.map((b) => b.id) };
+    const resolved = resolveBendRate(rates, materialCode, thicknessMm, longestMm);
+    if (resolved.rate) {
+      const rate = resolved.rate;
+      const extrapolated = bends.filter((b) => bendExtrapolated(rate, b.lengthMm)).length;
+      bend = { rate, factor: bendFamilyFactor(rate, ctx.family), count: bends.length, longestMm, bendIds: bends.map((b) => b.id), lengthsMm: bends.map((b) => b.lengthMm), extrapolated };
+      if (extrapolated > 0) {
+        notes.push(
+          partFlag(ctx, "market.extrapolated_rate", "amber", {
+            operation: "bending",
+            count: extrapolated,
+            longestMm,
+            benchmarkedMaxMm: rate.benchmarkedMaxLengthMm ?? 0,
+            pricePerM: rate.pricePerBendPerM,
+          })
+        );
+      }
+    } else if (resolved.tooLong) {
+      refusals.push(partFlag(ctx, "market.bend_too_long", "red", { longestMm, limitMm: resolved.limitMm ?? 0, count: bends.length, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 }));
     } else {
       notBenchmarked("bending", { count: bends.length, longestMm, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 });
     }
@@ -467,9 +502,9 @@ function orderChargeLine(ctx: PartContext, totalPieces: number): OperationLine |
   });
 }
 
-/** Bending (rule 14): set-up per part type, set-up per bend line and the per-bend price, family factor on the last two. */
+/** Bending (rule 14): set-up per part type, set-up per bend line and the per-bend price (with the per-metre extension), family factor on the last two. */
 function bendLinesMarket(ctx: PartContext, plan: PlannedBend): OperationLine[] {
-  const { rate, factor, count, longestMm, bendIds } = plan;
+  const { rate, factor, count, longestMm, bendIds, lengthsMm, extrapolated } = plan;
   const qty = ctx.item.qty;
   const ref = bendRef(rate, factor);
   const lines: OperationLine[] = [];
@@ -512,13 +547,16 @@ function bendLinesMarket(ctx: PartContext, plan: PlannedBend): OperationLine[] {
       label: OPERATION_LABELS.bend,
       driverQty: count,
       driverUnit: "bend",
-      unitCost: count * rate.pricePerBend * factor,
+      unitCost: lengthsMm.reduce((sum, lengthMm) => sum + bendPricePerPiece(rate, lengthMm, factor), 0),
       rateRef: ref,
       details: {
         bendCount: count,
         longestMm,
         lengthClassMm: rate.lengthClassMm,
+        benchmarkedMaxLengthMm: rate.benchmarkedMaxLengthMm,
         pricePerBend: rate.pricePerBend,
+        pricePerBendPerM: rate.pricePerBendPerM,
+        extrapolatedBends: extrapolated,
         factor,
         bendIds: bendIds.join(","),
       },

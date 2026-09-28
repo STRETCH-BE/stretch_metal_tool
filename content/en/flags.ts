@@ -295,6 +295,14 @@ export const flags: FlagsContent = {
       label: "Edge breaking included",
       message: "The coating “{by}” already includes edge breaking — the “{code}” option was dropped (no extra charge).",
     },
+    "market.bend_too_long": {
+      label: "Bend too long",
+      message: "The longest bend line, {longestMm} mm, exceeds the {limitMm} mm limit for {materialCode} {thicknessMm} mm — our press brake cannot bend it. The part has no price.",
+    },
+    "market.extrapolated_rate": {
+      label: "Extrapolated rate",
+      message: "{operation}: {count} bend(s) longer than the benchmarked {benchmarkedMaxMm} mm (longest {longestMm} mm) — priced with the {pricePerM} €/m extension; check the price before sending.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

@@ -285,6 +285,8 @@ const BEND_COLUMNS: readonly ColumnDef[] = [
   { name: "price_per_bend", kind: "number", decimals: 4 },
   { name: "setup_per_part_type", kind: "number", decimals: 4 },
   { name: "setup_per_bend_line_eur", kind: "number", decimals: 4, readOnly: true },
+  { name: "price_per_bend_per_m", kind: "number", decimals: 4, readOnly: true },
+  { name: "benchmarked_max_length_mm", kind: "number", decimals: 0, nullable: true, readOnly: true },
   { name: "family_multipliers", kind: "json", jsonKind: "generic", readOnly: true },
   { name: "material_codes", kind: "text", nullable: true, readOnly: true },
 ];

@@ -716,6 +716,8 @@ const FLAG_CODES = {
   "market.subcontract": true,
   "market.manual_price": true,
   "market.finish_implied": true,
+  "market.bend_too_long": true,
+  "market.extrapolated_rate": true,
   "rates.placeholder": true,
 } satisfies Record<FlagCode, true>;
 

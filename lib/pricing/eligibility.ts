@@ -19,9 +19,14 @@
  *   part thickness; a row without entries prices `price_each` for any
  *   thickness (rows written before v3). No entry → not benchmarked.
  * - Bends: the row with exactly the part thickness whose material list
- *   holds the part's material and whose length class is the smallest
- *   one ≥ the part's longest bend line; the family multiplier applies
- *   to the bend-line set-up and the per-bend price.
+ *   holds the part's material and whose length class (the longest bend the
+ *   row prices at all — the press brake) is the smallest one ≥ the part's
+ *   longest bend line; no row covering the length → too long (red). Per
+ *   bend per piece: price_per_bend + price_per_bend_per_m × the length
+ *   beyond BEND_BASE_LENGTH_M (the benchmark's 200 mm parts), × the family
+ *   multiplier (also on the bend-line set-up). A bend longer than the row's
+ *   benchmarked_max_length_mm is priced that way but flagged amber
+ *   (extrapolated).
  * - Variants: a finish offered as ONE option in the UI but priced from
  *   two rows by material family carries a suffix from
  *   FINISH_VARIANT_SUFFIXES (`deburr` for steel, `deburr_nonferrous` for
@@ -166,16 +171,51 @@ export function threadThicknesses(rate: ThreadRate): number[] {
 
 /* ─── Bends ───────────────────────────────────────────────── */
 
-/**
- * The bend row for a part: exactly the part thickness, material listed,
- * smallest length class ≥ the longest bend line. null → not benchmarked.
- */
-export function findBendRateExact(rates: Pick<RateSnapshot, "bend">, materialCode: string | null, thicknessMm: number | null, longestBendMm: number): BendRate | null {
-  if (thicknessMm === null) return null;
-  const rows = rates.bend
+/** Bend length the per-bend price covers (m); the per-metre rate applies beyond it (rate_bend.price_per_bend_per_m comment). */
+export const BEND_BASE_LENGTH_M = 0.2;
+
+/** The bend rows of exactly this thickness whose material list holds the material, by length class ascending. */
+export function bendRowsFor(rates: Pick<RateSnapshot, "bend">, materialCode: string | null, thicknessMm: number | null): BendRate[] {
+  if (thicknessMm === null) return [];
+  return rates.bend
     .filter((r) => !r.placeholder && sameMm(r.thicknessMm, thicknessMm) && codeListed(r.materialCodes, materialCode))
     .sort((a, b) => a.lengthClassMm - b.lengthClassMm);
-  return rows.find((r) => r.lengthClassMm >= longestBendMm - MM_EPSILON) ?? null;
+}
+
+/**
+ * The bend row for a part: exactly the part thickness, material listed,
+ * smallest length class ≥ the longest bend line. null → not benchmarked or too long.
+ */
+export function findBendRateExact(rates: Pick<RateSnapshot, "bend">, materialCode: string | null, thicknessMm: number | null, longestBendMm: number): BendRate | null {
+  return bendRowsFor(rates, materialCode, thicknessMm).find((r) => r.lengthClassMm >= longestBendMm - MM_EPSILON) ?? null;
+}
+
+export type BendResolution = {
+  /** The row that prices the part's bends; null when none is benchmarked or the bend is too long. */
+  rate: BendRate | null;
+  /** True when rows exist for the material / thickness but every length class is shorter than the longest bend. */
+  tooLong: boolean;
+  /** The longest bend the version prices at all for this material / thickness (mm); null without rows. */
+  limitMm: number | null;
+};
+
+export function resolveBendRate(rates: Pick<RateSnapshot, "bend">, materialCode: string | null, thicknessMm: number | null, longestBendMm: number): BendResolution {
+  const rows = bendRowsFor(rates, materialCode, thicknessMm);
+  if (rows.length === 0) return { rate: null, tooLong: false, limitMm: null };
+  const limitMm = rows[rows.length - 1].lengthClassMm;
+  const rate = rows.find((r) => r.lengthClassMm >= longestBendMm - MM_EPSILON) ?? null;
+  return { rate, tooLong: rate === null, limitMm };
+}
+
+/** EUR per bend per piece for a bend of `lengthMm`: (price_per_bend + price_per_bend_per_m × length beyond the base) × family factor. */
+export function bendPricePerPiece(rate: BendRate, lengthMm: number, factor: number): number {
+  const extraM = Math.max(0, lengthMm / 1000 - BEND_BASE_LENGTH_M);
+  return (rate.pricePerBend + rate.pricePerBendPerM * extraM) * factor;
+}
+
+/** True when the bend is longer than the row's benchmarked length (priced by extrapolation, amber). */
+export function bendExtrapolated(rate: BendRate, lengthMm: number): boolean {
+  return rate.benchmarkedMaxLengthMm !== null && lengthMm > rate.benchmarkedMaxLengthMm + MM_EPSILON;
 }
 
 /** Family factor on the bend-line set-up and the per-bend price (1 when the family is not listed). */
@@ -185,13 +225,9 @@ export function bendFamilyFactor(rate: BendRate, family: MaterialFamily | null):
   return typeof factor === "number" && Number.isFinite(factor) && factor > 0 ? factor : 1;
 }
 
-/** Bend length classes a (material, thickness) is benchmarked for — for the forms' hints. */
+/** Bend length classes a (material, thickness) prices at all — for the forms' hints. */
 export function bendLengthClasses(rates: Pick<RateSnapshot, "bend">, materialCode: string | null, thicknessMm: number | null): number[] {
-  if (thicknessMm === null) return [];
-  return rates.bend
-    .filter((r) => !r.placeholder && sameMm(r.thicknessMm, thicknessMm) && codeListed(r.materialCodes, materialCode))
-    .map((r) => r.lengthClassMm)
-    .sort((a, b) => a - b);
+  return bendRowsFor(rates, materialCode, thicknessMm).map((r) => r.lengthClassMm);
 }
 
 /* ─── Materials ───────────────────────────────────────────── */

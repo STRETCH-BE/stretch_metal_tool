@@ -185,6 +185,8 @@ export const admin: AdminContent = {
         price_per_bend: "Price per bend (€)",
         setup_per_part_type: "Setup per part type (€)",
         setup_per_bend_line_eur: "Setup per bend line (€)",
+        price_per_bend_per_m: "Bend length extension (€/m beyond 200 mm)",
+        benchmarked_max_length_mm: "Benchmarked bend length up to (mm)",
         family_multipliers: "Family multipliers",
         material_codes: "Materials",
       },

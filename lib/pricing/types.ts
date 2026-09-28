@@ -90,6 +90,10 @@ export type BendRate = {
   familyMultipliers: Partial<Record<MaterialFamily, number>>;
   /** Market mode: material codes the row was benchmarked for; null = any material of the version. */
   materialCodes: string[] | null;
+  /** Market mode: EUR per metre of bend length beyond the benchmark's 200 mm, added to pricePerBend per bend per piece. */
+  pricePerBendPerM: number;
+  /** Market mode: longest bend actually benchmarked; longer bends are priced with the per-metre extension and flagged amber. null = no limit. */
+  benchmarkedMaxLengthMm: number | null;
 };
 
 export type RollRate = {
@@ -510,6 +514,10 @@ export type FlagCode =
   | "market.manual_price"
   /** Market mode: an edge-breaking option was dropped because the coating on the same line already includes it. */
   | "market.finish_implied"
+  /** Market mode: a bend longer than the version's length class (our press brake) — refused. */
+  | "market.bend_too_long"
+  /** Market mode: a bend longer than the benchmarked length — priced with the per-metre extension, amber. */
+  | "market.extrapolated_rate"
   | "rates.placeholder";
 
 export type Flag = {

@@ -349,6 +349,14 @@ export const flags: FlagsContent = {
       label: "Gratowanie zawarte w powłoce",
       message: "Powłoka „{by}” zawiera gratowanie krawędzi — opcja „{code}” została pominięta (bez dopłaty).",
     },
+    "market.bend_too_long": {
+      label: "Gięcie za długie",
+      message: "Najdłuższa linia gięcia {longestMm} mm przekracza limit {limitMm} mm ({materialCode} {thicknessMm} mm) — nasza prasa krawędziowa tego nie zagnie. Część bez ceny.",
+    },
+    "market.extrapolated_rate": {
+      label: "Stawka ekstrapolowana",
+      message: "{operation}: {count} gięć dłuższych niż benchmark ({benchmarkedMaxMm} mm, najdłuższe {longestMm} mm) — wyceniono dopłatą {pricePerM} €/m; sprawdź cenę przed wysłaniem.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

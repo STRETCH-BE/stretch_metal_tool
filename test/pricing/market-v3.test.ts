@@ -117,7 +117,8 @@ describe("v3 fixture is the migration: v2 flat laser copied 1:1 plus the phase-2
     expect(V3.laser).toEqual(V2.laser);
     expect(V3.materials).toEqual(V2.materials);
     expect(V3.leadtime).toEqual(V2.leadtime);
-    expect(V3.bend).toHaveLength(5);
+    expect(V3.bend).toHaveLength(4);
+    expect(V3.bend.every((b) => b.lengthClassMm === 4400)).toBe(true);
     expect(V3.thread.map((t) => t.size)).toEqual(["M10", "M12", "M16", "M20", "M4", "M5", "M6", "M8"]);
     expect(V3.feature.map((f) => f.code)).toEqual(["csk_m6", "csk_m8", "insert_m6"]);
     expect(V3.finish.map((f) => f.code)).toEqual(["cert31", "deburr", "deburr_nonferrous", "deburr_one_side", "edge_round", "engrave", "hot_dip", "powder", "zinc"]);
@@ -132,7 +133,9 @@ describe("v3 fixture is the migration: v2 flat laser copied 1:1 plus the phase-2
       { thicknessMm: 3, priceEach: 0.9688 },
       { thicknessMm: 6, priceEach: 2.0543 },
     ]);
-    expect(V3.bend[0]).toMatchObject({ thicknessMm: 1.5, lengthClassMm: 200, pricePerBend: 1.4152, setupPerPartType: 2.7747, setupPerBendLineEur: 0.8136, familyMultipliers: { stainless: 2.233 }, materialCodes: ["DC01", "1.4301"] });
+    expect(V3.bend[0]).toMatchObject({ thicknessMm: 1.5, lengthClassMm: 4400, pricePerBend: 1.4152, setupPerPartType: 2.7747, setupPerBendLineEur: 0.8136, familyMultipliers: { stainless: 2.233 }, materialCodes: ["DC01", "1.4301"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 200 });
+    expect(V3.bend[1]).toMatchObject({ thicknessMm: 2, benchmarkedMaxLengthMm: 1460, pricePerBendPerM: 14.8646 });
+    expect(V3.bend[3]).toMatchObject({ thicknessMm: 6, pricePerBendPerM: 29.7292 });
   });
 });
 
@@ -214,21 +217,50 @@ describe("B — bending (rule 14)", () => {
     within1pct(addOn(L("S235", 6, [160]), flat("S235", 6, 160), {}).addOn, 30.4);
   });
 
-  it("B4: DC01 2 mm, one 1460 mm bend → +€24.62 (class 1500); Z bracket 2 mm, 2 × 160 → +€8.87", () => {
+  it("B4: DC01 2 mm, one 1460 mm bend → +€24.55 (per-metre extension beyond 200 mm, within the benchmarked length, no flag); Z bracket 2 mm, 2 × 160 → +€8.87", () => {
     const long = addOn(rect({ id: "z", lengthMm: 300, widthMm: 1460, thicknessMm: 2, materialCode: "DC01", bendLengthsMm: [1460] }), rect({ id: "z", lengthMm: 300, widthMm: 1460, thicknessMm: 2, materialCode: "DC01" }), {});
-    within1pct(long.addOn, 24.62);
-    expect(byLabel(long.priced.items[0].operations, "bend")!.details.lengthClassMm).toBe(1500);
+    within1pct(long.addOn, 24.55);
+    const bend = byLabel(long.priced.items[0].operations, "bend")!;
+    expect(bend.unitCost).toBeCloseTo(1.9371 + 14.8646 * 1.26, 6);
+    expect(bend.details).toMatchObject({ lengthClassMm: 4400, benchmarkedMaxLengthMm: 1460, extrapolatedBends: 0 });
+    expect(codes(long.priced.flags)).not.toContain("market.extrapolated_rate");
     within1pct(addOn(L("DC01", 2, [160, 160]), flat("DC01", 2, 160), {}).addOn, 8.87);
   });
 
-  it("B5: 3000 mm bends, a 400 mm bend in 1.5 mm, bends in DC01 3 / S235 4 / DX51D 2 → red market.not_benchmarked: bending", () => {
-    const cases = [
-      rect({ id: "a", lengthMm: 200, widthMm: 3000, thicknessMm: 2, materialCode: "DC01", bendLengthsMm: [3000] }),
-      L("DC01", 1.5, [400], "a"),
-      L("DC01", 3, [160], "a"),
-      L("S235", 4, [160], "a"),
-      L("DX51D", 2, [160], "a"),
+  it("B5: 3000 mm bends are priced by extrapolation with an amber flag; 4400 mm is the limit, 4500 mm is refused", () => {
+    const one = (materialCode: string, t: number, lengthMm: number, qty = 1) =>
+      addOn(rect({ id: "b", lengthMm: 300, widthMm: lengthMm, thicknessMm: t, materialCode, bendLengthsMm: [lengthMm] }), rect({ id: "b", lengthMm: 300, widthMm: lengthMm, thicknessMm: t, materialCode }), { qty });
+    const cases: [string, number, number][] = [
+      ["DC01", 2, 47.45],
+      ["DC01", 1.5, 46.62],
+      ["S235", 3, 47.2],
+      ["S235", 6, 113.64],
+      ["1.4301", 1.5, 100.69],
     ];
+    for (const [materialCode, t, expected] of cases) {
+      const r = one(materialCode, t, 3000);
+      within1pct(r.addOn, expected);
+      const flag = r.priced.items[0].flags.find((f) => f.code === "market.extrapolated_rate");
+      expect(flag?.severity, `${materialCode} ${t}`).toBe("amber");
+      expect(flag?.params).toMatchObject({ operation: "bending", count: 1, longestMm: 3000 });
+      expect(r.priced.items[0].unitPrice).not.toBeNull();
+    }
+    const ten = one("S235", 3, 1000, 10);
+    within1pct(ten.addOn, 13.75);
+    expect(ten.priced.items[0].flags.some((f) => f.code === "market.extrapolated_rate")).toBe(true);
+    const limit = one("DC01", 2, 4400);
+    within1pct(limit.addOn, 68.26);
+    expect(limit.priced.items[0].flags.some((f) => f.code === "market.extrapolated_rate")).toBe(true);
+    const tooLong = quote([rect({ id: "b", lengthMm: 300, widthMm: 4500, thicknessMm: 2, materialCode: "DC01", bendLengthsMm: [4500] })], [makeItem({ id: "x", partId: "b" })]);
+    expect(tooLong.items[0].unitPrice).toBeNull();
+    const red = tooLong.items[0].flags.find((f) => f.code === "market.bend_too_long");
+    expect(red?.severity).toBe("red");
+    expect(red?.params).toMatchObject({ longestMm: 4500, limitMm: 4400 });
+    expect(codes(tooLong.items[0].flags)).not.toContain("market.not_benchmarked");
+  });
+
+  it("B6: a bend in DC01 3 mm, S235 4 mm or DX51D 2 mm → red market.not_benchmarked: bending", () => {
+    const cases = [L("DC01", 3, [160], "a"), L("S235", 4, [160], "a"), L("DX51D", 2, [160], "a")];
     for (const part of cases) {
       const priced = quote([part], [makeItem({ id: "x", partId: "a" })]);
       expect(priced.items[0].unitPrice, `${part.materialCode} ${part.thicknessMm}`).toBeNull();
@@ -246,6 +278,10 @@ describe("B — bending (rule 14)", () => {
     const part = L("DC01", 1.5, [160]);
     const angled = makePricingPart({ ...part, annotations: makeAnnotations({ bends: part.geometry.measures.bendLines.map((b) => ({ id: b.id, entityId: b.entityId, start: b.start, end: b.end, lengthMm: b.lengthMm, angleDeg: 135, radiusMm: null, direction: "up" as const, dieVMm: null })) }) });
     expect(unit(quote([angled], [makeItem({ id: "x", partId: "l" })]))).toBeCloseTo(unit(quote([part], [makeItem({ id: "x", partId: "l" })])), 9);
+    // bends of different lengths: each priced with its own length (160 mm flat, 1000 mm with 0.8 m extension)
+    const mixed = addOn(rect({ id: "m", lengthMm: 400, widthMm: 1000, thicknessMm: 2, materialCode: "DC01", bendLengthsMm: [160, 1000] }), rect({ id: "m", lengthMm: 400, widthMm: 1000, thicknessMm: 2, materialCode: "DC01" }), {});
+    expect(mixed.addOn).toBeCloseTo(2.7747 + 2 * 1.113 + 1.9371 + (1.9371 + 14.8646 * 0.8), 6);
+    expect(mixed.priced.items[0].flags.some((f) => f.code === "market.extrapolated_rate")).toBe(false); // 1000 ≤ 1460 benchmarked
   });
 });
 

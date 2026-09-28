@@ -52,6 +52,8 @@ const FLAG_CODES: FlagCode[] = [
   "market.subcontract",
   "market.manual_price",
   "market.finish_implied",
+  "market.bend_too_long",
+  "market.extrapolated_rate",
   "rates.placeholder",
 ];
 

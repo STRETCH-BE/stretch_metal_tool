@@ -186,13 +186,13 @@ export const RATE_SNAPSHOT_V1: RateSnapshot = {
   ],
   tubeLaser,
   bend: [
-    { thicknessMm: 6, lengthClassMm: 500, pricePerBend: 0.9, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
-    { thicknessMm: 6, lengthClassMm: 1500, pricePerBend: 1.6, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
-    { thicknessMm: 6, lengthClassMm: 4420, pricePerBend: 3.0, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 6, lengthClassMm: 500, pricePerBend: 0.9, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
+    { thicknessMm: 6, lengthClassMm: 1500, pricePerBend: 1.6, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
+    { thicknessMm: 6, lengthClassMm: 4420, pricePerBend: 3.0, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
     // +50 % above 6 mm
-    { thicknessMm: 20, lengthClassMm: 500, pricePerBend: 1.35, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
-    { thicknessMm: 20, lengthClassMm: 1500, pricePerBend: 2.4, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
-    { thicknessMm: 20, lengthClassMm: 4420, pricePerBend: 4.5, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null },
+    { thicknessMm: 20, lengthClassMm: 500, pricePerBend: 1.35, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
+    { thicknessMm: 20, lengthClassMm: 1500, pricePerBend: 2.4, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
+    { thicknessMm: 20, lengthClassMm: 4420, pricePerBend: 4.5, setupPerPartType: 8, placeholder: true, setupPerBendLineEur: 0, familyMultipliers: {}, materialCodes: null, pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
   ],
   roll: [{ thicknessMm: 6, radiusClassMm: 3000, pricePerM: 12, setup: 25, placeholder: true }],
   weld: [
@@ -415,6 +415,8 @@ export function rateSnapshotToRows(snapshot: RateSnapshot): RateRows {
     setup_per_bend_line_eur: r.setupPerBendLineEur,
     family_multipliers: r.familyMultipliers,
     material_codes: r.materialCodes,
+    price_per_bend_per_m: r.pricePerBendPerM,
+    benchmarked_max_length_mm: r.benchmarkedMaxLengthMm,
   }));
   const roll: RateRollRow[] = snapshot.roll.map((r) => ({
     id: id(),

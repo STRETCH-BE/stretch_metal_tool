@@ -196,7 +196,17 @@ export type AdminContent = {
         handling_per_part: string;
         setup: string;
       };
-      bend: { thickness_mm: string; length_class_mm: string; price_per_bend: string; setup_per_part_type: string; setup_per_bend_line_eur: string; family_multipliers: string; material_codes: string };
+      bend: {
+        thickness_mm: string;
+        length_class_mm: string;
+        price_per_bend: string;
+        setup_per_part_type: string;
+        setup_per_bend_line_eur: string;
+        price_per_bend_per_m: string;
+        benchmarked_max_length_mm: string;
+        family_multipliers: string;
+        material_codes: string;
+      };
       roll: { thickness_mm: string; radius_class_mm: string; price_per_m: string; setup: string };
       weld: { process: string; bead_mm: string; price_per_mm: string; setup: string; min_order: string };
       thread: { size: string; price_each: string; setup_per_line_eur: string; price_by_thickness: string; material_codes: string };
@@ -681,6 +691,8 @@ export const admin: AdminContent = {
         price_per_bend: "Cena gięcia (€)",
         setup_per_part_type: "Przezbrojenie na typ części (€)",
         setup_per_bend_line_eur: "Przezbrojenie na linię gięcia (€)",
+        price_per_bend_per_m: "Dopłata za długość gięcia (€/m ponad 200 mm)",
+        benchmarked_max_length_mm: "Zbadana długość gięcia do (mm)",
         family_multipliers: "Mnożniki wg rodziny materiału",
         material_codes: "Materiały",
       },

@@ -8,8 +8,10 @@
 import { describe, expect, it } from "vitest";
 import {
   FINISHES_INCLUDING_EDGE_BREAKING,
+  bendExtrapolated,
   bendFamilyFactor,
   bendLengthClasses,
+  bendPricePerPiece,
   codeListed,
   familyOf,
   featureEligibility,
@@ -18,6 +20,7 @@ import {
   finishRefused,
   finishVariantBase,
   finishesOffered,
+  resolveBendRate,
   resolveFinishRate,
   thicknessWithin,
   threadPriceFor,
@@ -130,20 +133,30 @@ describe("threads", () => {
 
 describe("bends", () => {
   const rows: BendRate[] = [
-    { thicknessMm: 1.5, lengthClassMm: 200, pricePerBend: 1.4152, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 0.8136, familyMultipliers: { stainless: 2.233 }, materialCodes: ["DC01", "1.4301"] },
-    { thicknessMm: 2, lengthClassMm: 1500, pricePerBend: 13.8708, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 7.974, familyMultipliers: {}, materialCodes: ["DC01"] },
-    { thicknessMm: 2, lengthClassMm: 200, pricePerBend: 1.9371, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 1.113, familyMultipliers: {}, materialCodes: ["DC01"] },
+    { thicknessMm: 1.5, lengthClassMm: 4400, pricePerBend: 1.4152, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 0.8136, familyMultipliers: { stainless: 2.233 }, materialCodes: ["DC01", "1.4301"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 200 },
+    { thicknessMm: 2, lengthClassMm: 4400, pricePerBend: 1.9371, setupPerPartType: 2.7747, placeholder: false, setupPerBendLineEur: 1.113, familyMultipliers: {}, materialCodes: ["DC01"], pricePerBendPerM: 14.8646, benchmarkedMaxLengthMm: 1460 },
+    { thicknessMm: 2, lengthClassMm: 200, pricePerBend: 1.5, setupPerPartType: 2, placeholder: false, setupPerBendLineEur: 1, familyMultipliers: {}, materialCodes: ["DX51D"], pricePerBendPerM: 0, benchmarkedMaxLengthMm: null },
   ];
-  it("exact thickness, listed material, smallest length class ≥ the longest bend", () => {
-    expect(findBendRateExact({ bend: rows }, "DC01", 2, 160)?.lengthClassMm).toBe(200);
-    expect(findBendRateExact({ bend: rows }, "DC01", 2, 200)?.lengthClassMm).toBe(200);
-    expect(findBendRateExact({ bend: rows }, "DC01", 2, 1460)?.lengthClassMm).toBe(1500);
-    expect(findBendRateExact({ bend: rows }, "DC01", 2, 3000)).toBeNull();
-    expect(findBendRateExact({ bend: rows }, "DC01", 1.5, 400)).toBeNull();
-    expect(findBendRateExact({ bend: rows }, "DX51D", 2, 160)).toBeNull();
-    expect(findBendRateExact({ bend: rows }, "DC01", 3, 160)).toBeNull();
+  it("resolves the row by exact thickness and material; length beyond every class is too long; no row is not benchmarked", () => {
+    expect(resolveBendRate({ bend: rows }, "DC01", 2, 160)).toMatchObject({ rate: { thicknessMm: 2, lengthClassMm: 4400 }, tooLong: false, limitMm: 4400 });
+    expect(resolveBendRate({ bend: rows }, "DC01", 2, 4400).rate?.lengthClassMm).toBe(4400);
+    expect(resolveBendRate({ bend: rows }, "DC01", 2, 4500)).toEqual({ rate: null, tooLong: true, limitMm: 4400 });
+    expect(resolveBendRate({ bend: rows }, "DX51D", 2, 300)).toEqual({ rate: null, tooLong: true, limitMm: 200 });
+    expect(resolveBendRate({ bend: rows }, "DX51D", 2, 150).rate?.pricePerBend).toBe(1.5);
+    expect(resolveBendRate({ bend: rows }, "S235", 2, 160)).toEqual({ rate: null, tooLong: false, limitMm: null });
+    expect(resolveBendRate({ bend: rows }, "DC01", 3, 160).rate).toBeNull();
     expect(findBendRateExact({ bend: rows }, "1.4301", 1.5, 100)?.thicknessMm).toBe(1.5);
-    expect(bendLengthClasses({ bend: rows }, "DC01", 2)).toEqual([200, 1500]);
+    expect(bendLengthClasses({ bend: rows }, "DC01", 2)).toEqual([4400]);
+  });
+  it("prices a bend by its length: flat up to the 200 mm base, plus €/m beyond it, times the family factor", () => {
+    expect(bendPricePerPiece(rows[1], 160, 1)).toBeCloseTo(1.9371, 9);
+    expect(bendPricePerPiece(rows[1], 200, 1)).toBeCloseTo(1.9371, 9);
+    expect(bendPricePerPiece(rows[1], 1460, 1)).toBeCloseTo(1.9371 + 14.8646 * 1.26, 9);
+    expect(bendPricePerPiece(rows[0], 3000, 2.233)).toBeCloseTo((1.4152 + 14.8646 * 2.8) * 2.233, 9);
+    expect(bendExtrapolated(rows[1], 1460)).toBe(false);
+    expect(bendExtrapolated(rows[1], 1461)).toBe(true);
+    expect(bendExtrapolated(rows[0], 201)).toBe(true);
+    expect(bendExtrapolated(rows[2], 10000)).toBe(false); // no benchmarked length recorded
   });
   it("family factor applies only to listed families", () => {
     expect(bendFamilyFactor(rows[0], "stainless")).toBe(2.233);

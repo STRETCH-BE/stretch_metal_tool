@@ -314,6 +314,8 @@ function mapBend(row: Loose<RateBendRow>): BendRate {
     setupPerBendLineEur: numOr(row.setup_per_bend_line_eur, `${context}.setup_per_bend_line_eur`, 0),
     familyMultipliers: familyMultipliersOf(row.family_multipliers, context),
     materialCodes: parseCodeList(row.material_codes),
+    pricePerBendPerM: numOr(row.price_per_bend_per_m, `${context}.price_per_bend_per_m`, 0),
+    benchmarkedMaxLengthMm: numOrNull(row.benchmarked_max_length_mm, `${context}.benchmarked_max_length_mm`),
   };
 }
 
