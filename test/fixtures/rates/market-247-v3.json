@@ -4,7 +4,7 @@
   "note": "Phase-2 market benchmark 27 Sep 2026 on top of v2 (flat laser copied unchanged). New: bending 1.5/2/3/6 mm (247 BE26065466 bent parts minus flat twins), threads M4-M20 priced by sheet thickness (BE26065456), edge breaking refined per material family + certificate 3.1 (BE26065461), countersinks M6/M8 and press-in nuts M6 (Laserhub 10-WD tier), powder coating, electro zinc and hot-dip (Laserhub 19+ WD tier), cross-checked with Xometry E-2128509-2059313. Selling price = benchmark standard tier x 1.10. Still absent on purpose: tube laser (247 BE26065459 documented, no per-metre split), rolling, welding, bends > 1500 mm / 3 m, threads in untested thicknesses, coating on aluminium/stainless, DX51D/S355 threads, features outside the tested thickness range.",
   "label": "market-247+10% v3 (28 Sep 2026)",
   "active": true,
-  "created_at": "2026-09-27T22:11:07.273911+00:00",
+  "created_at": "2026-09-28T11:46:50.838587+00:00",
   "created_by": null
  },
  "general": {
@@ -503,7 +503,7 @@
  ],
  "laser": [
   {
-   "id": "2d4d6490-1b0f-4e2e-89a9-5d9d7df00c45",
+   "id": "3be81f6d-fb5e-4564-b7dc-5a977d6cc30a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -520,7 +520,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "216844fa-a258-4b56-8fbc-e528670cde1c",
+   "id": "ab761048-d343-42a9-96c0-26d96fa047bd",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -537,7 +537,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "7d7c14a4-c79c-4854-b623-4e31537ccd60",
+   "id": "79f7846e-772c-41c4-9d23-9a5ca629d65a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -554,7 +554,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "1a5183d7-a8f8-4753-9f3e-7ee8a1b5b233",
+   "id": "17613d5b-5c11-4923-afa4-bda882eab153",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -571,7 +571,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "1f8aeba4-9865-445f-90d6-35dbc6d5309d",
+   "id": "deaa5b5e-2ca2-4b3d-bb40-4a145c1274fb",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -588,7 +588,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "e1686ba8-dbc2-45a0-9f01-e079cbd1fce8",
+   "id": "ada979d1-755a-41b4-a25d-f4bc4217e24a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -605,7 +605,7 @@
    "price_per_pierce": 0.0286
   },
   {
-   "id": "725628fa-c005-400e-9229-aa352d4d71ba",
+   "id": "0296b461-d2c2-410e-83b0-b90f5365dacd",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -622,7 +622,7 @@
    "price_per_pierce": 0.0295
   },
   {
-   "id": "edae58ff-b375-4e68-8559-2a68f7c74282",
+   "id": "9b6e4f12-847e-473f-83da-1681881fc918",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -639,7 +639,7 @@
    "price_per_pierce": 0.0326
   },
   {
-   "id": "eb2df538-5410-46e8-9393-9f6fa9a13224",
+   "id": "c16aab52-0289-4995-aa89-717d9e72cc3a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -656,7 +656,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "51b97956-a7f7-4d16-ad51-1fa2e69c85d9",
+   "id": "df1f9c67-bac6-468c-b527-0f0c0d0163d4",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -673,7 +673,7 @@
    "price_per_pierce": 0.6904
   },
   {
-   "id": "00c9fd0b-9aab-4441-878e-a9424832fc61",
+   "id": "24d28021-6845-4d65-a053-b275475c7da3",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -690,7 +690,7 @@
    "price_per_pierce": 0.6926
   },
   {
-   "id": "b4e39bf8-825e-41ca-92cb-91d065c3cb55",
+   "id": "340603c6-3cdc-4cb4-9d76-c59b49f3c499",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -707,7 +707,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "cbf46bab-847b-4915-8f7a-2bbb3feb02e5",
+   "id": "c3f19e52-1435-47fb-baff-0a21db3846bd",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -724,7 +724,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "67882c3e-6168-4f17-b0be-cc63737ee338",
+   "id": "b9f8b80e-dbba-460a-9267-b0fd6bdbf6bb",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -741,7 +741,7 @@
    "price_per_pierce": 0.0255
   },
   {
-   "id": "aee0f844-2e0c-4d1b-8cf2-8015d4e74f08",
+   "id": "0ca71211-34a0-48b9-bada-7d0a85c267ef",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -758,7 +758,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "fb92687b-19a2-468d-86e2-7c38368176a8",
+   "id": "96e90733-6ae0-413f-bd4e-c231a3cd09ae",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -775,7 +775,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "af0a90a2-d3b3-4d0e-8ff8-80707429569a",
+   "id": "379ae0b7-86f3-4e51-bef1-3bda513a1cf1",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -792,7 +792,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "7773607e-3ecc-46f8-b6a5-a1bc6deb5cfe",
+   "id": "5ec57872-59ea-4776-9ccb-676b1347f66e",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -809,7 +809,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "03c19e9c-bdb7-40c6-96f5-f1408b6a4194",
+   "id": "f8874a3b-691d-47a1-88ca-33f2857fb3b4",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -826,7 +826,7 @@
    "price_per_pierce": 0.0248
   },
   {
-   "id": "7289a1c0-072b-41d5-ac62-dcd43a5645fc",
+   "id": "e272f137-ae14-4e8b-8e72-78d26c700334",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -843,7 +843,7 @@
    "price_per_pierce": 0.0259
   },
   {
-   "id": "8a9b08f4-03a4-49b2-981f-29e17066704e",
+   "id": "0412f0af-b9eb-46a3-a41a-ac28402c251c",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -860,7 +860,7 @@
    "price_per_pierce": 0.0264
   },
   {
-   "id": "fb5ac9f9-29c7-4479-97c7-9fe2af738ee9",
+   "id": "2b3b67b3-003e-4628-a32f-c8a4179b4a01",
    "gas": "N2",
    "mode": "per_m",
    "in_house": false,
@@ -877,7 +877,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "87447c0a-fec6-48a0-a6ea-b1c3edd7e4a3",
+   "id": "7386ff02-30ff-4934-829e-a72cca3734f6",
    "gas": "N2",
    "mode": "per_m",
    "in_house": false,
@@ -894,7 +894,7 @@
    "price_per_pierce": 0.0605
   },
   {
-   "id": "0f3d1428-a368-44c0-a7cd-2840a2fecaed",
+   "id": "7fd15c0a-0403-446c-b79a-a22e4c39065a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -911,7 +911,7 @@
    "price_per_pierce": 0.0294
   },
   {
-   "id": "8963194b-28c5-4184-84cc-72543c7acd91",
+   "id": "bd6e2373-c566-4af6-a94c-5b37b25b3750",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -928,7 +928,7 @@
    "price_per_pierce": 0.0333
   },
   {
-   "id": "2f889a33-6b39-4f0f-9612-98db977d48fb",
+   "id": "b493dc9e-b8cb-462a-9db4-8a8d7effe739",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -945,7 +945,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "fea12a19-199b-42a4-8b7d-919de869506b",
+   "id": "ef10a14d-be34-44d6-a5e9-4dba1535673b",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -962,7 +962,7 @@
    "price_per_pierce": 0.0937
   },
   {
-   "id": "b725002a-4b88-41aa-954b-0eaf26302c23",
+   "id": "e8b8ecf9-e6a6-4f77-ac37-18c22df4df08",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -979,7 +979,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "88cc53f6-41e6-4a05-8f90-15ce082efc8c",
+   "id": "f6722e1a-302f-4c10-8324-ef005c5235a2",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -996,7 +996,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "348dd8ff-7851-485f-be66-da3a308b3224",
+   "id": "c354a4cc-51df-4dad-b06d-f0e4201ee32b",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1013,7 +1013,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "81e612c5-1cbf-4509-adf2-62237ba09046",
+   "id": "e8e735ba-ce60-4a97-848b-a59a5b980542",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1030,7 +1030,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "5c752ade-9b4f-41b7-a942-95a045f59c6a",
+   "id": "216797b1-d3d4-4c80-b514-7bfd507ec120",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1047,7 +1047,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "c206612a-059b-4bbc-a8c0-21acf045cd11",
+   "id": "b3ad545a-1899-4d65-aa21-af37a8e61c9a",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1064,7 +1064,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "79d8280d-615a-46e9-8c35-d7f33ac1a1d0",
+   "id": "0c9c0dd5-0366-4b90-ad3e-79cdcd34b42d",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1081,7 +1081,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "6f741b1e-4449-4beb-aa60-9e91a1859165",
+   "id": "90dbe31a-8a65-484b-9cbb-520e42f17898",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1098,7 +1098,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "a60974ee-c634-4482-89a6-e973f3f426c8",
+   "id": "74500826-a067-41e3-b878-d2506425293f",
    "gas": "O2",
    "mode": "per_m",
    "in_house": true,
@@ -1115,7 +1115,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "6caf7509-f17c-4853-ab75-74df34ce4c2b",
+   "id": "dad517c0-8f66-4fdd-8b00-6f8424af3e14",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1132,7 +1132,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "ad890697-f92d-4174-90f1-c0a63012fd0b",
+   "id": "5fb16de4-4c9e-4a39-9f55-66a626d73d92",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1149,7 +1149,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "89c42bb5-68b4-47fc-adb4-8c11fee1161b",
+   "id": "fdac0254-9210-45fa-9e4f-fd00e29f8ae3",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1166,7 +1166,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "0b986c47-8b90-4aae-bac0-896b1fa24acb",
+   "id": "47e0d744-c356-4496-981d-6d4351af03a5",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1183,7 +1183,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "18915a2d-e659-451e-abfc-15a7f609f88c",
+   "id": "33f42336-3c16-4f71-a5cc-6187f9203bd0",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1200,7 +1200,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "97604e11-fe19-46b0-8d45-c36c4b1d8125",
+   "id": "c77ebf64-a9d3-49c3-ad69-b76460fb4875",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1217,7 +1217,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "dd4aa693-823c-4cdd-bba7-4efb9983010c",
+   "id": "061b51d8-c612-49cd-87ed-e8df783e8e64",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1234,7 +1234,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "641be4cd-f0ee-486d-9d21-d2edd0917470",
+   "id": "859146ae-256a-40b7-9eca-e5fb99f95448",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1251,7 +1251,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "ba73fe9c-9c67-4f92-a8e3-476aea3bb508",
+   "id": "cf54ebdb-deb2-4288-b09d-b5c89309aee4",
    "gas": "O2",
    "mode": "per_m",
    "in_house": true,
@@ -1268,7 +1268,7 @@
    "price_per_pierce": 0.0961
   },
   {
-   "id": "85c88b1e-8983-4294-8c1f-0b70a2cd1d4c",
+   "id": "e00e3769-f08a-467e-a212-c38fe6074ea5",
    "gas": "O2",
    "mode": "per_m",
    "in_house": true,
@@ -1285,7 +1285,7 @@
    "price_per_pierce": 0.0244
   },
   {
-   "id": "426d2476-6e54-4658-a188-db2fa63131fc",
+   "id": "675c7460-5d59-4866-a073-cb7cca34a157",
    "gas": "O2",
    "mode": "per_m",
    "in_house": true,
@@ -1302,7 +1302,7 @@
    "price_per_pierce": 0.0232
   },
   {
-   "id": "50d0a007-8f2c-4369-a871-4d57b5f2a938",
+   "id": "2a43b905-6ee8-4d01-91df-f99c51efc15e",
    "gas": "O2",
    "mode": "per_m",
    "in_house": false,
@@ -1319,7 +1319,7 @@
    "price_per_pierce": 1.4413
   },
   {
-   "id": "6c1fdd8e-a2ae-4d1c-bb3f-181b795c1577",
+   "id": "2c56ff2c-b9ac-466b-9098-396f2fe0f535",
    "gas": "O2",
    "mode": "per_m",
    "in_house": false,
@@ -1336,7 +1336,7 @@
    "price_per_pierce": 0.8679
   },
   {
-   "id": "3cb2aeb5-736c-4833-956d-9fadd32a0ac4",
+   "id": "032f10f2-9169-4864-8330-debc6380ef12",
    "gas": "O2",
    "mode": "per_m",
    "in_house": false,
@@ -1353,7 +1353,7 @@
    "price_per_pierce": 1.3437
   },
   {
-   "id": "8db562a3-e7fa-4136-b01a-63239ea8836e",
+   "id": "4627ad24-0ed5-44ad-aa13-341e18de2e8b",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1370,7 +1370,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "62cb7c11-70bf-49c3-8be8-83815e1991d6",
+   "id": "fe8fe423-dba0-4c82-a5ad-268f9395ab06",
    "gas": "N2",
    "mode": "per_m",
    "in_house": true,
@@ -1387,7 +1387,7 @@
    "price_per_pierce": 0.0228
   },
   {
-   "id": "9050ef72-6c90-4684-a1cb-da7319564ebd",
+   "id": "bb024a3c-281c-45af-b56d-d58db08ef207",
    "gas": "O2",
    "mode": "per_m",
    "in_house": true,
@@ -1407,7 +1407,7 @@
  "tubeLaser": [],
  "bend": [
   {
-   "id": "9cc1f5ed-9bbb-4c10-8f72-d7213c379b32",
+   "id": "6fcf5918-080a-4cc0-85b2-3c9a5cd31237",
    "placeholder": false,
    "thickness_mm": 1.5,
    "material_codes": [
@@ -1415,44 +1415,34 @@
     "1.4301"
    ],
    "price_per_bend": 1.4152,
-   "length_class_mm": 200.0,
+   "length_class_mm": 4400.0,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003",
    "family_multipliers": {
     "stainless": 2.233
    },
    "setup_per_part_type": 2.7747,
-   "setup_per_bend_line_eur": 0.8136
+   "price_per_bend_per_m": 14.8646,
+   "setup_per_bend_line_eur": 0.8136,
+   "benchmarked_max_length_mm": 200
   },
   {
-   "id": "de4164b2-e07c-457d-99b2-009de461f0ef",
+   "id": "0a78eaed-4837-4552-bf7b-d50f4e882d19",
    "placeholder": false,
    "thickness_mm": 2.0,
    "material_codes": [
     "DC01"
    ],
    "price_per_bend": 1.9371,
-   "length_class_mm": 200.0,
+   "length_class_mm": 4400.0,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003",
    "family_multipliers": {},
    "setup_per_part_type": 2.7747,
-   "setup_per_bend_line_eur": 1.113
+   "price_per_bend_per_m": 14.8646,
+   "setup_per_bend_line_eur": 1.113,
+   "benchmarked_max_length_mm": 1460
   },
   {
-   "id": "d737f5ac-96b7-4db0-a19e-b1bbf3d1fb6c",
-   "placeholder": false,
-   "thickness_mm": 2.0,
-   "material_codes": [
-    "DC01"
-   ],
-   "price_per_bend": 13.8708,
-   "length_class_mm": 1500.0,
-   "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003",
-   "family_multipliers": {},
-   "setup_per_part_type": 2.7747,
-   "setup_per_bend_line_eur": 7.974
-  },
-  {
-   "id": "6d22b302-46e0-40e0-8839-a107a8367a1a",
+   "id": "e56f4607-373a-4c76-94a9-613a505add0e",
    "placeholder": false,
    "thickness_mm": 3.0,
    "material_codes": [
@@ -1460,34 +1450,38 @@
     "AlMg3"
    ],
    "price_per_bend": 1.4497,
-   "length_class_mm": 200.0,
+   "length_class_mm": 4400.0,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003",
    "family_multipliers": {
     "aluminium": 2.184
    },
    "setup_per_part_type": 3.3005,
-   "setup_per_bend_line_eur": 0.8338
+   "price_per_bend_per_m": 14.8646,
+   "setup_per_bend_line_eur": 0.8338,
+   "benchmarked_max_length_mm": 200
   },
   {
-   "id": "25e2d3e6-158b-46b6-a288-50e7f3e0e24c",
+   "id": "da8b8f18-b99c-4668-9abd-ff1f35638695",
    "placeholder": false,
    "thickness_mm": 6.0,
    "material_codes": [
     "S235"
    ],
    "price_per_bend": 17.5378,
-   "length_class_mm": 200.0,
+   "length_class_mm": 4400.0,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003",
    "family_multipliers": {},
    "setup_per_part_type": 2.7747,
-   "setup_per_bend_line_eur": 10.0829
+   "price_per_bend_per_m": 29.7292,
+   "setup_per_bend_line_eur": 10.0829,
+   "benchmarked_max_length_mm": 200
   }
  ],
  "roll": [],
  "weld": [],
  "thread": [
   {
-   "id": "bf74b005-15e8-41b9-98da-00f6fb37c6cb",
+   "id": "a09e0ae3-8a54-4018-8f55-cfba091d81bc",
    "size": "M10",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1509,7 +1503,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "edbc01e5-bd09-4cba-8db6-c51eb53fd997",
+   "id": "4be8b2f6-8189-440e-aa31-b347e322aabd",
    "size": "M12",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1531,7 +1525,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "413080b4-6245-4972-b7f7-5977d19de970",
+   "id": "f7aa23fc-10dc-4db9-8a75-a75444ed8a12",
    "size": "M16",
    "price_each": 1.9144,
    "placeholder": false,
@@ -1549,7 +1543,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "4f3d32da-ebfa-45cb-8d71-49013176f7cd",
+   "id": "12047022-ca1e-4b5b-a3ab-0bb29e33745a",
    "size": "M20",
    "price_each": 1.9144,
    "placeholder": false,
@@ -1567,7 +1561,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "10cad64a-fda7-4dba-ba8b-3bc072b82847",
+   "id": "2a2680cc-1d9b-4944-b3fd-0f38331405c4",
    "size": "M4",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1589,7 +1583,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "8a97fc73-85e7-4974-9eb2-92fd8066fe5a",
+   "id": "7a61ddeb-f1fd-46c0-95b2-ec9577121e44",
    "size": "M5",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1611,7 +1605,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "01a5f761-68e9-4d0b-904f-f5a404f39340",
+   "id": "3e33ecc8-c877-4fb2-abc4-6e1be8613ecc",
    "size": "M6",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1629,7 +1623,7 @@
    "setup_per_line_eur": 2.8812
   },
   {
-   "id": "15135966-d439-447f-bac7-701d4f05c304",
+   "id": "47dfc10a-7cec-4e1e-bcec-364054cfcfe5",
    "size": "M8",
    "price_each": 0.9688,
    "placeholder": false,
@@ -1653,7 +1647,7 @@
  ],
  "feature": [
   {
-   "id": "b77a74ca-1e95-4d41-bb7c-8a90d1a43f75",
+   "id": "25e0503b-a88c-4d79-9704-50e094ef2829",
    "code": "csk_m6",
    "name": "Countersink 90 deg for M6 (through hole 6.4 -> 12.6 mm)",
    "price_each": 2.19,
@@ -1668,7 +1662,7 @@
    "setup_per_line_eur": 6.76
   },
   {
-   "id": "17f9b810-2211-4cd4-aa4b-d9fb2861edde",
+   "id": "64926534-0494-470a-a372-dc6246ba9aed",
    "code": "csk_m8",
    "name": "Countersink 90 deg for M8 (through hole 9 -> 16.5 mm)",
    "price_each": 2.19,
@@ -1683,7 +1677,7 @@
    "setup_per_line_eur": 6.76
   },
   {
-   "id": "804c1702-a1f1-4694-8613-7cbb106b035d",
+   "id": "28f2f436-5311-4375-960c-dd765c3d56fa",
    "code": "insert_m6",
    "name": "Press-in nut M6 (PEM S-M6 type), per insert",
    "price_each": 2.06,
@@ -1700,7 +1694,7 @@
  ],
  "finish": [
   {
-   "id": "448048fd-de44-4f0b-9090-ddbe4ee9ada5",
+   "id": "3b5887dc-baf7-47e4-bd13-819014d81fd8",
    "code": "cert31",
    "name": "Material certificate EN 10204 3.1 (per quote line)",
    "unit": "each",
@@ -1721,7 +1715,7 @@
    "tier_multiplier_applies": false
   },
   {
-   "id": "f1ef4712-3c42-4e70-8782-4853f06861aa",
+   "id": "38b33648-00e1-4b03-8c66-348a13f3b000",
    "code": "deburr",
    "name": "Edge breaking both sides (steel)",
    "unit": "m",
@@ -1748,7 +1742,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "55a7e1a2-d15a-4bf1-aa14-9931edefe8bb",
+   "id": "1e400eba-b350-422f-b82c-b4352c7bd274",
    "code": "deburr_nonferrous",
    "name": "Edge breaking both sides (aluminium / stainless)",
    "unit": "m",
@@ -1774,7 +1768,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "4f3758cb-6e34-4f86-aa37-fbd756410ace",
+   "id": "047b27e3-0f1c-4c82-a949-0d5a247daa35",
    "code": "deburr_one_side",
    "name": "Edge breaking burr side only (aluminium / stainless)",
    "unit": "m",
@@ -1800,7 +1794,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "cefa8c5a-8821-46dc-a63b-91d7df56b3dd",
+   "id": "b5184d89-bb46-4db4-a7e2-6ed909cb350a",
    "code": "edge_round",
    "name": "Edge rounding both sides (hot-rolled steel >= 4 mm)",
    "unit": "m",
@@ -1824,7 +1818,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "13340c61-8b9c-4c57-9b1a-648e2c0ba4a5",
+   "id": "eeb23a04-3cdd-428c-b77b-eb416633315e",
    "code": "engrave",
    "name": "Engrave part name (text marking)",
    "unit": "part",
@@ -1845,7 +1839,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "159215dd-a35d-4c10-8153-8e5605997334",
+   "id": "976a7141-d338-4b51-b4c5-33a519531899",
    "code": "hot_dip",
    "name": "Hot-dip galvanising (flat per-order price; small lots only)",
    "unit": "kg",
@@ -1871,7 +1865,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "bea1257e-44b5-429b-b212-1675e8c04e4c",
+   "id": "81614249-ac40-4c34-91e0-5544850265e0",
    "code": "powder",
    "name": "Powder coating, one RAL colour, both sides (incl. two-sided edge breaking)",
    "unit": "m2",
@@ -1897,7 +1891,7 @@
    "tier_multiplier_applies": true
   },
   {
-   "id": "eb9b14e9-6def-40e8-a85a-c6be432bd4cb",
+   "id": "028490e2-a019-4030-bdf0-f7de372a6eff",
    "code": "zinc",
    "name": "Electro zinc plating, blue passivated (incl. one-sided edge breaking)",
    "unit": "kg",
@@ -1925,21 +1919,21 @@
  ],
  "leadtime": [
   {
-   "id": "408c9385-60a5-4a29-be2c-bd31f65e2cc9",
+   "id": "34ba29db-bae1-4cb1-aa31-6db668916ab2",
    "multiplier": 1.75,
    "placeholder": false,
    "working_days": 4,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003"
   },
   {
-   "id": "8d9ca775-bdb5-4939-8385-80b0b3abf177",
+   "id": "60df393a-f68b-4717-a11d-7e28c1679e95",
    "multiplier": 1.12,
    "placeholder": false,
    "working_days": 7,
    "rate_version_id": "3b8d1a38-0000-4000-8000-000000000003"
   },
   {
-   "id": "abb1d842-9eb6-4e0f-acf2-304332ceb3d7",
+   "id": "46f70cb5-1ef8-4e3b-b079-1a20d86b913c",
    "multiplier": 1.0,
    "placeholder": false,
    "working_days": 11,

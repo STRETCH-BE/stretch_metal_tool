@@ -10,10 +10,14 @@
 alter table public.rate_bend add column if not exists setup_per_bend_line_eur numeric not null default 0;
 alter table public.rate_bend add column if not exists family_multipliers jsonb not null default '{}'::jsonb;
 alter table public.rate_bend add column if not exists material_codes text[];
+alter table public.rate_bend add column if not exists price_per_bend_per_m numeric not null default 0;
+alter table public.rate_bend add column if not exists benchmarked_max_length_mm numeric;
+comment on column public.rate_bend.price_per_bend_per_m is 'EUR per metre of bend length beyond 200 mm, added to price_per_bend per bend per piece: p(L) = price_per_bend + price_per_bend_per_m x max(0, L - 0.2 m)';
+comment on column public.rate_bend.benchmarked_max_length_mm is 'longest bend actually benchmarked for the row; longer bends are priced with the per-metre extension and flagged amber EXTRAPOLATED_RATE';
 comment on column public.rate_bend.setup_per_bend_line_eur is 'EUR once per distinct bend line of a part type (tool set-up), on top of setup_per_part_type';
 comment on column public.rate_bend.family_multipliers is 'factor on setup_per_bend_line_eur and price_per_bend by material family, e.g. {"stainless": 2.233}; families absent = 1.0 only if listed in material_codes';
 comment on column public.rate_bend.material_codes is 'material codes the row was benchmarked for; NULL = any material of the version';
-comment on column public.rate_bend.length_class_mm is 'row applies to bends whose length is <= length_class_mm; the engine takes the smallest class >= bend length';
+comment on column public.rate_bend.length_class_mm is 'longest bend the row prices at all (our press brake: 4 400 mm); longer -> red flag';
 alter table public.rate_thread add column if not exists price_by_thickness jsonb not null default '[]'::jsonb;
 alter table public.rate_thread add column if not exists material_codes text[];
 comment on column public.rate_thread.price_by_thickness is 'EUR per thread by sheet thickness [{"thicknessMm":3,"priceEach":0.97}] - exact thickness match, no interpolation; price_each = the 3 mm value or the only value';
@@ -80,15 +84,15 @@ insert into public.rate_feature (rate_version_id, code, name, price_each, placeh
   ('3b8d1a38-0000-4000-8000-000000000003', 'csk_m8', 'Countersink 90 deg for M8 (through hole 9 -> 16.5 mm)', 2.1900, false, 6.7600, '{DC01,S235}', 3, 5),
   ('3b8d1a38-0000-4000-8000-000000000003', 'insert_m6', 'Press-in nut M6 (PEM S-M6 type), per insert', 2.0600, false, 10.3200, '{DC01,S235}', 1.5, 3);
 
--- 6. bending (247 BE26065466: bent part minus flat twin, 7-point fit for 1.5 mm; one/two points per other row): line = setup_per_part_type + n x setup_per_bend_line_eur + n x price_per_bend x qty
-insert into public.rate_bend (rate_version_id, thickness_mm, length_class_mm, price_per_bend, setup_per_part_type, placeholder, setup_per_bend_line_eur, family_multipliers, material_codes) values
-  ('3b8d1a38-0000-4000-8000-000000000003', 1.5, 200, 1.4152, 2.7747, false, 0.8136, '{"stainless": 2.233}'::jsonb, '{DC01,1.4301}'),
-  ('3b8d1a38-0000-4000-8000-000000000003', 2, 200, 1.9371, 2.7747, false, 1.1130, '{}'::jsonb, '{DC01}'),
-  ('3b8d1a38-0000-4000-8000-000000000003', 2, 1500, 13.8708, 2.7747, false, 7.9740, '{}'::jsonb, '{DC01}'),
-  ('3b8d1a38-0000-4000-8000-000000000003', 3, 200, 1.4497, 3.3005, false, 0.8338, '{"aluminium": 2.184}'::jsonb, '{S235,AlMg3}'),
-  ('3b8d1a38-0000-4000-8000-000000000003', 6, 200, 17.5378, 2.7747, false, 10.0829, '{}'::jsonb, '{S235}');
+-- 6. bending (247 BE26065466: bent part minus flat twin, 7-point fit for 1.5 mm; one point per other row; per-metre extension from the 2 mm 160/1460 mm pair):
+--    line = setup_per_part_type + n x setup_per_bend_line_eur x f + n x (price_per_bend + price_per_bend_per_m x max(0, L_m - 0.2)) x f x qty;  bends > benchmarked_max_length_mm -> amber EXTRAPOLATED_RATE, > length_class_mm -> red
+insert into public.rate_bend (rate_version_id, thickness_mm, length_class_mm, price_per_bend, setup_per_part_type, placeholder, setup_per_bend_line_eur, family_multipliers, material_codes, price_per_bend_per_m, benchmarked_max_length_mm) values
+  ('3b8d1a38-0000-4000-8000-000000000003', 1.5, 4400, 1.4152, 2.7747, false, 0.8136, '{"stainless": 2.233}'::jsonb, '{DC01,1.4301}', 14.8646, 200),
+  ('3b8d1a38-0000-4000-8000-000000000003', 2, 4400, 1.9371, 2.7747, false, 1.1130, '{}'::jsonb, '{DC01}', 14.8646, 1460),
+  ('3b8d1a38-0000-4000-8000-000000000003', 3, 4400, 1.4497, 3.3005, false, 0.8338, '{"aluminium": 2.184}'::jsonb, '{S235,AlMg3}', 14.8646, 200),
+  ('3b8d1a38-0000-4000-8000-000000000003', 6, 4400, 17.5378, 2.7747, false, 10.0829, '{}'::jsonb, '{S235}', 29.7292, 200);
 
--- 7. deliberately EMPTY in v3: rate_tube_laser (247 tube prices documented in the benchmark workbook, no per-metre/set-up split possible), rate_roll, rate_weld, bends > 1500 mm, threads in 2/2.5/4/5 mm, coatings on aluminium/stainless.
+-- 7. deliberately EMPTY in v3: rate_tube_laser (247 tube prices documented in the benchmark workbook, no per-metre/set-up split possible), rate_roll, rate_weld, bends > 4 400 mm or in untested thicknesses, threads in 2/2.5/4/5 mm, coatings on aluminium/stainless.
 
 -- 8. activate v3; v2 stays (12 quotes reference it, FK RESTRICT), the cost placeholder version stays
 update public.rate_versions set active = false where active;
@@ -103,7 +107,7 @@ begin
   select count(*) into n from public.rate_finish where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 9 then raise exception 'rate_finish rows: % (expected 9)', n; end if;
   select count(*) into n from public.rate_thread where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 8 then raise exception 'rate_thread rows: % (expected 8)', n; end if;
   select count(*) into n from public.rate_feature where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 3 then raise exception 'rate_feature rows: % (expected 3)', n; end if;
-  select count(*) into n from public.rate_bend where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 5 then raise exception 'rate_bend rows: % (expected 5)', n; end if;
+  select count(*) into n from public.rate_bend where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 4 then raise exception 'rate_bend rows: % (expected 4)', n; end if;
   select count(*) into n from public.rate_leadtime where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 3 then raise exception 'rate_leadtime rows: % (expected 3)', n; end if;
   select count(*) into n from public.rate_tube_laser where rate_version_id = '3b8d1a38-0000-4000-8000-000000000003'; if n <> 0 then raise exception 'rate_tube_laser must be empty in v3'; end if;
   select count(*) into n from public.rate_versions where active; if n <> 1 then raise exception 'exactly one active version expected, got %', n; end if;
