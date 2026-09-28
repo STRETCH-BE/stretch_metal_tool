@@ -50,6 +50,8 @@ export const routes = {
     filesSign: "/api/files/sign",
     filesComplete: "/api/files/complete",
     fileUrl: (id: string) => `/api/files/${id}/url`,
+    fileStatus: (id: string) => `/api/files/${id}/status`,
+    fileResumeIntake: (id: string) => `/api/files/${id}/resume-intake`,
     geometry: "/api/geometry",
     aiPrefill: "/api/ai/prefill",
     quotePrice: (id: string) => `/api/quotes/${id}/price`,

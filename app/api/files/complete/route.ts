@@ -14,28 +14,27 @@
  * exists for this id or path was not written by this flow (the id is the
  * fresh ticket's) and answers 409 { error: "conflict" } without touching
  * it. Everything else runs through lib/parts/intake.ts with the real
- * deps.
+ * deps (lib/parts/intake-deps.ts). The files row starts as
+ * intake_status = processing; the orchestrator moves it on, so a client
+ * that lost this response (504) polls GET /api/files/[id]/status and
+ * finishes with POST /api/files/[id]/resume-intake.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
-import { env } from "@/lib/env";
-import { geometryEngine, geometryToSvg, DxfFormatError } from "@/lib/geometry";
-import { extractPdfText } from "@/lib/pdf-text";
-import { prefillFromPdf } from "@/lib/ai/prefill";
-import { heuristicSuggestions } from "@/lib/ai/heuristics";
-import { repriceQuote } from "@/lib/quotes/reprice";
+import { DxfFormatError } from "@/lib/geometry";
 import { accessErrorResponse, requireQuoteWriter } from "@/lib/parts/access";
 import { completeBodySchema } from "@/lib/parts/schema";
-import { MAX_FILE_BYTES, mimeForKind, safeFileName, validateSniffedFile } from "@/lib/files/sniff";
-import { downloadFile, insertFileRow, parseStoragePath, removeFile, sha256, storagePath, uploadBytes } from "@/lib/files/storage";
-import { randomUUID } from "node:crypto";
-import { processUploadedFile, THUMBNAIL_SIZE, type IntakeDeps } from "@/lib/parts/intake";
-import { createIntakeDb } from "@/lib/parts/intake-db";
-import { loadRatesInfo } from "@/lib/parts/queries";
+import { MAX_FILE_BYTES, mimeForKind, validateSniffedFile } from "@/lib/files/sniff";
+import { downloadFile, insertFileRow, parseStoragePath, removeFile, sha256 } from "@/lib/files/storage";
+import { processUploadedFile } from "@/lib/parts/intake";
+import { createIntakeDeps } from "@/lib/parts/intake-deps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// A 45-part IFC needs well over the 60 s default: parts are stored in
+// parallel (lib/parts/intake.ts) but the model itself takes seconds to
+// read. Needs Fluid compute on the Vercel project (README "Deploy checklist").
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
@@ -76,45 +75,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: sniffed.code, sniffed: sniffed.sniffed }, { status: 415 });
   }
 
-  const { supabase, session, quote } = writer;
-  const rates = await loadRatesInfo(supabase, quote.rate_version_id);
-  const deps: IntakeDeps = {
-    analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
-    analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),
-    splitModel: (text, options) => geometryEngine.splitModel(text, options),
-    saveDerivedFile: async ({ quoteId: forQuote, name, bytes, kind }) => {
-      const id = randomUUID();
-      const objectPath = storagePath(forQuote, id, safeFileName(name));
-      const mime = mimeForKind(kind);
-      await uploadBytes(objectPath, bytes, mime);
-      const row = await insertFileRow(supabase, {
-        id,
-        storagePath: objectPath,
-        originalName: name,
-        mime,
-        size: bytes.byteLength,
-        sha256: sha256(bytes),
-        kind,
-        uploadedBy: session.user.id,
-        quoteId: forQuote,
-      });
-      return { id: row.id, originalName: row.original_name, storagePath: row.storage_path, sha256: row.sha256 };
-    },
-    applyAnnotations: (geometry, annotations, options) => geometryEngine.applyAnnotations(geometry, annotations, options),
-    toSvg: (geometry, annotations) => geometryToSvg(geometry, annotations, { ...THUMBNAIL_SIZE, theme: "light" }),
-    extractPdfText: async (bytes) => (await extractPdfText(bytes)).text,
-    prefill: (input) => (env.hasAi() ? prefillFromPdf(input) : Promise.resolve(null)),
-    heuristics: heuristicSuggestions,
-    download: async (storagePath) => new Uint8Array(await downloadFile(storagePath)),
-    densityFor: (code) =>
-      code ? (rates.materials.find((m) => m.code.toLowerCase() === code.toLowerCase())?.densityKgM3 ?? null) : null,
-    db: createIntakeDb(supabase),
-    reprice: async (id) => {
-      await repriceQuote(id);
-    },
-    blankMarginMm: rates.blankMarginMm,
-    locale: session.profile.locale,
-  };
+  const { supabase, session } = writer;
+  const deps = await createIntakeDeps(writer);
 
   const [byId, byPath] = await Promise.all([
     supabase.from("files").select("id").eq("id", fileId).maybeSingle(),
@@ -139,6 +101,7 @@ export async function POST(request: NextRequest) {
       kind: sniffed.kind,
       uploadedBy: session.user.id,
       quoteId,
+      intakeStatus: "processing",
     });
     fileRowId = row.id;
     const result = await processUploadedFile({
