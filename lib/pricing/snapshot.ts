@@ -38,6 +38,7 @@ import { PricingError } from "./errors";
 import type {
   BendRate,
   FeatureRate,
+  FinishLimits,
   FinishRate,
   FlatLaserLimits,
   GeneralRate,
@@ -127,6 +128,35 @@ export const priceBandsSchema = z.array(
 );
 export const sheetFormatsSchema = z.array(z.object({ lengthMm: numeric, widthMm: numeric }));
 export const marginByClassSchema = z.record(z.string(), numeric);
+/** rate_thread.price_by_thickness: EUR per thread by exact sheet thickness. */
+export const priceByThicknessSchema = z.array(z.object({ thicknessMm: numeric, priceEach: numeric }));
+/** rate_bend.family_multipliers: factor by material family. */
+export const familyMultipliersSchema = z.record(z.string(), numeric);
+/** rate_finish.limits: free-form, known keys read by the engine (maxOrderNetKg). */
+export const finishLimitsSchema = z.record(z.string(), z.unknown());
+
+/**
+ * text[] columns arrive as arrays from PostgREST, as "{A,B}" from CSV /
+ * psql, or as a comma list typed by hand; null / empty = no restriction.
+ */
+export function parseCodeList(value: unknown): string[] | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    const codes = value.map((v) => String(v).trim()).filter((v) => v !== "");
+    return codes.length > 0 ? codes : null;
+  }
+  if (typeof value === "string") {
+    const text = value.trim();
+    if (text === "") return null;
+    const inner = text.startsWith("{") && text.endsWith("}") ? text.slice(1, -1) : text;
+    const codes = inner
+      .split(",")
+      .map((v) => v.trim().replace(/^"|"$/g, ""))
+      .filter((v) => v !== "");
+    return codes.length > 0 ? codes : null;
+  }
+  return null;
+}
 
 const MATERIAL_FAMILIES = ["mild_steel", "stainless", "aluminium", "brass", "copper"] as const;
 const materialFamilySchema = z.enum(MATERIAL_FAMILIES);
@@ -281,7 +311,34 @@ function mapBend(row: Loose<RateBendRow>): BendRate {
     pricePerBend: num(row.price_per_bend, `${context}.price_per_bend`),
     setupPerPartType: num(row.setup_per_part_type, `${context}.setup_per_part_type`),
     placeholder: Boolean(row.placeholder),
+    setupPerBendLineEur: numOr(row.setup_per_bend_line_eur, `${context}.setup_per_bend_line_eur`, 0),
+    familyMultipliers: familyMultipliersOf(row.family_multipliers, context),
+    materialCodes: parseCodeList(row.material_codes),
   };
+}
+
+function familyMultipliersOf(value: unknown, context: string): Partial<Record<MaterialFamily, number>> {
+  if (value === null || value === undefined) return {};
+  const record = parseJson(familyMultipliersSchema, typeof value === "string" ? safeJson(value) : value, `${context}.family_multipliers`);
+  const out: Partial<Record<MaterialFamily, number>> = {};
+  for (const [family, factor] of Object.entries(record)) out[family as MaterialFamily] = factor;
+  return out;
+}
+
+/** Booleans may arrive as strings from a CSV import; absent = fallback. */
+function boolOr(value: unknown, fallback: boolean): boolean {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") return value.trim().toLowerCase() === "true";
+  return Boolean(value);
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return text;
+  }
 }
 
 function mapRoll(row: Loose<RateRollRow>): RollRate {
@@ -308,20 +365,32 @@ function mapWeld(row: Loose<RateWeldRow>): WeldRate {
 }
 
 function mapThread(row: Loose<RateThreadRow>): ThreadRate {
+  const context = `rate_thread[${row.size}]`;
+  const byThickness = row.price_by_thickness;
   return {
     size: row.size,
-    priceEach: num(row.price_each, `rate_thread[${row.size}].price_each`),
-    setupPerLineEur: numOr(row.setup_per_line_eur, `rate_thread[${row.size}].setup_per_line_eur`, 0),
+    priceEach: num(row.price_each, `${context}.price_each`),
+    setupPerLineEur: numOr(row.setup_per_line_eur, `${context}.setup_per_line_eur`, 0),
     placeholder: Boolean(row.placeholder),
+    priceByThickness:
+      byThickness === null || byThickness === undefined
+        ? []
+        : parseJson(priceByThicknessSchema, typeof byThickness === "string" ? safeJson(byThickness) : byThickness, `${context}.price_by_thickness`),
+    materialCodes: parseCodeList(row.material_codes),
   };
 }
 
 function mapFeature(row: Loose<RateFeatureRow>): FeatureRate {
+  const context = `rate_feature[${row.code}]`;
   return {
     code: row.code,
     name: row.name,
-    priceEach: num(row.price_each, `rate_feature[${row.code}].price_each`),
+    priceEach: num(row.price_each, `${context}.price_each`),
     placeholder: Boolean(row.placeholder),
+    setupPerLineEur: numOr(row.setup_per_line_eur, `${context}.setup_per_line_eur`, 0),
+    materialCodes: parseCodeList(row.material_codes),
+    minThicknessMm: numOrNull(row.min_thickness_mm, `${context}.min_thickness_mm`),
+    maxThicknessMm: numOrNull(row.max_thickness_mm, `${context}.max_thickness_mm`),
   };
 }
 
@@ -337,6 +406,17 @@ function mapFinish(row: Loose<RateFinishRow>): FinishRate {
     setupPerOrderEur: numOr(row.setup_per_order_eur, `${context}.setup_per_order_eur`, 0),
     setupPerLineEur: numOr(row.setup_per_line_eur, `${context}.setup_per_line_eur`, 0),
     minPartMm: typeof row.min_part_mm === "string" && row.min_part_mm.trim() !== "" ? row.min_part_mm : null,
+    materialCodes: parseCodeList(row.material_codes),
+    minThicknessMm: numOrNull(row.min_thickness_mm, `${context}.min_thickness_mm`),
+    maxThicknessMm: numOrNull(row.max_thickness_mm, `${context}.max_thickness_mm`),
+    pricePerPartEur: numOr(row.price_per_part_eur, `${context}.price_per_part_eur`, 0),
+    minLeadTimeDays: numOr(row.min_lead_time_days, `${context}.min_lead_time_days`, 0),
+    minimumScope: row.minimum_scope === "colour" ? "colour" : "order",
+    tierMultiplierApplies: boolOr(row.tier_multiplier_applies, true),
+    limits:
+      row.limits === null || row.limits === undefined
+        ? {}
+        : (parseJson(finishLimitsSchema, typeof row.limits === "string" ? safeJson(row.limits) : row.limits, `${context}.limits`) as FinishLimits),
   };
 }
 

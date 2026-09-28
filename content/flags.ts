@@ -327,7 +327,7 @@ export const flags: FlagsContent = {
     "market.no_benchmark_rate": {
       label: "Brak stawki rynkowej",
       message:
-        "Materiał {materialCode} w grubości {thicknessMm} mm nie ma stawki w aktywnym cenniku rynkowym (dokładne dopasowanie, bez zaokrąglania do sąsiedniej grubości) — wyceń ręcznie.",
+        "Brak stawki „{what}” dla {materialCode} {thicknessMm} mm w aktywnym cenniku rynkowym (dokładne dopasowanie, bez zaokrąglania do sąsiedniej grubości) — wyceń ręcznie.",
     },
     "market.not_benchmarked": {
       label: "Operacja poza cennikiem",
@@ -335,7 +335,7 @@ export const flags: FlagsContent = {
     },
     "market.leadtime_not_offered": {
       label: "Termin nieoferowany",
-      message: "Termin {workingDays} dni roboczych jest krótszy niż najkrótszy oferowany ({minDays} dni) — wybierz dłuższy termin.",
+      message: "Termin {workingDays} dni roboczych jest krótszy niż minimum dla tej oferty ({minDays} dni: {reason}) — wybierz dłuższy termin.",
     },
     "market.subcontract": {
       label: "Kooperacja",
@@ -344,6 +344,10 @@ export const flags: FlagsContent = {
     "market.manual_price": {
       label: "Cena ręczna",
       message: "Pozycja „{what}” wpisana ręcznie — nie jest ceną z benchmarku.",
+    },
+    "market.finish_implied": {
+      label: "Gratowanie zawarte w powłoce",
+      message: "Powłoka „{by}” zawiera gratowanie krawędzi — opcja „{code}” została pominięta (bez dopłaty).",
     },
     "rates.placeholder": {
       label: "Stawki tymczasowe",

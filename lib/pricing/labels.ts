@@ -33,6 +33,12 @@ export const OPERATION_LABELS = {
   deburr: "deburr",
   finishSetup: "finish_setup",
   threadSetup: "thread_setup",
+  /** Market mode: bend-line tool set-up (rate_bend.setup_per_bend_line_eur × bend lines). */
+  bendLineSetup: "bend_line_setup",
+  /** Market mode: per-line set-up of a feature (countersinks, press-in nuts). */
+  featureSetup: "feature_setup",
+  /** Market mode, quote level: top-up to a finish's minimum (per order or per colour). */
+  finishMinimum: "finish_minimum",
 } as const;
 
 export type OperationLabelKey = (typeof OPERATION_LABELS)[keyof typeof OPERATION_LABELS];

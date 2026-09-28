@@ -147,6 +147,12 @@ export type RateBendRow = {
   price_per_bend: number;
   setup_per_part_type: number;
   placeholder: boolean;
+  /** Market mode: EUR once per distinct bend line of a part type. */
+  setup_per_bend_line_eur: number;
+  /** Market mode: factor on setup_per_bend_line_eur and price_per_bend by material family. */
+  family_multipliers: Json;
+  /** Market mode: material codes the row was benchmarked for; null = any. */
+  material_codes: string[] | null;
 };
 
 export type RateRollRow = {
@@ -178,6 +184,10 @@ export type RateThreadRow = {
   placeholder: boolean;
   /** Market mode: charged once per quote line carrying threads of this size (EUR). */
   setup_per_line_eur: number;
+  /** Market mode: EUR per thread by sheet thickness [{ thicknessMm, priceEach }], exact match. */
+  price_by_thickness: Json;
+  /** Market mode: material codes the row was benchmarked for; null = any. */
+  material_codes: string[] | null;
 };
 
 export type RateFeatureRow = {
@@ -187,6 +197,11 @@ export type RateFeatureRow = {
   name: string;
   price_each: number;
   placeholder: boolean;
+  /** Market mode: charged once per quote line carrying this feature (EUR). */
+  setup_per_line_eur: number;
+  material_codes: string[] | null;
+  min_thickness_mm: number | null;
+  max_thickness_mm: number | null;
 };
 
 export type RateFinishRow = {
@@ -204,6 +219,15 @@ export type RateFinishRow = {
   setup_per_line_eur: number;
   /** Free-text minimum part size rule, e.g. "steel 250x60 or 600x50; aluminium/stainless 50x50". */
   min_part_mm: string | null;
+  /** Market mode eligibility and pricing extras (migration 20260928090000_rates_v3_market). */
+  material_codes: string[] | null;
+  min_thickness_mm: number | null;
+  max_thickness_mm: number | null;
+  price_per_part_eur: number;
+  min_lead_time_days: number;
+  minimum_scope: "order" | "colour";
+  tier_multiplier_applies: boolean;
+  limits: Json;
 };
 
 export type RateLeadtimeRow = {

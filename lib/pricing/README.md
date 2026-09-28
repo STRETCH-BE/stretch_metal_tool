@@ -125,42 +125,51 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `finish.no_rate_row` | red | finish extra without a row, or engraving without an `engrave` row | `code`, `index` |
 | `finish.minimum_applied` | green | batch minimum raised the unit cost | `code`, `minimum`, `batchCost`, `batchBefore`, `index` |
 | `finish.part_too_small` | amber | market mode: a finish (deburr / edge_round / deburr_one_side) is not available for the part — the bbox is below the rate's `min_part_mm` rule; no charge, the part keeps its price | `code`, `widthMm`, `heightMm`, `minimum`, `family` |
-| `finish.not_for_family` | amber | market mode: the finish's `min_part_mm` rule names no family of the part (deburr_one_side on mild steel); no charge | `code`, `family`, `rule` |
-| `market.no_benchmark_rate` | red | market mode: no `rate_laser` row with exactly this material and thickness, or no material band at exactly this thickness, or a material code the version does not list — the part is REFUSED (`unitPrice = null`, no lines) | `materialCode`, `thicknessMm`, `what` (`laser` / `material`) |
-| `market.not_benchmarked` | red | market mode: an operation the version has no rows for — `bending`, `rolling`, `welding` (also welding-only quotes), `tube`, `thread <size>`, `feature <code>`, `finish <code>` — the part is REFUSED | `operation` (+ `count`, `size`, `code`, `index`) |
-| `market.leadtime_not_offered` | red | market mode, quote level: the promised lead time is shorter than the shortest `rate_leadtime` tier — every part is refused | `workingDays`, `minDays` |
+| `finish.not_for_family` | amber | market mode: the finish's `min_part_mm` rule names no family of the part; no charge | `code`, `family`, `rule` |
+| `market.no_benchmark_rate` | red | market mode: no `rate_laser` row with exactly this material and thickness, no material band at exactly this thickness, a material code the version does not list, a thread size with no `price_by_thickness` entry at this thickness / material, or a feature outside its `material_codes` / thickness range — the part is REFUSED (`unitPrice = null`, no lines) | `what` (`laser` / `material` / `thread M6` / `feature csk_m6`), `materialCode`, `thicknessMm` (+ `size`, `count`, `code`, `reason`) |
+| `market.not_benchmarked` | red | market mode: an operation the version has no rows for — `bending` (no `rate_bend` row for exactly this thickness, material and the longest bend's length class; also a part marked bent with 0 bend lines), `rolling`, `welding` (also welding-only quotes), `tube`, `feature <code>` (no row), `finish <code>` (no row, or outside `material_codes` / thickness range), `hot_dip (> 10 kg)` (quote level: net mass above `limits.maxOrderNetKg`) — the part is REFUSED | `operation` (+ `count`, `longestMm`, `code`, `index`, `reason`, `massKg`, `limitKg`) |
+| `market.leadtime_not_offered` | red | market mode, quote level: the promised lead time is shorter than the shortest `rate_leadtime` tier (`reason = rate_leadtime`) or than the largest `min_lead_time_days` of the quote's finishes (`reason` = the finish codes) — every part is refused | `workingDays`, `minDays`, `reason` |
 | `market.subcontract` | amber | market mode: the exact laser row has `in_house = false` — priced from that row, the supplier text is shown | `materialCode`, `thicknessMm`, `supplier` |
 | `market.manual_price` | amber | market mode: a user-typed line (machining minutes, "other" lump sum, handling) is in the price as typed | `what`, `minutes` / `amount`, `index` |
+| `market.finish_implied` | green | market mode: a coating that includes edge breaking (powder, zinc) dropped a deburring option on the same line — nothing charged for it | `code`, `by`, `index` |
 | `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` (0 in the benchmark versions → only a negative margin) | `marginPct`, `minPct`, `price`, `cost` |
 | `market.no_cost_version` | amber | market mode priced without a cost version — no margin could be computed | — |
 | `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder | `count` |
 
-## Market mode (`market.ts`, `market-rules.ts`)
+## Market mode (`market.ts`, `market-rules.ts`, `eligibility.ts`)
 
 `rate_general.pricing_mode = 'market'` means the version's tables are benchmarked SELLING
-prices (247TailorSteel standard tier × 1.10, "market-247+10% v2 (27 Sep 2026)"). `priceQuote()`
-then delegates to `priceMarketQuote()`. Nothing is added on top, and whatever the version does
-not benchmark is REFUSED (red flag, `unitPrice = null`, no lines) — never approximated.
+prices (247TailorSteel / Laserhub standard tier × 1.10; "market-247+10% v3 (28 Sep 2026)").
+`priceQuote()` then delegates to `priceMarketQuote()`. Nothing is added on top, and whatever
+the version does not benchmark is REFUSED (red flag, `unitPrice = null`, no lines) — never
+approximated. `eligibility.ts` decides which row prices an option and why one does not
+(material lists, thickness ranges, finish variants by material family, thread prices by
+thickness, the exact bend row); the forms use the same functions to grey out options.
 
 | Line | Rule |
 |---|---|
 | material | net mass (`netAreaMm2 × t × density`) × €/kg of the band whose `max_thickness_mm` equals t exactly — no blank rectangle, no scrap; no band at t → refused |
-| laser_cut / subcontract_cutting | the `rate_laser` row with exactly this material and thickness (`per_m`, not a placeholder; `lookup.ts findExactLaserRate`, no nearest thickness, no time-mode row): cut length × `price_per_m` + pierces × `price_per_pierce`, plain length (no slow-contour factor: the benchmark's pierce prices already carry small-contour handling); `in_house = false` → priced the same, amber `market.subcontract` |
+| laser_cut / subcontract_cutting | the `rate_laser` row with exactly this material and thickness (`per_m`, not a placeholder; `lookup.ts findExactLaserRate`, no nearest thickness, no time-mode row): cut length × `price_per_m` + pierces × `price_per_pierce`, plain length (no slow-contour factor); `in_house = false` → priced the same, amber `market.subcontract` |
 | setup (`laser_setup`) | `rate_laser.setup_eur` once per distinct (material, thickness) in the quote, split over the PIECES (Σ qty) of that group's priceable lines |
 | order (`order_charge`) | `rate_general.order_charge_eur` split over all pieces of the quote's priceable lines |
-| setup (`finish_setup`) + finish line | a finish extra: `rate_finish.setup_per_line_eur` ÷ qty + (unit `m`: cut length × price; unit `part`: price); available only when `min_part_mm` names the part's family and the bbox meets a listed size, else amber `finish.part_too_small` / `finish.not_for_family` and no charge |
+| setup (`bend_setup`) + setup (`bend_line_setup`) + bend | the `rate_bend` row with exactly the part thickness whose `material_codes` holds the material and whose `length_class_mm` is the smallest ≥ the longest bend line: `setup_per_part_type ÷ qty` + `n × setup_per_bend_line_eur × f ÷ qty` + `n × price_per_bend × f` per piece, `f = family_multipliers[family]` (1 when absent), n = bend lines; angle irrelevant; no row → refused |
+| setup (`thread_setup`) + thread | confirmed threads: the `rate_thread` row of the size, `setup_per_line_eur ÷ qty` + count × the `price_by_thickness` entry at exactly the part thickness (`material_codes` must hold the material); no entry → refused |
+| setup (`feature_setup`) + feature | a feature extra with a `rate_feature` row: `setup_per_line_eur ÷ qty` + count × `price_each`, only within `material_codes` and `min/max_thickness_mm`; else refused |
+| setup (`finish_setup`) + finish line | a finish extra: the row by code, or its material variant (`deburr` → `deburr_nonferrous` for aluminium / stainless); eligible within `material_codes` and the thickness range (else refused); available when `min_part_mm` names the part's family and the bbox meets a listed size (else amber, no charge). Per piece: `setup_per_line_eur ÷ qty` + `price_per_part_eur` + units × `price`, units = cut length (m), net area × 2 (m2, both sides), net mass (kg), 1 (part / each). `tier_multiplier_applies = false` (certificates) keeps the lines outside the lead-time multiplier |
+| finish implied | a coating that includes edge breaking (`powder`, `zinc`) drops `deburr` / `deburr_one_side` on the same line with green `market.finish_implied` |
 | engrave | the `engrave` rate's price per part when selected as an extra or when the geometry carries engraving |
-| setup (`thread_setup`) + thread | confirmed threads with a `rate_thread` row: `setup_per_line_eur` ÷ qty + count × `price_each`; a size without a row → refused |
 | machining / other / handling | typed by the user, priced as typed (`machining_rate_eur_h`), amber `market.manual_price` |
-| leadtime (`lead_time`) | per part: (multiplier − 1) × Σ its other lines; the multiplier is the `rate_leadtime` tier with the LARGEST working_days ≤ the promised lead time (steps, no interpolation: 11 → 1.00, 7–10 → 1.12, 4–6 → 1.75); shorter than the shortest tier → red `market.leadtime_not_offered`, every part refused; absent when it is 1 |
-| packaging (quote level, `quoteLines`) | once per quote, not multiplied by the lead time: box when every priceable part fits 600 mm and the total net mass ≤ 5 kg (`PACKAGING_BOX_*` constants [CONFIRM]), else pallet — `packaging_box_eur` / `packaging_pallet_eur` |
-| bends, rolls, welds, tubes, features, other finishes | only when the version has rows for them (the cost-mode builders); with empty tables → red `market.not_benchmarked {operation}` and the part is refused; welding-only quotes without weld rows are refused at quote level |
+| leadtime (`lead_time`) | per part: (multiplier − 1) × Σ its tiered lines; the multiplier is the `rate_leadtime` tier with the LARGEST working_days ≤ the promised lead time (steps: 11 → 1.00, 7–10 → 1.12, 4–6 → 1.75); shorter than the shortest tier, or shorter than the largest `min_lead_time_days` of the quote's finishes (powder / zinc 19, hot-dip 22) → red `market.leadtime_not_offered`, every part refused |
+| packaging (quote level, `quoteLines`) | once per quote, outside the lead-time multiplier: box when every priceable part fits 600 mm and the total net mass ≤ 5 kg (`PACKAGING_BOX_*` constants [CONFIRM]), else pallet |
+| finish_minimum (quote level, `quoteLines`) | per finish with `minimum > 0`: the amounts its lines charge (after the multiplier) are summed per quote (`minimum_scope = order`) or per distinct colour of the finish (`colour`, powder RAL); below the minimum the difference is one top-up line. Hot-dip (price 0, minimum 330.78) is therefore a flat per-quote amount; above `limits.maxOrderNetKg` it is refused at quote level instead |
+| rolls, welds, tubes | only when the version has rows for them (the cost-mode builders); with empty tables → red `market.not_benchmarked {operation}`; welding-only quotes without weld rows are refused at quote level |
 
 Pieces = Σ qty over the priceable lines (a refused part is not in the order), so quantity
-discounts fall out of the set-up / order-charge splits and there is no other quantity logic.
-The cost-mode `*.no_rate_row`, `laser.subcontract`, `laser.thickness_over_limit`,
-`laser.slow_contours`, `material.no_price` and `finish.minimum_applied` flags are replaced by
-the market flags above; geometry, bend-geometry and bed-size flags still apply.
+discounts fall out of the set-up / order-charge / per-line splits and there is no other
+quantity logic. The cost-mode `*.no_rate_row`, `laser.subcontract`,
+`laser.thickness_over_limit`, `laser.slow_contours`, `material.no_price` and
+`finish.minimum_applied` flags are replaced by the market flags above; geometry,
+bend-geometry and bed-size flags still apply.
 
 No margin is added: `unitPrice = Σ lines`. `unitCost` / `subtotalCost` come from
 pricing the SAME input with the cost version (`options.costRates`, the machine-hour
@@ -171,8 +180,9 @@ bucket. `PricedQuote.pricingMode`, `costRateVersionId`, `leadTimeDays`,
 `leadTimeMultiplier` and `quoteLines` record all of this. `quote_items.unit_price` is
 nullable for refused parts; the send guard blocks any quote with a red flag.
 
-Acceptance: `test/pricing/market-v2.test.ts` (E1–E8 on the v2 fixture) and
-`test/rates/market-247.test.ts` (E9: the 38 SMT parts of SM-2026-0004).
+Acceptance: `test/pricing/market-v2.test.ts` (E1–E8 on the v2 fixture),
+`test/pricing/market-v3.test.ts` (F/B/C/P/Z/K/D on the v3 fixture, one check per rule 14–24)
+and `test/rates/market-247.test.ts` (E9: the 38 SMT parts of SM-2026-0004 on v2 and v3).
 
 ## Operation lines
 

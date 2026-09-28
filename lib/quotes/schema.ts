@@ -197,6 +197,8 @@ export const extraOperationSchema = z.discriminatedUnion("type", [
     code: z.string().trim().min(1, "required").max(40, "tooLong"),
     maskingMinutes: nonNegative,
     note: optionalText(200),
+    /** Colour of the finish where it matters (powder coating "RAL 9005"); absent on lines saved before v3. */
+    colour: optionalText(40).optional(),
   }),
   z.object({
     type: z.literal("tube_cut"),

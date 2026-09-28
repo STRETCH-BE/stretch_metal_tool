@@ -1,8 +1,8 @@
 /**
  * Pricing engine — MARKET mode: the version's rate tables are benchmarked
- * selling prices (247TailorSteel standard tier × 1.10), nothing is added on
- * top, and whatever the version does not benchmark is REFUSED, never
- * approximated.
+ * selling prices (247TailorSteel / Laserhub standard tier × 1.10), nothing
+ * is added on top, and whatever the version does not benchmark is REFUSED,
+ * never approximated.
  * File path: /lib/pricing/market.ts
  *
  * Unit price of a part line (qty pieces), all from the active snapshot:
@@ -10,75 +10,90 @@
  *   + order_charge_eur ÷ pieces in the quote
  *   + net area × t × density × price_per_kg(t)          (material on NET area)
  *   + cut length × price_per_m + pierces × price_per_pierce
- *   + finishes: setup_per_line ÷ qty + cut length × price (unit m) | price (unit part)
- *   + threads:  setup_per_line ÷ qty + count × price_each
+ *   + bending: (setup_per_part_type + n × setup_per_bend_line × f) ÷ qty + n × price_per_bend × f
+ *              (n = bend lines, f = family multiplier, row by exact thickness,
+ *              material list and the smallest length class ≥ the longest bend)
+ *   + threads: setup_per_line ÷ qty + count × price_by_thickness[t]
+ *   + features: setup_per_line ÷ qty + count × price_each (material + thickness range)
+ *   + finishes: setup_per_line ÷ qty + price_per_part + units × price
+ *              (units: m = cut length, m2 = net area × 2, kg = net mass, part = 1)
  *   + manual lines typed by the user (machining minutes, lump sums)
- *   × lead-time multiplier (one "leadtime" line = (multiplier − 1) × the rest)
- * Quote level: packaging once (box ≤ 5 kg and ≤ 600 mm, else pallet), not
- * multiplied by the lead time.
+ *   × lead-time multiplier (one "leadtime" line = (multiplier − 1) × the
+ *     tiered lines; finishes with tier_multiplier_applies = false stay outside)
+ * Quote level: packaging once (box ≤ 5 kg and ≤ 600 mm, else pallet) and one
+ * top-up line per finish minimum (per order, or per colour for powder), both
+ * outside the lead-time multiplier.
  *
  * Gates and refusals (red flag, unitPrice null, no lines — the quote
  * cannot be sent and no number is shown for the part):
  * - market.no_benchmark_rate: no rate_laser row with exactly this material
- *   and thickness (context.ts exactRates → lookup.ts findExactLaserRate),
- *   or no material band at exactly this thickness. Never the nearest
- *   thickness, never a time-mode row, never a placeholder;
- * - market.not_benchmarked {operation}: bends with no rate_bend rows,
- *   rolling / welding / tube parts / features / finishes / thread sizes the
- *   version has no row for, engraved geometry without an engrave rate,
- *   welding-only quotes without weld rows;
- * - market.leadtime_not_offered: a lead time shorter than the shortest tier
- *   (market-rules.ts resolveLeadTimeMultiplier is a step function).
+ *   and thickness (context.ts exactRates → lookup.ts findExactLaserRate), no
+ *   material band at exactly this thickness, a material code the version
+ *   does not list, a thread size without a price at this thickness / for
+ *   this material, or a feature outside its material list / thickness range;
+ * - market.not_benchmarked {operation}: bends with no matching rate_bend
+ *   row (also bends recognised as 0 on a part marked bent), rolling /
+ *   welding / tube parts without rows, a finish or feature code the version
+ *   has no row for, a finish outside its material list / thickness range,
+ *   a hot-dip order above limits.maxOrderNetKg (quote level);
+ * - market.leadtime_not_offered: a lead time shorter than the shortest
+ *   rate_leadtime tier, or shorter than the largest min_lead_time_days of the
+ *   quote's finishes (coatings). Quote level, every part refused.
  * Amber (informational, priced): market.subcontract for in_house = false
  * rows, market.manual_price for user-typed lines, finish.part_too_small /
- * finish.not_for_family when a finish is not available for the part (no
- * charge, price unchanged). The cost-mode "*.no_rate_row" / subcontract
- * flags are replaced by these; geometry, bend-geometry and bed-size flags
- * still apply.
+ * finish.not_for_family when a finish is not available for the part by its
+ * min_part_mm rule (no charge, price unchanged). Green: market.finish_implied
+ * when a coating that includes edge breaking drops a deburring option.
+ * The cost-mode "*.no_rate_row" / subcontract flags are replaced by these;
+ * geometry, bend-geometry and bed-size flags still apply.
  *
  * Decisions:
  * - Pieces = Σ qty over the PRICEABLE lines (a refused part is not in the
  *   order); set-ups and the order charge are per piece, so quantity
  *   discounts fall out of the split and there is no other quantity logic.
  * - per_m rows only. The cut length is charged plain: the benchmark's
- *   per-pierce prices were fitted on the Ø10-hole test part and already
- *   carry small-contour handling, so slow_contour_factor is not applied on
- *   top (it belongs to time-mode rows, which market versions do not use).
+ *   per-pierce prices already carry small-contour handling, so
+ *   slow_contour_factor is not applied on top.
  * - No margin on market prices; the margin shown is 1 − cost ÷ price with
  *   the cost version (options.costRates, machine-hour model). Below the
- *   version's default_margin_pct → red market.margin_below_default (0 in
- *   the benchmark versions, so only a negative margin fires it).
- * - A finish's min_part_mm text also carries family eligibility: a rate
- *   whose rules name no family of the part (deburr_one_side on mild steel)
- *   is not available for it.
+ *   version's default_margin_pct → red market.margin_below_default.
+ * - Finish minimums are compared with what the lines of that finish (and
+ *   colour) charge after the lead-time multiplier; the difference is one
+ *   quote line. A finish with price 0 and a minimum (hot-dip) is therefore a
+ *   flat per-quote amount.
+ * - eligibility.ts decides which row prices an option and why one does not.
  */
 
 import { buildPartContext, type PartContext } from "./context";
+import {
+  FINISHES_INCLUDING_EDGE_BREAKING,
+  bendFamilyFactor,
+  featureEligibility,
+  findBendRateExact,
+  finishEligibility,
+  finishRefused,
+  finishVariantBase,
+  resolveFinishRate,
+  threadPriceFor,
+  type FinishEligibility,
+} from "./eligibility";
 import { PricingError } from "./errors";
 import { evaluateContextFlags, evaluateQuoteFlags } from "./feasibility";
-import { computeFinish } from "./finish";
 import { machiningCost, mmToM } from "./formulas";
 import { OPERATION_LABELS } from "./labels";
-import { findFeatureRate, findFinishRate, findThreadRate, normaliseThreadSize } from "./lookup";
-import {
-  applicableMinPartRules,
-  decidePackaging,
-  describeMinPartSizes,
-  meetsMinPartSize,
-  parseMinPartRule,
-  resolveLeadTimeMultiplier,
-  type LeadTimeResolution,
-  type MinPartRule,
-} from "./market-rules";
-import { bendLines, laserLine, makeLine, rollLine, weldLines } from "./operations";
+import { findFeatureRate, findThreadRate, normaliseThreadSize } from "./lookup";
+import { applicableMinPartRules, decidePackaging, describeMinPartSizes, parseMinPartRule, resolveLeadTimeMultiplier, type LeadTimeResolution, type MinPartRule } from "./market-rules";
+import { laserLine, makeLine, rollLine, weldLines } from "./operations";
 import {
   marginToMarkup,
+  type BendRate,
+  type DriverUnit,
+  type FeatureRate,
   type FinishRate,
   type Flag,
   type FlagCode,
   type FlagSeverity,
   type MachinePark,
-  type MaterialFamily,
   type OperationLine,
   type OperationType,
   type PricedItem,
@@ -124,6 +139,8 @@ function partFlag(ctx: PartContext, code: FlagCode, severity: FlagSeverity, para
   return { code, severity, partId: ctx.part.id, itemId: ctx.item.id, params, overridable: severity === "amber" };
 }
 
+/* ─── Rate references ─────────────────────────────────────── */
+
 function finishRef(rate: FinishRate): RateRef {
   return {
     table: "rate_finish",
@@ -133,19 +150,66 @@ function finishRef(rate: FinishRate): RateRef {
       unit: rate.unit,
       price: rate.price,
       minimum: rate.minimum,
+      minimumScope: rate.minimumScope,
       setupPerOrderEur: rate.setupPerOrderEur,
       setupPerLineEur: rate.setupPerLineEur,
+      pricePerPartEur: rate.pricePerPartEur,
+      minLeadTimeDays: rate.minLeadTimeDays,
+      tierMultiplierApplies: rate.tierMultiplierApplies,
       minPartMm: rate.minPartMm,
+      materialCodes: rate.materialCodes ? rate.materialCodes.join(",") : null,
+      minThicknessMm: rate.minThicknessMm,
+      maxThicknessMm: rate.maxThicknessMm,
       placeholder: rate.placeholder,
     },
   };
 }
 
-function threadRef(rate: ThreadRate): RateRef {
+function threadRef(rate: ThreadRate, priceEach: number, thicknessMm: number | null): RateRef {
   return {
     table: "rate_thread",
     key: rate.size,
-    values: { size: rate.size, priceEach: rate.priceEach, setupPerLineEur: rate.setupPerLineEur, placeholder: rate.placeholder },
+    values: {
+      size: rate.size,
+      priceEach,
+      thicknessMm,
+      setupPerLineEur: rate.setupPerLineEur,
+      materialCodes: rate.materialCodes ? rate.materialCodes.join(",") : null,
+      placeholder: rate.placeholder,
+    },
+  };
+}
+
+function featureRef(rate: FeatureRate): RateRef {
+  return {
+    table: "rate_feature",
+    key: rate.code,
+    values: {
+      code: rate.code,
+      priceEach: rate.priceEach,
+      setupPerLineEur: rate.setupPerLineEur,
+      materialCodes: rate.materialCodes ? rate.materialCodes.join(",") : null,
+      minThicknessMm: rate.minThicknessMm,
+      maxThicknessMm: rate.maxThicknessMm,
+      placeholder: rate.placeholder,
+    },
+  };
+}
+
+function bendRef(rate: BendRate, factor: number): RateRef {
+  return {
+    table: "rate_bend",
+    key: `${rate.thicknessMm}/${rate.lengthClassMm}`,
+    values: {
+      thicknessMm: rate.thicknessMm,
+      lengthClassMm: rate.lengthClassMm,
+      pricePerBend: rate.pricePerBend,
+      setupPerPartType: rate.setupPerPartType,
+      setupPerBendLineEur: rate.setupPerBendLineEur,
+      familyFactor: factor,
+      materialCodes: rate.materialCodes ? rate.materialCodes.join(",") : null,
+      placeholder: rate.placeholder,
+    },
   };
 }
 
@@ -157,36 +221,51 @@ export function laserSetupGroupKey(ctx: PartContext): string | null {
   return row ? `${row.materialCode}/${row.thicknessMm}` : null;
 }
 
-export type FinishAvailability = "ok" | "size" | "family";
+/** The finish options of a line resolved against the version. */
+export type PlannedFinish = {
+  /** Index of the extra on the item; null for engraving implied by the geometry. */
+  index: number | null;
+  rate: FinishRate;
+  /** "ok" prices the finish; "size" / "family" leave it unavailable (amber, no charge). */
+  availability: Exclude<FinishEligibility, "material" | "thickness">;
+  colour: string | null;
+  selected: boolean;
+};
 
-/**
- * A finish is available for a part when its min_part_mm rules name the
- * part's family (or apply to all) and the bounding box meets one listed
- * size. Rates without rules are available for everything.
- */
-export function finishAvailability(rules: readonly MinPartRule[], family: MaterialFamily | null, widthMm: number, heightMm: number): FinishAvailability {
-  if (rules.length === 0) return "ok";
-  const applicable = applicableMinPartRules(rules, family);
-  if (applicable.length === 0) return "family";
-  return meetsMinPartSize(applicable, family, widthMm, heightMm) === false ? "size" : "ok";
-}
+export type PlannedBend = { rate: BendRate; factor: number; count: number; longestMm: number; bendIds: string[] };
+export type PlannedThread = { rate: ThreadRate; size: string; count: number; priceEach: number; loopIds: string[] };
+export type PlannedFeature = { index: number; rate: FeatureRate; count: number };
 
 type Verdict = {
   /** Red flags that make the part unpriceable. */
   refusals: Flag[];
-  /** Amber notes on a priced part. */
+  /** Amber / green notes on a priced part. */
   notes: Flag[];
   /** False when the part has no exact laser row (material / thickness missing or not benchmarked). */
   priceable: boolean;
+  bend: PlannedBend | null;
+  threads: PlannedThread[];
+  features: PlannedFeature[];
+  finishes: PlannedFinish[];
 };
 
+const FINISH_KEY = (code: string): string => code.trim().toLowerCase();
+
+function colourOf(colour: string | null | undefined): string | null {
+  const text = colour?.trim() ?? "";
+  return text === "" ? null : text;
+}
+
 function assessPart(ctx: PartContext): Verdict {
-  const { rates, material, thicknessMm, annotations, item } = ctx;
+  const { rates, material, thicknessMm, annotations, item, geometry } = ctx;
   const refusals: Flag[] = [];
   const notes: Flag[] = [];
   let priceable = true;
+  const materialCode = material?.code ?? ctx.part.materialCode;
   const notBenchmarked = (operation: string, extra: Record<string, number | string> = {}) =>
     refusals.push(partFlag(ctx, "market.not_benchmarked", "red", { operation, ...extra }));
+  const noRate = (what: string, extra: Record<string, number | string> = {}) =>
+    refusals.push(partFlag(ctx, "market.no_benchmark_rate", "red", { what, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0, ...extra }));
 
   if (ctx.isTubePart) {
     priceable = false;
@@ -195,46 +274,116 @@ function assessPart(ctx: PartContext): Verdict {
     // geometry.no_material / geometry.no_thickness are already red; a material
     // code the version does not list is also "not benchmarked" (Cu-ETP, …).
     priceable = false;
-    if (!material && ctx.part.materialCode) {
-      refusals.push(partFlag(ctx, "market.no_benchmark_rate", "red", { materialCode: ctx.part.materialCode, thicknessMm: thicknessMm ?? 0, what: "material" }));
-    }
+    if (!material && ctx.part.materialCode) noRate("material");
   } else if (!ctx.laser?.row) {
     priceable = false;
-    refusals.push(partFlag(ctx, "market.no_benchmark_rate", "red", { materialCode: material.code, thicknessMm, what: "laser" }));
+    noRate("laser");
   } else if (!ctx.priceBand) {
     priceable = false;
-    refusals.push(partFlag(ctx, "market.no_benchmark_rate", "red", { materialCode: material.code, thicknessMm, what: "material" }));
+    noRate("material");
   } else if (!ctx.laser.row.inHouse) {
-    notes.push(
-      partFlag(ctx, "market.subcontract", "amber", {
-        materialCode: material.code,
-        thicknessMm,
-        supplier: ctx.laser.row.supplier ?? "",
-      })
-    );
+    notes.push(partFlag(ctx, "market.subcontract", "amber", { materialCode: material.code, thicknessMm, supplier: ctx.laser.row.supplier ?? "" }));
   }
 
-  if (ctx.bends.length > 0 && rates.bend.length === 0) notBenchmarked("bending", { count: ctx.bends.length });
+  // Bending: every bend line of the part, priced from the row that matches exactly.
+  let bend: PlannedBend | null = null;
+  const bends = ctx.bends.filter((b) => b.lengthMm > 0);
+  if (bends.length > 0) {
+    const longestMm = Math.max(...bends.map((b) => b.lengthMm));
+    const rate = findBendRateExact(rates, materialCode, thicknessMm, longestMm);
+    if (rate) {
+      bend = { rate, factor: bendFamilyFactor(rate, ctx.family), count: bends.length, longestMm, bendIds: bends.map((b) => b.id) };
+    } else {
+      notBenchmarked("bending", { count: bends.length, longestMm, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 });
+    }
+  } else if (annotations.forming === "bent") {
+    // Marked as bent but no bend line recognised: never price it as a flat part.
+    notBenchmarked("bending", { count: 0, longestMm: 0, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 });
+  }
   if (annotations.roll && rates.roll.length === 0) notBenchmarked("rolling");
   if (annotations.welds.length > 0 && rates.weld.length === 0) notBenchmarked("welding", { count: annotations.welds.length });
 
+  // Threads: size row + price at exactly this thickness for this material.
+  const threads: PlannedThread[] = [];
   for (const group of ctx.confirmedThreads) {
-    if (!findThreadRate(rates, group.size)) notBenchmarked(`thread ${group.size}`, { size: group.size, count: group.loopIds.length });
-  }
-  item.extras.forEach((extra, index) => {
-    if (extra.type === "feature" && !findFeatureRate(rates, extra.code)) notBenchmarked(`feature ${extra.code}`, { code: extra.code, index });
-    if (extra.type === "finish" && !findFinishRate(rates, extra.code)) notBenchmarked(`finish ${extra.code}`, { code: extra.code, index });
-    if (extra.type === "machining") notes.push(partFlag(ctx, "market.manual_price", "amber", { what: "machining", minutes: extra.minutes, index }));
-    if (extra.type === "other") notes.push(partFlag(ctx, "market.manual_price", "amber", { what: extra.label, amount: extra.unitCost, index }));
-    if (extra.type === "handling") notes.push(partFlag(ctx, "market.manual_price", "amber", { what: "handling", amount: extra.unitCost, index }));
-  });
-  const engraveSelected = item.extras.some((e) => e.type === "finish" && e.code.trim().toLowerCase() === OPERATION_LABELS.engrave);
-  if (!engraveSelected && ctx.geometry.measures.engraveLengthMm > 0 && !findFinishRate(rates, OPERATION_LABELS.engrave)) {
-    notBenchmarked(`finish ${OPERATION_LABELS.engrave}`, { code: OPERATION_LABELS.engrave });
+    const rate = findThreadRate(rates, group.size);
+    const priceEach = rate ? threadPriceFor(rate, materialCode, thicknessMm) : null;
+    if (rate && priceEach !== null) {
+      threads.push({ rate, size: group.size, count: group.loopIds.length, priceEach, loopIds: group.loopIds });
+    } else {
+      noRate(`thread ${group.size}`, { size: group.size, count: group.loopIds.length });
+    }
   }
 
-  return { refusals, notes, priceable: priceable && refusals.length === 0 };
+  // Features and finishes typed on the line.
+  const features: PlannedFeature[] = [];
+  const finishes: PlannedFinish[] = [];
+  const finishExtras = item.extras
+    .map((extra, index) => ({ extra, index }))
+    .filter((e): e is { extra: Extract<PricingItemExtra, { type: "finish" }>; index: number } => e.extra.type === "finish");
+  const coatingCodes = new Set<string>();
+  for (const { extra } of finishExtras) {
+    const rate = resolveFinishRate(rates, extra.code, materialCode);
+    const base = rate ? (finishVariantBase(rate.code) ?? FINISH_KEY(rate.code)) : FINISH_KEY(extra.code);
+    if (base in FINISHES_INCLUDING_EDGE_BREAKING) coatingCodes.add(base);
+  }
+  const implied = new Set<string>();
+  for (const coating of coatingCodes) for (const code of FINISHES_INCLUDING_EDGE_BREAKING[coating]) implied.add(FINISH_KEY(code));
+  const impliedBy = [...coatingCodes].join(", ");
+
+  item.extras.forEach((extra, index) => {
+    if (extra.type === "feature") {
+      const rate = findFeatureRate(rates, extra.code);
+      if (!rate) {
+        notBenchmarked(`feature ${extra.code}`, { code: extra.code, index });
+        return;
+      }
+      const eligibility = featureEligibility(rate, materialCode, thicknessMm);
+      if (eligibility !== "ok") {
+        noRate(`feature ${rate.code}`, { code: rate.code, count: extra.count, index, reason: eligibility });
+        return;
+      }
+      features.push({ index, rate, count: extra.count });
+    } else if (extra.type === "finish") {
+      const key = FINISH_KEY(extra.code);
+      if (implied.has(key) && !coatingCodes.has(key)) {
+        notes.push(partFlag(ctx, "market.finish_implied", "green", { code: extra.code, by: impliedBy, index }));
+        return;
+      }
+      const rate = resolveFinishRate(rates, extra.code, materialCode);
+      if (!rate) {
+        notBenchmarked(`finish ${extra.code}`, { code: extra.code, index });
+        return;
+      }
+      const { width, height } = geometry.measures.bbox;
+      const eligibility = finishEligibility(rate, { materialCode, thicknessMm, family: ctx.family, widthMm: width, heightMm: height });
+      if (eligibility === "material" || eligibility === "thickness") {
+        notBenchmarked(`finish ${rate.code}`, { code: rate.code, index, reason: eligibility, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 });
+        return;
+      }
+      finishes.push({ index, rate, availability: eligibility, colour: colourOf(extra.colour), selected: true });
+    } else if (extra.type === "machining") {
+      notes.push(partFlag(ctx, "market.manual_price", "amber", { what: "machining", minutes: extra.minutes, index }));
+    } else if (extra.type === "other") {
+      notes.push(partFlag(ctx, "market.manual_price", "amber", { what: extra.label, amount: extra.unitCost, index }));
+    } else if (extra.type === "handling") {
+      notes.push(partFlag(ctx, "market.manual_price", "amber", { what: "handling", amount: extra.unitCost, index }));
+    }
+  });
+  const engraveSelected = finishes.some((f) => FINISH_KEY(f.rate.code) === OPERATION_LABELS.engrave);
+  if (!engraveSelected && geometry.measures.engraveLengthMm > 0) {
+    const rate = resolveFinishRate(rates, OPERATION_LABELS.engrave, materialCode);
+    if (!rate || finishRefused(finishEligibility(rate, { materialCode, thicknessMm, family: ctx.family }))) {
+      notBenchmarked(`finish ${OPERATION_LABELS.engrave}`, { code: OPERATION_LABELS.engrave });
+    } else {
+      finishes.push({ index: null, rate, availability: "ok", colour: null, selected: false });
+    }
+  }
+
+  return { refusals, notes, priceable: priceable && refusals.length === 0, bend, threads, features, finishes };
 }
+
+type PricingItemExtra = QuoteInput["items"][number]["extras"][number];
 
 /* ─── Per-line builders ───────────────────────────────────── */
 
@@ -318,16 +467,153 @@ function orderChargeLine(ctx: PartContext, totalPieces: number): OperationLine |
   });
 }
 
+/** Bending (rule 14): set-up per part type, set-up per bend line and the per-bend price, family factor on the last two. */
+function bendLinesMarket(ctx: PartContext, plan: PlannedBend): OperationLine[] {
+  const { rate, factor, count, longestMm, bendIds } = plan;
+  const qty = ctx.item.qty;
+  const ref = bendRef(rate, factor);
+  const lines: OperationLine[] = [];
+  if (rate.setupPerPartType > 0) {
+    const share = rate.setupPerPartType / qty;
+    lines.push(
+      makeLine(ctx, {
+        suffix: "bend-setup",
+        type: "setup",
+        label: OPERATION_LABELS.bendSetup,
+        driverQty: 1,
+        driverUnit: "lot",
+        unitCost: share,
+        setupShare: share,
+        rateRef: ref,
+        details: { setupPerPartType: rate.setupPerPartType, qty, bendCount: count },
+      })
+    );
+  }
+  if (rate.setupPerBendLineEur > 0) {
+    const share = (count * rate.setupPerBendLineEur * factor) / qty;
+    lines.push(
+      makeLine(ctx, {
+        suffix: "bend-line-setup",
+        type: "setup",
+        label: OPERATION_LABELS.bendLineSetup,
+        driverQty: count,
+        driverUnit: "bend",
+        unitCost: share,
+        setupShare: share,
+        rateRef: ref,
+        details: { setupPerBendLineEur: rate.setupPerBendLineEur, factor, bendCount: count, qty },
+      })
+    );
+  }
+  lines.push(
+    makeLine(ctx, {
+      suffix: "bends",
+      type: "bend",
+      label: OPERATION_LABELS.bend,
+      driverQty: count,
+      driverUnit: "bend",
+      unitCost: count * rate.pricePerBend * factor,
+      rateRef: ref,
+      details: {
+        bendCount: count,
+        longestMm,
+        lengthClassMm: rate.lengthClassMm,
+        pricePerBend: rate.pricePerBend,
+        factor,
+        bendIds: bendIds.join(","),
+      },
+    })
+  );
+  return lines;
+}
+
+/** Threads (rule 15): per-line set-up and count × the price at this thickness. */
+function threadLinesMarket(ctx: PartContext, plans: readonly PlannedThread[]): OperationLine[] {
+  const lines: OperationLine[] = [];
+  for (const plan of plans) {
+    const key = normaliseThreadSize(plan.size);
+    const ref = threadRef(plan.rate, plan.priceEach, ctx.thicknessMm);
+    if (plan.rate.setupPerLineEur > 0) {
+      const share = plan.rate.setupPerLineEur / ctx.item.qty;
+      lines.push(
+        makeLine(ctx, {
+          suffix: `thread-setup:${key}`,
+          type: "setup",
+          label: OPERATION_LABELS.threadSetup,
+          driverQty: 1,
+          driverUnit: "lot",
+          unitCost: share,
+          setupShare: share,
+          rateRef: ref,
+          details: { size: plan.rate.size, setupPerLineEur: plan.rate.setupPerLineEur, qty: ctx.item.qty },
+        })
+      );
+    }
+    lines.push(
+      makeLine(ctx, {
+        suffix: `thread:${key}`,
+        type: "thread",
+        label: plan.rate.size,
+        driverQty: plan.count,
+        driverUnit: "each",
+        unitCost: plan.count * plan.priceEach,
+        rateRef: ref,
+        details: { size: plan.rate.size, count: plan.count, priceEach: plan.priceEach, thicknessMm: ctx.thicknessMm ?? 0, loopIds: plan.loopIds.join(",") },
+      })
+    );
+  }
+  return lines;
+}
+
+/** Features (rule 16): per-line set-up and count × price_each. */
+function featureLinesMarket(ctx: PartContext, plans: readonly PlannedFeature[]): OperationLine[] {
+  const lines: OperationLine[] = [];
+  for (const plan of plans) {
+    const ref = featureRef(plan.rate);
+    if (plan.rate.setupPerLineEur > 0) {
+      const share = plan.rate.setupPerLineEur / ctx.item.qty;
+      lines.push(
+        makeLine(ctx, {
+          suffix: `feature-setup:${plan.index}`,
+          type: "setup",
+          label: OPERATION_LABELS.featureSetup,
+          driverQty: 1,
+          driverUnit: "lot",
+          unitCost: share,
+          setupShare: share,
+          auto: false,
+          rateRef: ref,
+          details: { code: plan.rate.code, setupPerLineEur: plan.rate.setupPerLineEur, qty: ctx.item.qty },
+        })
+      );
+    }
+    lines.push(
+      makeLine(ctx, {
+        suffix: `feature:${plan.index}`,
+        type: "feature",
+        label: plan.rate.name,
+        driverQty: plan.count,
+        driverUnit: "each",
+        unitCost: plan.count * plan.rate.priceEach,
+        auto: false,
+        rateRef: ref,
+        details: { code: plan.rate.code, count: plan.count, priceEach: plan.rate.priceEach },
+      })
+    );
+  }
+  return lines;
+}
+
 function finishType(code: string): OperationType {
-  const c = code.trim().toLowerCase();
+  const c = FINISH_KEY(code);
   if (c === OPERATION_LABELS.engrave) return "engrave";
-  if (c === OPERATION_LABELS.deburr || c === "deburr_one_side" || c === "edge_round") return "finish_deburr";
+  if (c.startsWith(OPERATION_LABELS.deburr) || c === "edge_round") return "finish_deburr";
   if (c === "powder") return "finish_powder";
-  if (c === "zinc") return "finish_zinc";
+  if (c === "zinc" || c === "hot_dip") return "finish_zinc";
   return "finish_other";
 }
 
-function notAvailableFlag(ctx: PartContext, rate: FinishRate, availability: Exclude<FinishAvailability, "ok">, rules: readonly MinPartRule[]): Flag {
+function notAvailableFlag(ctx: PartContext, rate: FinishRate, availability: "size" | "family", rules: readonly MinPartRule[]): Flag {
   const { width, height } = ctx.geometry.measures.bbox;
   if (availability === "family") {
     return partFlag(ctx, "finish.not_for_family", "amber", { code: rate.code, family: ctx.family ?? "", rule: rate.minPartMm ?? "" });
@@ -342,19 +628,34 @@ function notAvailableFlag(ctx: PartContext, rate: FinishRate, availability: Excl
   });
 }
 
-/**
- * One finish on a line: its per-line set-up (÷ qty per piece) and the
- * finish itself — cut length × €/m, a flat price per part, or the
- * cost-mode driver for other units. Not available → the flag, no lines.
- */
-function marketFinishLines(ctx: PartContext, rate: FinishRate, selected: boolean, maskingMinutes: number, index: number | null): { lines: OperationLine[]; flag: Flag | null } {
-  const rules = parseMinPartRule(rate.minPartMm);
-  const { width, height } = ctx.geometry.measures.bbox;
-  const availability = finishAvailability(rules, ctx.family, width, height);
-  if (availability !== "ok") return { lines: [], flag: notAvailableFlag(ctx, rate, availability, rules) };
+/** Units a finish is charged on (rule 17): m = cut length, m2 = net area × 2, kg = net mass, part / each = 1. */
+function finishUnits(ctx: PartContext, rate: FinishRate): { units: number; unit: DriverUnit } {
+  const m = ctx.geometry.measures;
+  switch (rate.unit) {
+    case "m":
+      return { units: mmToM(m.cutLengthMm), unit: "m" };
+    case "m2":
+      return { units: (m.netAreaMm2 * 2) / 1e6, unit: "m2" };
+    case "kg":
+      return { units: ctx.netMassKg ?? 0, unit: "kg" };
+    default:
+      return { units: 1, unit: "part" };
+  }
+}
 
+type FinishLines = { lines: OperationLine[]; flag: Flag | null; /** Lines outside the lead-time multiplier (certificates). */ exempt: OperationLine[] };
+
+/**
+ * One finish on a line (rules 17–22): its per-line set-up (÷ qty per
+ * piece), then price_per_part + units × price per piece. Not available by
+ * the size rule → the flag, no lines.
+ */
+function finishLinesMarket(ctx: PartContext, plan: PlannedFinish): FinishLines {
+  const { rate, availability, colour, selected, index } = plan;
+  if (availability !== "ok") return { lines: [], flag: notAvailableFlag(ctx, rate, availability, parseMinPartRule(rate.minPartMm)), exempt: [] };
   const lines: OperationLine[] = [];
   const suffix = index === null ? rate.code : `${rate.code}:${index}`;
+  const ref = finishRef(rate);
   if (rate.setupPerLineEur > 0) {
     const share = rate.setupPerLineEur / ctx.item.qty;
     lines.push(
@@ -367,105 +668,29 @@ function marketFinishLines(ctx: PartContext, rate: FinishRate, selected: boolean
         unitCost: share,
         setupShare: share,
         auto: !selected,
-        rateRef: finishRef(rate),
-        details: { code: rate.code, setupPerLineEur: rate.setupPerLineEur, qty: ctx.item.qty },
+        rateRef: ref,
+        details: { code: rate.code, setupPerLineEur: rate.setupPerLineEur, qty: ctx.item.qty, colour, tierExempt: rate.tierMultiplierApplies ? 0 : 1 },
       })
     );
   }
-  const cutLengthMm = ctx.geometry.measures.cutLengthMm;
-  if (rate.unit === "m") {
-    const cutM = mmToM(cutLengthMm);
+  const { units, unit } = finishUnits(ctx, rate);
+  const perPiece = rate.pricePerPartEur + units * rate.price;
+  if (perPiece > 0) {
     lines.push(
       makeLine(ctx, {
         suffix,
         type: finishType(rate.code),
         label: rate.code,
-        driverQty: cutM,
-        driverUnit: "m",
-        unitCost: cutM * rate.price,
+        driverQty: units,
+        driverUnit: unit,
+        unitCost: perPiece,
         auto: !selected,
-        rateRef: finishRef(rate),
-        details: { code: rate.code, cutLengthMm, pricePerM: rate.price, unit: rate.unit },
-      })
-    );
-  } else if (rate.unit === "part" || rate.unit === "each") {
-    lines.push(
-      makeLine(ctx, {
-        suffix,
-        type: finishType(rate.code),
-        label: rate.code,
-        driverQty: 1,
-        driverUnit: "part",
-        unitCost: rate.price,
-        auto: !selected,
-        rateRef: finishRef(rate),
-        details: { code: rate.code, price: rate.price, unit: rate.unit },
-      })
-    );
-  } else {
-    const computed = computeFinish(
-      rate,
-      { netAreaMm2: ctx.geometry.measures.netAreaMm2, massKg: ctx.netMassKg, cutLengthMm },
-      maskingMinutes,
-      ctx.item.qty,
-      ctx.rates.general
-    );
-    if (computed) {
-      lines.push(
-        makeLine(ctx, {
-          suffix,
-          type: finishType(rate.code),
-          label: rate.code,
-          driverQty: computed.driverQty,
-          driverUnit: computed.driverUnit,
-          unitCost: computed.unitCost,
-          auto: !selected,
-          rateRef: finishRef(rate),
-          details: { code: rate.code, unit: rate.unit, minimumApplied: computed.minimumApplied ? 1 : 0 },
-        })
-      );
-    }
-  }
-  return { lines, flag: null };
-}
-
-function threadLinesMarket(ctx: PartContext): OperationLine[] {
-  const lines: OperationLine[] = [];
-  for (const group of ctx.confirmedThreads) {
-    const row = findThreadRate(ctx.rates, group.size);
-    if (!row) continue;
-    const count = group.loopIds.length;
-    const key = normaliseThreadSize(group.size);
-    if (row.setupPerLineEur > 0) {
-      const share = row.setupPerLineEur / ctx.item.qty;
-      lines.push(
-        makeLine(ctx, {
-          suffix: `thread-setup:${key}`,
-          type: "setup",
-          label: OPERATION_LABELS.threadSetup,
-          driverQty: 1,
-          driverUnit: "lot",
-          unitCost: share,
-          setupShare: share,
-          rateRef: threadRef(row),
-          details: { size: row.size, setupPerLineEur: row.setupPerLineEur, qty: ctx.item.qty },
-        })
-      );
-    }
-    lines.push(
-      makeLine(ctx, {
-        suffix: `thread:${key}`,
-        type: "thread",
-        label: row.size,
-        driverQty: count,
-        driverUnit: "each",
-        unitCost: count * row.priceEach,
-        rateRef: threadRef(row),
-        details: { size: row.size, count, loopIds: group.loopIds.join(",") },
+        rateRef: ref,
+        details: { code: rate.code, unit: rate.unit, units, price: rate.price, pricePerPartEur: rate.pricePerPartEur, colour, tierExempt: rate.tierMultiplierApplies ? 0 : 1 },
       })
     );
   }
-  return lines;
+  return { lines, flag: null, exempt: rate.tierMultiplierApplies ? [] : lines };
 }
 
 /** Lines the user typed (minutes, lump sums): priced as typed, flagged manual. */
@@ -521,9 +746,10 @@ function manualLines(ctx: PartContext): OperationLine[] {
   return lines;
 }
 
-function leadTimeLine(ctx: PartContext, lines: readonly OperationLine[], lead: LeadTimeResolution, days: number | null): OperationLine | null {
+function leadTimeLine(ctx: PartContext, lines: readonly OperationLine[], exempt: ReadonlySet<string>, lead: LeadTimeResolution, days: number | null): OperationLine | null {
   if (Math.abs(lead.multiplier - 1) < EPS) return null;
-  const base = lines.reduce((sum, l) => sum + l.unitCost, 0);
+  const base = lines.filter((l) => !exempt.has(l.id)).reduce((sum, l) => sum + l.unitCost, 0);
+  if (base <= 0) return null;
   return makeLine(ctx, {
     suffix: "lead-time",
     type: "leadtime",
@@ -581,6 +807,41 @@ function packagingLine(ctxs: readonly PartContext[], rates: RateSnapshot): Opera
   );
 }
 
+/* ─── Finish minimums and limits (quote level) ────────────── */
+
+type FinishUse = { rate: FinishRate; colour: string | null; /** Amount charged on the line for this finish, after the lead-time multiplier. */ charged: number; netMassKg: number };
+
+function finishGroupKey(rate: FinishRate, colour: string | null): string {
+  return rate.minimumScope === "colour" ? `${FINISH_KEY(rate.code)}|${colour ?? ""}` : FINISH_KEY(rate.code);
+}
+
+/** One top-up line per (finish, scope key) whose charged amounts stay below the minimum. */
+function finishMinimumLines(uses: readonly FinishUse[], skip: ReadonlySet<string>): OperationLine[] {
+  const groups = new Map<string, { rate: FinishRate; colour: string | null; charged: number }>();
+  for (const use of uses) {
+    if (use.rate.minimum <= 0 || skip.has(FINISH_KEY(use.rate.code))) continue;
+    const key = finishGroupKey(use.rate, use.colour);
+    const group = groups.get(key) ?? { rate: use.rate, colour: use.colour, charged: 0 };
+    group.charged += use.charged;
+    groups.set(key, group);
+  }
+  const lines: OperationLine[] = [];
+  for (const [key, group] of groups) {
+    const topUp = group.rate.minimum - group.charged;
+    if (topUp <= EPS) continue;
+    lines.push(
+      lotLine(`quote:finish-minimum:${key}`, finishType(group.rate.code), OPERATION_LABELS.finishMinimum, 1, "lot", finishRef(group.rate), topUp, 0, {
+        code: group.rate.code,
+        colour: group.colour,
+        minimum: group.rate.minimum,
+        charged: group.charged,
+        scope: group.rate.minimumScope,
+      })
+    );
+  }
+  return lines;
+}
+
 /* ─── Totals ──────────────────────────────────────────────── */
 
 function addAmount(map: Partial<Record<OperationType, number>>, type: OperationType, amount: number): void {
@@ -602,12 +863,7 @@ function accumulateMarket(map: Partial<Record<OperationType, number>>, operation
 
 /* ─── Public API ──────────────────────────────────────────── */
 
-export function priceMarketQuote(
-  input: QuoteInput,
-  rates: RateSnapshot,
-  machines: MachinePark,
-  options: MarketPricingOptions
-): PricedQuote {
+export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machines: MachinePark, options: MarketPricingOptions): PricedQuote {
   const general = rates.general;
   const partsById = new Map(input.parts.map((p) => [p.id, p] as const));
 
@@ -620,10 +876,7 @@ export function priceMarketQuote(
     }
     const part = partsById.get(item.partId);
     if (!part) {
-      throw new PricingError("missing_part", `item ${item.id} refers to unknown part ${item.partId}`, {
-        itemId: item.id,
-        partId: item.partId,
-      });
+      throw new PricingError("missing_part", `item ${item.id} refers to unknown part ${item.partId}`, { itemId: item.id, partId: item.partId });
     }
     return buildPartContext(part, item, rates, machines, { exactRates: true });
   });
@@ -631,7 +884,17 @@ export function priceMarketQuote(
   const leadTimeDays = input.leadTimeDays ?? null;
   const lead = resolveLeadTimeMultiplier(rates.leadtime, leadTimeDays);
   const verdicts = ctxs.map(assessPart);
-  const priceable = ctxs.map((_, i) => verdicts[i].priceable && lead.offered);
+
+  // Finishes with a minimum lead time (coatings): the quote cannot be offered below the largest one.
+  const finishMinLead = new Map<string, number>();
+  verdicts.forEach((v) => {
+    if (!v.priceable) return;
+    for (const f of v.finishes) if (f.availability === "ok" && f.rate.minLeadTimeDays > 0) finishMinLead.set(f.rate.code, f.rate.minLeadTimeDays);
+  });
+  const minLeadDays = Math.max(0, ...finishMinLead.values());
+  const finishLeadOk = leadTimeDays === null || minLeadDays <= 0 || leadTimeDays + EPS >= minLeadDays;
+  const leadOffered = lead.offered && finishLeadOk;
+  const priceable = ctxs.map((_, i) => verdicts[i].priceable && leadOffered);
 
   // Pieces of the order: Σ qty over the priceable lines, per (material,
   // thickness) group for the laser set-up and overall for the order charge.
@@ -647,11 +910,10 @@ export function priceMarketQuote(
   const costPriced = options.costRates ? options.priceCost(input, options.costRates, machines) : null;
   const costItems = new Map(costPriced?.items.map((i) => [i.itemId, i] as const) ?? []);
 
+  const finishUses: FinishUse[] = [];
   const items: PricedItem[] = ctxs.map((ctx, index) => {
     const verdict = verdicts[index];
-    const contextFlags = evaluateContextFlags(ctx).filter(
-      (f) => !REPLACED_COST_FLAGS.has(f.code) && !(f.code === "material.mass_handling" && general.handlingSurchargeEur <= 0)
-    );
+    const contextFlags = evaluateContextFlags(ctx).filter((f) => !REPLACED_COST_FLAGS.has(f.code) && !(f.code === "material.mass_handling" && general.handlingSurchargeEur <= 0));
     const unitCost = costItems.get(ctx.item.id)?.unitCost ?? 0;
     if (!priceable[index]) {
       return {
@@ -668,6 +930,7 @@ export function priceMarketQuote(
     }
 
     const lines: OperationLine[] = [];
+    const exempt = new Set<string>();
     const flags: Flag[] = [...contextFlags, ...verdict.notes];
     const push = (line: OperationLine | null): void => {
       if (line) lines.push(line);
@@ -676,27 +939,25 @@ export function priceMarketQuote(
     push(marketMaterialLine(ctx));
     push(laserSetupLine(ctx, groupPieces));
     push(orderChargeLine(ctx, totalPieces));
-    // Bends / rolls / welds only when the version benchmarks them (assessPart refused them otherwise).
-    lines.push(...bendLines(ctx));
+    if (verdict.bend) lines.push(...bendLinesMarket(ctx, verdict.bend));
+    // Rolls / welds only when the version benchmarks them (assessPart refused them otherwise).
     push(rollLine(ctx));
     lines.push(...weldLines(ctx));
-    lines.push(...threadLinesMarket(ctx));
-    let engraveSelected = false;
-    ctx.item.extras.forEach((extra, i) => {
-      if (extra.type !== "finish") return;
-      const rate = findFinishRate(rates, extra.code);
-      if (!rate) return;
-      if (rate.code.trim().toLowerCase() === OPERATION_LABELS.engrave) engraveSelected = true;
-      const result = marketFinishLines(ctx, rate, true, extra.maskingMinutes, i);
+    lines.push(...threadLinesMarket(ctx, verdict.threads));
+    lines.push(...featureLinesMarket(ctx, verdict.features));
+    for (const plan of verdict.finishes) {
+      const result = finishLinesMarket(ctx, plan);
       lines.push(...result.lines);
+      for (const line of result.exempt) exempt.add(line.id);
       if (result.flag) flags.push(result.flag);
-    });
-    if (!engraveSelected && ctx.geometry.measures.engraveLengthMm > 0) {
-      const rate = findFinishRate(rates, OPERATION_LABELS.engrave);
-      if (rate) lines.push(...marketFinishLines(ctx, rate, false, 0, null).lines);
+      if (plan.availability === "ok") {
+        const factor = plan.rate.tierMultiplierApplies ? lead.multiplier : 1;
+        const charged = result.lines.reduce((sum, l) => sum + l.unitCost, 0) * ctx.item.qty * factor;
+        finishUses.push({ rate: plan.rate, colour: plan.colour, charged, netMassKg: (ctx.netMassKg ?? 0) * ctx.item.qty });
+      }
     }
     lines.push(...manualLines(ctx));
-    push(leadTimeLine(ctx, lines, lead, leadTimeDays));
+    push(leadTimeLine(ctx, lines, exempt, lead, leadTimeDays));
 
     const unitPrice = lines.reduce((sum, l) => sum + l.unitCost, 0);
     return {
@@ -712,16 +973,38 @@ export function priceMarketQuote(
     };
   });
 
+  const quoteFlags: Flag[] = [];
+  if (!lead.offered) {
+    const shortest = [...rates.leadtime].sort((a, b) => a.workingDays - b.workingDays)[0];
+    quoteFlags.push(quoteFlag("market.leadtime_not_offered", "red", { workingDays: leadTimeDays ?? 0, minDays: shortest?.workingDays ?? 0, reason: "rate_leadtime" }));
+  } else if (!finishLeadOk) {
+    const codes = [...finishMinLead.entries()].filter(([, days]) => days >= minLeadDays).map(([code]) => code);
+    quoteFlags.push(quoteFlag("market.leadtime_not_offered", "red", { workingDays: leadTimeDays ?? 0, minDays: minLeadDays, reason: codes.join(", ") }));
+  }
+
+  // Finish limits (hot-dip: net mass of the order) → red at quote level, no minimum top-up for that finish.
+  const overLimit = new Set<string>();
+  const massByFinish = new Map<string, { rate: FinishRate; massKg: number }>();
+  for (const use of finishUses) {
+    const key = FINISH_KEY(use.rate.code);
+    const entry = massByFinish.get(key) ?? { rate: use.rate, massKg: 0 };
+    entry.massKg += use.netMassKg;
+    massByFinish.set(key, entry);
+  }
+  for (const [key, { rate, massKg }] of massByFinish) {
+    const limit = rate.limits.maxOrderNetKg;
+    if (typeof limit === "number" && Number.isFinite(limit) && massKg > limit + EPS) {
+      overLimit.add(key);
+      quoteFlags.push(quoteFlag("market.not_benchmarked", "red", { operation: `${rate.code} (> ${limit} kg)`, code: rate.code, massKg, limitKg: limit }));
+    }
+  }
+
   const quoteLines: OperationLine[] = [];
   const pricedCtxs = ctxs.filter((_, i) => priceable[i]);
   const packaging = packagingLine(pricedCtxs, rates);
   if (packaging) quoteLines.push(packaging);
+  quoteLines.push(...finishMinimumLines(finishUses, overLimit));
 
-  const quoteFlags: Flag[] = [];
-  if (!lead.offered) {
-    const shortest = [...rates.leadtime].sort((a, b) => a.workingDays - b.workingDays)[0];
-    quoteFlags.push(quoteFlag("market.leadtime_not_offered", "red", { workingDays: leadTimeDays ?? 0, minDays: shortest?.workingDays ?? 0 }));
-  }
   let welding: PricedQuote["welding"] = null;
   let weldingFlags: Flag[] = [];
   if (input.weldingOnly) {
@@ -743,8 +1026,7 @@ export function priceMarketQuote(
   const types = new Set<OperationType>([...(Object.keys(marketByType) as OperationType[]), ...(Object.keys(costTotals) as OperationType[])]);
   for (const type of types) totalsByType[type] = { cost: costTotals[type]?.cost ?? 0, price: marketByType[type] ?? 0 };
 
-  const subtotalPrice =
-    items.reduce((sum, i) => sum + (i.batchPrice ?? 0), 0) + quoteLines.reduce((sum, l) => sum + l.unitCost, 0) + (welding?.price ?? 0);
+  const subtotalPrice = items.reduce((sum, i) => sum + (i.batchPrice ?? 0), 0) + quoteLines.reduce((sum, l) => sum + l.unitCost, 0) + (welding?.price ?? 0);
   const subtotalCost = costPriced?.subtotalCost ?? 0;
   const marginPct = costPriced && subtotalPrice > 0 ? (1 - subtotalCost / subtotalPrice) * 100 : 0;
   const markupPct = costPriced && subtotalCost > 0 ? marginToMarkup(marginPct) : 0;

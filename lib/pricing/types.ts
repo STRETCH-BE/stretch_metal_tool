@@ -84,6 +84,12 @@ export type BendRate = {
   pricePerBend: number;
   setupPerPartType: number;
   placeholder: boolean;
+  /** Market mode: EUR once per distinct bend line of a part type (tool set-up), on top of setupPerPartType. */
+  setupPerBendLineEur: number;
+  /** Market mode: factor on setupPerBendLineEur and pricePerBend by material family (absent = 1). */
+  familyMultipliers: Partial<Record<MaterialFamily, number>>;
+  /** Market mode: material codes the row was benchmarked for; null = any material of the version. */
+  materialCodes: string[] | null;
 };
 
 export type RollRate = {
@@ -112,13 +118,26 @@ export type ThreadRate = {
   placeholder: boolean;
   /** Market mode: charged once per quote line that carries threads of this size (EUR). */
   setupPerLineEur: number;
+  /** Market mode: EUR per thread by sheet thickness — exact match, no interpolation; empty = priceEach for any thickness. */
+  priceByThickness: ThreadPriceByThickness[];
+  /** Market mode: material codes the row was benchmarked for; null = any material of the version. */
+  materialCodes: string[] | null;
 };
+
+export type ThreadPriceByThickness = { thicknessMm: number; priceEach: number };
 
 export type FeatureRate = {
   code: string;
   name: string;
   priceEach: number;
   placeholder: boolean;
+  /** Market mode: charged once per quote line that carries this feature (EUR). */
+  setupPerLineEur: number;
+  /** Market mode: material codes the row was benchmarked for; null = any material of the version. */
+  materialCodes: string[] | null;
+  /** Market mode: eligible sheet thickness range (null = open end). */
+  minThicknessMm: number | null;
+  maxThicknessMm: number | null;
 };
 
 /** "part" = a price per part (market engraving); "each" is the older synonym kept for existing rows. */
@@ -138,7 +157,27 @@ export type FinishRate = {
   setupPerLineEur: number;
   /** Free-text minimum part size rule (lib/pricing/market-rules.ts parseMinPartRule). */
   minPartMm: string | null;
+  /** Market mode: material codes the finish is offered for; null = any material of the version. */
+  materialCodes: string[] | null;
+  /** Market mode: eligible sheet thickness range (null = open end). */
+  minThicknessMm: number | null;
+  maxThicknessMm: number | null;
+  /** Market mode: EUR per piece on top of the unit price (handling). */
+  pricePerPartEur: number;
+  /** Market mode: a quote carrying this finish cannot be offered below this lead time (working days); 0 = no limit. */
+  minLeadTimeDays: number;
+  /** Market mode: `minimum` applies once per quote ("order") or once per distinct colour of this finish ("colour"). */
+  minimumScope: FinishMinimumScope;
+  /** Market mode: false = the amount is not multiplied by the lead-time multiplier (certificates). */
+  tierMultiplierApplies: boolean;
+  /** Market mode: machine-readable limits, e.g. { maxOrderNetKg: 10 }. */
+  limits: FinishLimits;
 };
+
+export type FinishMinimumScope = "order" | "colour";
+
+/** rate_finish.limits — known keys typed, anything else kept. */
+export type FinishLimits = { maxOrderNetKg?: number } & Record<string, unknown>;
 
 /** rate_leadtime row: a promised lead time (working days) and its price multiplier. */
 export type LeadtimeRate = {
@@ -264,7 +303,14 @@ export type QuoteType = "fabrication" | "welding_only";
 export type ExtraOperation =
   | { type: "machining"; minutes: number; note: string | null }
   | { type: "feature"; code: string; count: number }
-  | { type: "finish"; code: string; maskingMinutes: number; note: string | null }
+  | {
+      type: "finish";
+      code: string;
+      maskingMinutes: number;
+      note: string | null;
+      /** Colour of the finish where it matters (powder coating: "RAL 9005"); the per-colour minimum groups on it. */
+      colour?: string | null;
+    }
   | {
       type: "tube_cut";
       profileFamily: TubeLaserRate["profileFamily"];
@@ -462,6 +508,8 @@ export type FlagCode =
   | "market.subcontract"
   /** Market mode: a lump sum / minutes typed by the user — not a benchmarked price. */
   | "market.manual_price"
+  /** Market mode: an edge-breaking option was dropped because the coating on the same line already includes it. */
+  | "market.finish_implied"
   | "rates.placeholder";
 
 export type Flag = {

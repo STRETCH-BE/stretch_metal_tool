@@ -273,7 +273,7 @@ export const flags: FlagsContent = {
     "market.no_benchmark_rate": {
       label: "No benchmark rate",
       message:
-        "{materialCode} at {thicknessMm} mm has no rate in the active market version (exact match, no neighbouring thickness) — quote manually.",
+        "No benchmark rate for “{what}” on {materialCode} {thicknessMm} mm in the active market version (exact match, no neighbouring thickness) — quote manually.",
     },
     "market.not_benchmarked": {
       label: "Not benchmarked",
@@ -281,7 +281,7 @@ export const flags: FlagsContent = {
     },
     "market.leadtime_not_offered": {
       label: "Lead time not offered",
-      message: "{workingDays} working days is shorter than the shortest tier offered ({minDays} days) — choose a longer lead time.",
+      message: "{workingDays} working days is below the minimum for this quote ({minDays} days: {reason}) — choose a longer lead time.",
     },
     "market.subcontract": {
       label: "Subcontract",
@@ -290,6 +290,10 @@ export const flags: FlagsContent = {
     "market.manual_price": {
       label: "Manual price",
       message: "“{what}” was typed by hand — it is not a benchmarked price.",
+    },
+    "market.finish_implied": {
+      label: "Edge breaking included",
+      message: "The coating “{by}” already includes edge breaking — the “{code}” option was dropped (no extra charge).",
     },
     "rates.placeholder": {
       label: "Placeholder rates",
