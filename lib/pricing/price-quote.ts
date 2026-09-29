@@ -38,6 +38,7 @@ import { evaluateQuoteFlags } from "./feasibility";
 import { priceMarketQuote } from "./market";
 import { buildItemOperations } from "./operations";
 import { priceWeldingOnly } from "./welding-block";
+import { PRICING_ENGINE_VERSION } from "./version";
 import {
   marginToMarkup,
   priceFromCost,
@@ -184,6 +185,7 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
     flags,
     usesPlaceholderRates,
     rateVersionId: rates.versionId,
+    engineVersion: PRICING_ENGINE_VERSION,
     pricingMode: "cost",
     costRateVersionId: null,
     leadTimeDays: input.leadTimeDays ?? null,

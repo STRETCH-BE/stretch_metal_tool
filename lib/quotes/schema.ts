@@ -268,14 +268,18 @@ const pricingGuard = z.looseObject({
   flags: z.array(z.unknown()),
   usesPlaceholderRates: z.boolean(),
   rateVersionId: z.string(),
+  /** Absent in snapshots stored before the engine was versioned → 0 (stale). */
+  engineVersion: z.number().optional(),
 });
 
 export function parsePricing(json: Json | null | undefined): PricedQuote | null {
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
   const result = pricingGuard.safeParse(json);
   if (!result.success) return null;
-  // Snapshots stored before market mode existed carry none of these fields.
-  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines"> = {
+  // Snapshots stored before market mode existed carry none of these fields;
+  // engineVersion 0 marks a pricing older than the versioned engine (stale).
+  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines" | "engineVersion"> = {
+    engineVersion: 0,
     pricingMode: "cost",
     costRateVersionId: null,
     leadTimeDays: null,
