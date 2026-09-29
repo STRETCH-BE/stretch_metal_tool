@@ -594,6 +594,8 @@ export type PricedQuote = {
   /** True when any rate used is still a placeholder ([CONFIRM]). */
   usesPlaceholderRates: boolean;
   rateVersionId: string;
+  /** PRICING_ENGINE_VERSION (lib/pricing/version.ts) the result was computed with; an older stored pricing is stale. */
+  engineVersion: number;
   pricingMode: PricingMode;
   /** Market mode: the cost version the margin was computed against (null in cost mode / when none was given). */
   costRateVersionId: string | null;

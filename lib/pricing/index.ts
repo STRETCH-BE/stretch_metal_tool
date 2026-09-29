@@ -10,6 +10,7 @@
 
 export * from "./types";
 export { PricingError, isPricingError, type PricingErrorCode } from "./errors";
+export { PRICING_ENGINE_VERSION } from "./version";
 export * from "./formulas";
 export * from "./lookup";
 export {

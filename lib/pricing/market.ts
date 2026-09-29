@@ -123,6 +123,7 @@ import {
   type TotalsByType,
 } from "./types";
 import { lotLine, priceWeldingOnly } from "./welding-block";
+import { PRICING_ENGINE_VERSION } from "./version";
 
 export type MarketPricingOptions = {
   costRates: RateSnapshot | null;
@@ -1161,6 +1162,7 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
     flags,
     usesPlaceholderRates,
     rateVersionId: rates.versionId,
+    engineVersion: PRICING_ENGINE_VERSION,
     pricingMode: "market",
     costRateVersionId: options.costRates?.versionId ?? null,
     leadTimeDays,

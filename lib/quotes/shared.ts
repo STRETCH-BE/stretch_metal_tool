@@ -16,14 +16,16 @@
  *     the UI but not part of the match — one part = one item per quote.
  *   - The default PDF/e-mail locale is the customer's preference, else
  *     Polish (the company's home market).
- *   - Stale pricing: quotes.pricing remembers the rate version it was
- *     computed with. When that differs from quotes.rate_version_id (a draft
- *     re-pinned to a newly activated version) the stored numbers are stale
- *     and the builder re-prices the draft on open (isPricingStale).
+ *   - Stale pricing: quotes.pricing remembers the rate version AND the
+ *     pricing-engine version (lib/pricing/version.ts) it was computed with.
+ *     When either differs — a draft re-pinned to a newly activated version,
+ *     or a deploy that changed a formula or a flag rule — the stored numbers
+ *     are stale and the builder re-prices the draft on open (isPricingStale).
  */
 
 import type { UserLocale } from "@/lib/db/types";
 import type { Flag, FlagSeverity, OperationLine, OperationType } from "@/lib/pricing/types";
+import { PRICING_ENGINE_VERSION } from "@/lib/pricing/version";
 import type { Locale } from "@/lib/site-config";
 import type { OverrideKey } from "./types";
 
@@ -150,12 +152,17 @@ export function isQuoteEditable(status: "draft" | "pending_override" | "sent" | 
 
 /**
  * The stored pricing was computed with a different rate version than the
- * one the quote is pinned to now. Unpriced quotes and quotes without a
- * pinned version are never stale (the first pricing run pins them).
+ * one the quote is pinned to now, or by an older pricing engine
+ * (PRICING_ENGINE_VERSION; a snapshot without the field counts as 0).
+ * Unpriced quotes are never stale; a quote without a pinned version is
+ * only stale on the engine rule (the first pricing run pins it).
  */
 export function isPricingStale(
   quote: { rate_version_id: string | null },
-  pricing: { rateVersionId: string } | null
+  pricing: { rateVersionId: string; engineVersion?: number } | null
 ): boolean {
-  return pricing !== null && quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id;
+  if (pricing === null) return false;
+  const rateChanged = quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id;
+  const engineChanged = (pricing.engineVersion ?? 0) !== PRICING_ENGINE_VERSION;
+  return rateChanged || engineChanged;
 }
