@@ -8,7 +8,11 @@
  * material options (code, name, family, density) and the flat-laser
  * thickness limits from the rate snapshot the quote is pinned to (active
  * version when unpinned). Missing rates never break the page: materials
- * come back empty and the UI shows the "no active rate version" notice.
+ * come back empty and RatesInfo.error says WHY (no active version, a
+ * pinned version that no longer exists, or the loader's own error text)
+ * so the panel never blames the active version for a failing query. The
+ * machine park only feeds the flat-laser thickness hint: when it fails the
+ * material list still shows (logged, hint absent).
  */
 
 import type { FileRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
@@ -17,6 +21,7 @@ import type { PartAnnotations, PartGeometry, Triage, TriageState } from "@/lib/g
 import type { Suggestions } from "@/lib/ai/types";
 import type { ServerSupabase } from "@/lib/supabase/server";
 import { loadMachinePark, loadRateSnapshot } from "@/lib/rates/load";
+import { PricingError } from "@/lib/pricing/errors";
 import { machineOf } from "@/lib/pricing/lookup";
 import { parseSuggestions } from "@/lib/ai/types";
 import { requirePartReader, type PartReader } from "./access";
@@ -25,6 +30,9 @@ import { parseStoredGeometry } from "./intake-db";
 import { parseStoredAnnotations } from "./schema";
 
 export type MaterialOption = { code: string; name: string; family: MaterialFamily; densityKgM3: number };
+
+/** Why the material list is empty: no active version, a pinned version that no longer exists, or a failing load (its message goes on the notice). */
+export type RatesError = { code: "no_active_rate_version" | "rate_version_not_found" | "unavailable"; message: string };
 
 export type RatesInfo = {
   versionId: string | null;
@@ -38,27 +46,45 @@ export type RatesInfo = {
   /** Market mode: thread sizes with their benchmarked materials / thicknesses; null in cost mode. */
   threads: ThreadOption[] | null;
   flatLaser: { name: string; limits: FlatLaserLimits } | null;
+  /** Null when the rates loaded; else why the material list is empty. */
+  error: RatesError | null;
 };
 
-/** Rate facts the part page needs; never throws (empty materials when no version). */
+/** Rate facts the part page needs; never throws (empty materials + `error` when the rates cannot be loaded). */
 export async function loadRatesInfo(supabase: ServerSupabase, versionId: string | null): Promise<RatesInfo> {
-  try {
-    const [rates, park] = await Promise.all([loadRateSnapshot(supabase, versionId), loadMachinePark(supabase)]);
-    const laser = machineOf(park, "flat_laser");
-    return {
-      versionId: rates.versionId,
-      label: rates.label,
-      pricingMode: rates.general.pricingMode,
-      blankMarginMm: rates.general.blankMarginMm,
-      materials: rates.materials.map((m) => ({ code: m.code, name: m.name, family: m.family, densityKgM3: m.densityKgM3 })),
-      choices: materialChoices({ pricingMode: rates.general.pricingMode, materials: rates.materials, laser: rates.laser }),
-      threads: threadOptions({ pricingMode: rates.general.pricingMode, thread: rates.thread }),
-      flatLaser: laser ? { name: laser.name, limits: laser.limits } : null,
-    };
-  } catch (error) {
-    console.error("[parts] rates unavailable", error);
-    return { versionId: null, label: null, pricingMode: "cost", blankMarginMm: 10, materials: [], choices: [], threads: null, flatLaser: null };
+  const [snapshot, park] = await Promise.all([
+    loadRateSnapshot(supabase, versionId).then(
+      (rates) => ({ rates, error: null }),
+      (error: unknown) => {
+        console.error("[parts] rates unavailable", error);
+        const code =
+          error instanceof PricingError && (error.code === "no_active_rate_version" || error.code === "rate_version_not_found")
+            ? error.code
+            : "unavailable";
+        return { rates: null, error: { code, message: error instanceof Error ? error.message : String(error) } satisfies RatesError };
+      }
+    ),
+    loadMachinePark(supabase).catch((error: unknown) => {
+      console.error("[parts] machine park unavailable — no flat-laser thickness hint", error);
+      return null;
+    }),
+  ]);
+  if (!snapshot.rates) {
+    return { versionId: null, label: null, pricingMode: "cost", blankMarginMm: 10, materials: [], choices: [], threads: null, flatLaser: null, error: snapshot.error };
   }
+  const rates = snapshot.rates;
+  const laser = park ? machineOf(park, "flat_laser") : null;
+  return {
+    versionId: rates.versionId,
+    label: rates.label,
+    pricingMode: rates.general.pricingMode,
+    blankMarginMm: rates.general.blankMarginMm,
+    materials: rates.materials.map((m) => ({ code: m.code, name: m.name, family: m.family, densityKgM3: m.densityKgM3 })),
+    choices: materialChoices({ pricingMode: rates.general.pricingMode, materials: rates.materials, laser: rates.laser }),
+    threads: threadOptions({ pricingMode: rates.general.pricingMode, thread: rates.thread }),
+    flatLaser: laser ? { name: laser.name, limits: laser.limits } : null,
+    error: null,
+  };
 }
 
 export function parseStoredFlags(value: unknown): Flag[] {

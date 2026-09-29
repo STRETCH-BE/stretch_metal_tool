@@ -326,6 +326,12 @@ export type UploadContent = {
       limitHint: string;
       noLimit: string;
       noRates: string;
+      /** The quote's pinned rate version no longer exists. */
+      versionMissing: string;
+      /** `{detail}` placeholder: the loader's error text. */
+      ratesUnavailable: string;
+      /** The version loaded but holds no material rows. */
+      noMaterials: string;
       save: string;
       unknownCode: string;
       /** Market version: suffix of a material / thickness the version has no laser row for. */
@@ -766,6 +772,9 @@ export const upload: UploadContent = {
       limitHint: "Laser własny tnie {family} do {limitMm} mm ({machine}); grubsze idzie do kooperacji.",
       noLimit: "Brak limitu grubości dla tego materiału w parku maszyn.",
       noRates: "Brak aktywnej wersji cennika — lista materiałów jest pusta. Aktywuj wersję w Administracja → Cenniki.",
+      versionMissing: "Wersja cennika przypięta do tej oferty już nie istnieje — lista materiałów jest pusta.",
+      ratesUnavailable: "Nie udało się wczytać cenników: {detail}. Lista materiałów pozostaje pusta, dopóki błąd nie zostanie usunięty.",
+      noMaterials: "Ta wersja cennika nie ma żadnych materiałów — dodaj je w Administracja → Cenniki.",
       save: "Zapisz materiał",
       unknownCode: "Kod spoza cennika — wycena zgłosi brak materiału.",
       notBenchmarked: "nie w cenniku",
