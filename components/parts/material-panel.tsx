@@ -17,6 +17,11 @@
  * select of the material's benchmarked thicknesses (ThicknessInput), and a
  * pair outside the benchmark shows the "quote manually" notice (the
  * engine refuses it with market.no_benchmark_rate).
+ *
+ * Empty material list: the notice names the real reason from
+ * RatesInfo.error (no active version, the pinned version is gone, or the
+ * loader's error text) — never "no active version" for a failing query;
+ * a version without materials gets its own line.
  */
 
 import { useId, useState } from "react";
@@ -68,7 +73,17 @@ function MaterialForm({ materialCode, thicknessMm, rates, disabled = false, onSa
           onSave({ materialCode: code || null, thicknessMm: thickness });
         }}
       >
-        {rates.materials.length === 0 && <Notice tone="error">{t.noRates}</Notice>}
+        {rates.error ? (
+          <Notice tone="error">
+            {rates.error.code === "no_active_rate_version"
+              ? t.noRates
+              : rates.error.code === "rate_version_not_found"
+                ? t.versionMissing
+                : interpolate(t.ratesUnavailable, { detail: rates.error.message })}
+          </Notice>
+        ) : rates.materials.length === 0 ? (
+          <Notice tone="error">{t.noMaterials}</Notice>
+        ) : null}
         <Field label={t.code} htmlFor={`${id}-code`}>
           <Select id={`${id}-code`} value={code} onChange={(event) => setCode(event.target.value)} dense disabled={disabled}>
             <option value="">{t.none}</option>
