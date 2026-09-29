@@ -18,6 +18,8 @@ export const pdf: PdfContent = {
     preparedBy: "Prepared by",
     customer: "Customer",
     vatId: "VAT id",
+    customerReference: "Your reference",
+    contactPerson: "Contact person",
     page: "Page {page} of {pages}",
   },
   company: {
@@ -43,6 +45,14 @@ export const pdf: PdfContent = {
     },
     manualGeometry: "dimensions as described",
     noMaterial: "material to be confirmed",
+    materialNote: "Material note: {note}",
+  },
+  assemblies: {
+    kind: "Welded assembly",
+    drawingRef: "drawing {ref}",
+    partsCount: "parts: {count}",
+    appendixHeading: "Parts of assembly {name}",
+    appendixColumns: { position: "No.", name: "Part", material: "Material", thickness: "Thickness", qtyPerAssembly: "Qty per assembly" },
   },
   operations: {
     heading: "Scope of operations",
@@ -85,6 +95,14 @@ export const pdf: PdfContent = {
     partsSubtotal: "Parts subtotal",
     weldingSubtotal: "Welding subtotal",
     packaging: "Packaging",
+    shipping: "Shipping",
+    vat: {
+      rate: "VAT {rate} %",
+      gross: "Total gross",
+      reverseChargeNote: "Intra-Community supply – reverse charge / WDT, art. 138 Directive 2006/112/EC",
+      exportNote: "Export – 0 % VAT",
+      ossNote: "VAT at the rate of the country of destination (EU OSS scheme).", // [CONFIRM] OSS wording
+    },
   },
   terms: {
     heading: "Terms",
@@ -92,8 +110,15 @@ export const pdf: PdfContent = {
     leadTime: "Lead time: {leadTime}.",
     leadTimeDays: "{days} working days from order confirmation",
     payment: "Payment terms: {terms}",
+    prepayment: "Payment terms: 100 % prepayment against a pro forma invoice.", // [CONFIRM] B2C default terms
+    requestedTerms: "Payment terms requested by the customer: {terms}",
     notes: "Notes",
     generic: "This quotation is not a binding offer; the order confirmation is binding.", // [CONFIRM] legal wording
+  },
+  priceScale: {
+    heading: "Price scale",
+    columns: { qty: "Qty", unitPrice: "Unit price", total: "Total" },
+    note: "Set-up costs are spread over the quantity quoted.",
   },
   footer: {
     bank: "Bank",

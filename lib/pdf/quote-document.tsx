@@ -15,6 +15,15 @@
  * "never print cost or margin" rule is enforced. Thumbnails are <Svg>
  * paths built from the stored geometry (segmentsToPath).
  *
+ * Sections in order: header (wordmark + company block, fixed), title +
+ * number, meta grid (customer · version / currency / reference / contact
+ * · date / validity / prepared by — the lead time lives in the terms
+ * only), parts table (assemblies as single rows, then loose parts, each
+ * with an optional operation line and material note), welding block,
+ * totals (subtotals, packaging, shipping, net, VAT + gross or the 0 %
+ * note), price-scale tables, terms, the "Parts of assembly …" appendix
+ * (only when asked), and the fixed footer with the bank data.
+ *
  * The @jsxRuntime pragma below is for Vitest (esbuild), whose JSX
  * transform is classic by default and would look for a global `React`;
  * Next's SWC compiler already uses the automatic runtime and ignores it.
@@ -24,7 +33,7 @@
 import { Document, Page, Path, StyleSheet, Svg, Text, View } from "@react-pdf/renderer";
 import type { PdfContent } from "@/content/pdf";
 import { PDF_FONT_BODY, PDF_FONT_DISPLAY } from "./fonts";
-import type { PdfPartRow, PdfThumbnail, PdfViewModel } from "./view-model";
+import type { PdfAssemblyAppendix, PdfPartRow, PdfPriceScaleTable, PdfThumbnail, PdfViewModel } from "./view-model";
 
 const RED = "#e00000";
 const BLACK = "#0a0a0a";
@@ -33,6 +42,8 @@ const LINE = "#e6e3de";
 const MUTED = "#54514b";
 const FAINT = "#6e6b66";
 const WHITE = "#ffffff";
+/** A section heading with less than this many pt left below it moves to the next page (no orphaned eyebrows / header rows). */
+const ORPHAN_GUARD_PT = 70;
 
 const s = StyleSheet.create({
   page: {
@@ -99,10 +110,22 @@ const s = StyleSheet.create({
   // in a wrapping row each took a full line and made every row three times
   // as tall, pushing a quote of eight parts onto three pages.
   opsLine: { fontSize: 7.5, color: MUTED, marginTop: 2, lineHeight: 1.3 },
+  // Assembly subline (kind · drawing · parts) and the material note share the muted style.
+  noteLine: { fontSize: 7.5, color: MUTED, marginTop: 2, lineHeight: 1.3 },
   weldCellSeam: { flexGrow: 1, flexBasis: 0, paddingRight: 6 },
   weldCellProcess: { width: 70 },
   weldCellLength: { width: 90 },
   weldCellQty: { width: 42 },
+  // Appendix "Parts of assembly …": no thumbnail, no prices.
+  apxCellName: { flexGrow: 1, flexBasis: 0, paddingRight: 6 },
+  apxCellQty: { width: 70 },
+  // Price scale: a narrow three-column table per subject.
+  scaleSubject: { fontSize: 9, fontWeight: 700, marginTop: 6, marginBottom: 2 },
+  scaleTable: { borderTopWidth: 1, borderTopColor: BLACK, width: 300 },
+  scaleCellQty: { width: 60 },
+  scaleCellPrice: { width: 110 },
+  scaleCellTotal: { width: 130 },
+  scaleNote: { fontSize: 7.5, color: FAINT, marginTop: 4 },
   totalsBlock: { marginTop: 10, alignItems: "flex-end" },
   totalsRow: { flexDirection: "row", justifyContent: "flex-end", paddingVertical: 3, width: 260 },
   totalsLabel: { flexGrow: 1, fontSize: 9, color: MUTED },
@@ -110,7 +133,10 @@ const s = StyleSheet.create({
   netRow: { borderTopWidth: 1.5, borderTopColor: BLACK, marginTop: 4, paddingTop: 6 },
   netLabel: { flexGrow: 1, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6 },
   netValue: { width: 110, textAlign: "right", fontSize: 13, fontWeight: 700 },
-  netNotice: { fontSize: 7.5, color: FAINT, marginTop: 4 },
+  // With VAT the net row keeps its rule but the GROSS row carries the large figure.
+  netValueSmall: { width: 110, textAlign: "right", fontSize: 10, fontWeight: 700 },
+  grossRow: { borderTopWidth: 0.5, borderTopColor: LINE, marginTop: 2, paddingTop: 5 },
+  netNotice: { fontSize: 7.5, color: FAINT, marginTop: 4, maxWidth: 300, textAlign: "right" },
   terms: { marginTop: 18, fontSize: 8.5, color: MUTED, lineHeight: 1.5 },
   termsLine: { marginBottom: 2 },
   footer: {
@@ -160,9 +186,11 @@ function PartRow({ row, showOperations }: { row: PdfPartRow; showOperations: boo
       </View>
       <View style={s.cellName}>
         <Text style={s.tdBold}>{row.name}</Text>
+        {row.subline && <Text style={s.noteLine}>{row.subline}</Text>}
         {showOperations && row.operations.length > 0 && (
-          <Text style={s.opsLine}>{row.operations.map((op) => `${op.label}\u00a0×\u00a0${op.count}`).join(" · ")}</Text>
+          <Text style={s.opsLine}>{row.operations.map((op) => `${op.label} × ${op.count}`).join(" · ")}</Text>
         )}
+        {row.materialNote && <Text style={s.noteLine}>{row.materialNote}</Text>}
       </View>
       <Text style={[s.td, s.cellMaterial]}>{row.material}</Text>
       <Text style={[s.td, s.cellThickness]}>{row.thickness}</Text>
@@ -173,9 +201,73 @@ function PartRow({ row, showOperations }: { row: PdfPartRow; showOperations: boo
   );
 }
 
+function AppendixRow({ row }: { row: PdfAssemblyAppendix["rows"][number] }) {
+  return (
+    <View style={s.tr} wrap={false}>
+      <Text style={[s.td, s.cellPos]}>{row.position}</Text>
+      <View style={s.apxCellName}>
+        <Text style={s.td}>{row.name}</Text>
+        {row.materialNote && <Text style={s.noteLine}>{row.materialNote}</Text>}
+      </View>
+      <Text style={[s.td, s.cellMaterial]}>{row.material}</Text>
+      <Text style={[s.td, s.cellThickness]}>{row.thickness}</Text>
+      <Text style={[s.td, s.num, s.apxCellQty]}>{row.qtyPerAssembly}</Text>
+    </View>
+  );
+}
+
+/** Heading, header row and the first member never split across pages (no orphaned eyebrow). */
+function AssemblyAppendix({ appendix, t }: { appendix: PdfAssemblyAppendix; t: PdfContent }) {
+  const c = t.assemblies.appendixColumns;
+  const [first, ...rest] = appendix.rows;
+  return (
+    <View style={s.section}>
+      <View wrap={false}>
+        <Text style={s.eyebrow}>{appendix.heading}</Text>
+        <View style={s.table}>
+          <View style={s.tr}>
+            <Text style={[s.th, s.cellPos]}>{c.position}</Text>
+            <Text style={[s.th, s.apxCellName]}>{c.name}</Text>
+            <Text style={[s.th, s.cellMaterial]}>{c.material}</Text>
+            <Text style={[s.th, s.cellThickness]}>{c.thickness}</Text>
+            <Text style={[s.th, s.num, s.apxCellQty]}>{c.qtyPerAssembly}</Text>
+          </View>
+          {first && <AppendixRow row={first} />}
+        </View>
+      </View>
+      {rest.map((row) => (
+        <AppendixRow key={row.position} row={row} />
+      ))}
+    </View>
+  );
+}
+
+function PriceScaleTable({ table, t }: { table: PdfPriceScaleTable; t: PdfContent }) {
+  return (
+    <View>
+      <Text style={s.scaleSubject}>{table.subject}</Text>
+      <View style={s.scaleTable}>
+        <View style={s.tr}>
+          <Text style={[s.th, s.num, s.scaleCellQty]}>{t.priceScale.columns.qty}</Text>
+          <Text style={[s.th, s.num, s.scaleCellPrice]}>{t.priceScale.columns.unitPrice}</Text>
+          <Text style={[s.th, s.num, s.scaleCellTotal]}>{t.priceScale.columns.total}</Text>
+        </View>
+        {table.rows.map((row, i) => (
+          <View key={i} style={s.tr}>
+            <Text style={[s.td, s.num, s.scaleCellQty]}>{row.qty}</Text>
+            <Text style={[s.td, s.num, s.scaleCellPrice]}>{row.unitPrice}</Text>
+            <Text style={[s.tdBold, s.num, s.scaleCellTotal]}>{row.total}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 export type QuoteDocumentProps = { model: PdfViewModel; content: PdfContent };
 
 export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
+  const vat = model.totals.vat;
   return (
     <Document title={model.documentTitle} author={model.company.legalName} language={model.locale}>
       <Page size="A4" style={s.page}>
@@ -233,18 +325,24 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
             <Text style={s.metaValue}>{model.version}</Text>
             <Text style={s.metaLabel}>{t.meta.currency}</Text>
             <Text style={s.metaValue}>{model.currency}</Text>
+            {model.customerReference && (
+              <>
+                <Text style={s.metaLabel}>{t.meta.customerReference}</Text>
+                <Text style={s.metaValue}>{model.customerReference}</Text>
+              </>
+            )}
+            {model.contactPerson && (
+              <>
+                <Text style={s.metaLabel}>{t.meta.contactPerson}</Text>
+                <Text style={s.metaValue}>{model.contactPerson}</Text>
+              </>
+            )}
           </View>
           <View style={s.metaCol}>
             <Text style={s.metaLabel}>{t.meta.date}</Text>
             <Text style={s.metaValue}>{model.date}</Text>
             <Text style={s.metaLabel}>{t.meta.validUntil}</Text>
             <Text style={s.metaValue}>{model.validUntil}</Text>
-            {model.leadTime && (
-              <>
-                <Text style={s.metaLabel}>{t.meta.leadTime}</Text>
-                <Text style={s.metaValue}>{model.leadTime}</Text>
-              </>
-            )}
             {model.preparedBy && (
               <>
                 <Text style={s.metaLabel}>{t.meta.preparedBy}</Text>
@@ -256,7 +354,9 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
 
         {model.rows.length > 0 && (
           <View style={s.section}>
-            <Text style={s.eyebrow}>{t.parts.heading}</Text>
+            <Text style={s.eyebrow} minPresenceAhead={ORPHAN_GUARD_PT}>
+              {t.parts.heading}
+            </Text>
             <View style={s.table}>
               <View style={s.tr} fixed>
                 <Text style={[s.th, s.cellPos]}>{t.parts.columns.position}</Text>
@@ -277,7 +377,9 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
 
         {model.welding && (
           <View style={s.section}>
-            <Text style={s.eyebrow}>{t.welding.heading}</Text>
+            <Text style={s.eyebrow} minPresenceAhead={ORPHAN_GUARD_PT}>
+              {t.welding.heading}
+            </Text>
             <View style={s.table}>
               <View style={s.tr}>
                 <Text style={[s.th, s.weldCellSeam]}>{t.welding.columns.seam}</Text>
@@ -321,20 +423,55 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
               <Text style={s.totalsValue}>{model.totals.packaging}</Text>
             </View>
           )}
+          {model.totals.shipping && (
+            <View style={s.totalsRow}>
+              <Text style={s.totalsLabel}>{t.totals.shipping}</Text>
+              <Text style={s.totalsValue}>{model.totals.shipping}</Text>
+            </View>
+          )}
           <View style={[s.totalsRow, s.netRow]}>
             <Text style={s.netLabel}>{t.totals.net}</Text>
-            <Text style={s.netValue}>{model.totals.net}</Text>
+            <Text style={vat ? s.netValueSmall : s.netValue}>{model.totals.net}</Text>
           </View>
-          <Text style={s.netNotice}>{model.totals.netNotice}</Text>
+          {vat && (
+            <>
+              <View style={s.totalsRow}>
+                <Text style={s.totalsLabel}>{vat.rateLabel}</Text>
+                <Text style={s.totalsValue}>{vat.amount}</Text>
+              </View>
+              <View style={[s.totalsRow, s.grossRow]}>
+                <Text style={s.netLabel}>{t.totals.vat.gross}</Text>
+                <Text style={s.netValue}>{vat.gross}</Text>
+              </View>
+            </>
+          )}
+          {model.totals.netNotice && <Text style={s.netNotice}>{model.totals.netNotice}</Text>}
         </View>
+
+        {model.priceScale && (
+          <View style={s.section}>
+            {model.priceScale.tables.map((table, i) => (
+              <View key={`${table.kind}:${table.subjectId}`} wrap={false}>
+                {i === 0 && <Text style={s.eyebrow}>{t.priceScale.heading}</Text>}
+                <PriceScaleTable table={table} t={t} />
+              </View>
+            ))}
+            <Text style={s.scaleNote}>{model.priceScale.note}</Text>
+          </View>
+        )}
 
         <View style={s.terms}>
           <Text style={s.eyebrow}>{t.terms.heading}</Text>
           <Text style={s.termsLine}>{model.terms.validity}</Text>
           {model.terms.leadTime && <Text style={s.termsLine}>{model.terms.leadTime}</Text>}
           {model.terms.payment && <Text style={s.termsLine}>{model.terms.payment}</Text>}
+          {model.terms.requestedTerms && <Text style={s.termsLine}>{model.terms.requestedTerms}</Text>}
           <Text style={s.termsLine}>{model.terms.generic}</Text>
         </View>
+
+        {model.assemblyParts.map((appendix) => (
+          <AssemblyAppendix key={appendix.assemblyId} appendix={appendix} t={t} />
+        ))}
 
         <View style={s.footer} fixed>
           <View style={s.footerRow}>

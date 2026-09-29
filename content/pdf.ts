@@ -24,6 +24,9 @@ export type PdfContent = {
     preparedBy: string;
     customer: string;
     vatId: string;
+    /** The customer's inquiry / reference number (quotes.customer_reference). */
+    customerReference: string;
+    contactPerson: string;
     page: string;
   };
   company: {
@@ -49,6 +52,20 @@ export type PdfContent = {
     };
     manualGeometry: string;
     noMaterial: string;
+    /** `{note}` — quote_items.material_note, printed under the row (DC01 for S235 …). */
+    materialNote: string;
+  };
+  /** Welded assemblies: ONE row in the parts table; members only in the optional appendix. */
+  assemblies: {
+    /** Muted line under the assembly name: kind · drawing · parts count. */
+    kind: string;
+    /** `{ref}` — assemblies.drawing_ref. */
+    drawingRef: string;
+    /** `{count}` — Σ qty_per_assembly of the members. */
+    partsCount: string;
+    /** `{name}` — heading of the appendix table listing the members. */
+    appendixHeading: string;
+    appendixColumns: { position: string; name: string; material: string; thickness: string; qtyPerAssembly: string };
   };
   operations: {
     heading: string;
@@ -68,6 +85,17 @@ export type PdfContent = {
     partsSubtotal: string;
     weldingSubtotal: string;
     packaging: string;
+    /** Quote-level shipping line (PricedQuote.shipping). */
+    shipping: string;
+    /** VAT block (docs/assembly-mode-design.md §3.4): rate row + gross when the rate is above 0, else the 0 % note by mode. */
+    vat: {
+      /** `{rate}` — "VAT 23 %". */
+      rate: string;
+      gross: string;
+      reverseChargeNote: string;
+      exportNote: string;
+      ossNote: string;
+    };
   };
   terms: {
     heading: string;
@@ -76,8 +104,18 @@ export type PdfContent = {
     /** `{days}` placeholder — the lead-time value when only working days are known. */
     leadTimeDays: string;
     payment: string;
+    /** B2C default when quotes.payment_terms_text is empty: 100 % prepayment against a pro forma. */
+    prepayment: string;
+    /** `{terms}` — customers.requested_terms, printed for a B2B customer when set. */
+    requestedTerms: string;
     notes: string;
     generic: string;
+  };
+  /** Price scale (PricedQuote.priceScale): one table per item / assembly. */
+  priceScale: {
+    heading: string;
+    columns: { qty: string; unitPrice: string; total: string };
+    note: string;
   };
   footer: {
     bank: string;
@@ -110,6 +148,8 @@ export const pdf: PdfContent = {
     preparedBy: "Ofertę przygotował",
     customer: "Klient",
     vatId: "NIP / VAT",
+    customerReference: "Państwa referencja",
+    contactPerson: "Osoba kontaktowa",
     page: "Strona {page} z {pages}",
   },
   company: {
@@ -135,6 +175,14 @@ export const pdf: PdfContent = {
     },
     manualGeometry: "wymiary wg opisu",
     noMaterial: "materiał do ustalenia",
+    materialNote: "Uwaga do materiału: {note}",
+  },
+  assemblies: {
+    kind: "Zespół spawany",
+    drawingRef: "rys. {ref}",
+    partsCount: "elementów: {count}",
+    appendixHeading: "Części zespołu {name}",
+    appendixColumns: { position: "Lp.", name: "Część", material: "Materiał", thickness: "Grubość", qtyPerAssembly: "Szt. / zespół" },
   },
   operations: {
     heading: "Zakres operacji",
@@ -177,6 +225,14 @@ export const pdf: PdfContent = {
     partsSubtotal: "Części razem",
     weldingSubtotal: "Spawanie razem",
     packaging: "Opakowanie",
+    shipping: "Transport",
+    vat: {
+      rate: "VAT {rate} %",
+      gross: "Razem brutto",
+      reverseChargeNote: "Wewnątrzwspólnotowa dostawa towarów – odwrotne obciążenie, art. 138 dyrektywy 2006/112/WE",
+      exportNote: "Eksport – 0 % VAT",
+      ossNote: "VAT według stawki kraju przeznaczenia (procedura unijna OSS).", // [CONFIRM] OSS wording
+    },
   },
   terms: {
     heading: "Warunki",
@@ -184,8 +240,15 @@ export const pdf: PdfContent = {
     leadTime: "Termin realizacji: {leadTime}.",
     leadTimeDays: "{days} dni roboczych od potwierdzenia zamówienia",
     payment: "Warunki płatności: {terms}",
+    prepayment: "Warunki płatności: 100 % przedpłaty na podstawie faktury pro forma.", // [CONFIRM] B2C default terms
+    requestedTerms: "Warunki płatności wnioskowane przez klienta: {terms}",
     notes: "Uwagi",
     generic: "Oferta nie stanowi oferty handlowej w rozumieniu art. 66 Kodeksu cywilnego; wiążące jest potwierdzenie zamówienia.", // [CONFIRM] legal wording
+  },
+  priceScale: {
+    heading: "Skala cenowa",
+    columns: { qty: "Ilość", unitPrice: "Cena / szt.", total: "Wartość" },
+    note: "Koszty przygotowania produkcji rozłożone na podaną ilość.",
   },
   footer: {
     bank: "Bank",
