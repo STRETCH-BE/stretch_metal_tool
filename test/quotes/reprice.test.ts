@@ -1,8 +1,11 @@
 /**
- * repriceQuote against mocked clients: RLS reads, admin writes, pinning of
- * the active rate version, item/operation/quote persistence, idempotence,
- * the empty case, the access checks and the lock (sent / won / lost
- * quotes keep their stored prices in both modes).
+ * repriceQuote against mocked clients: reads AND writes through the user's
+ * RLS client (the admin client is never created in session mode, so a
+ * deployment without the service-role key still prices), the admin client
+ * only in `{ admin: true }` mode, pinning of the active rate version,
+ * item/operation/quote persistence, idempotence, the empty case, the access
+ * checks and the lock (sent / won / lost quotes keep their stored prices in
+ * both modes).
  * File path: /test/quotes/reprice.test.ts
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,6 +31,8 @@ vi.mock("@/lib/rates/load", () => ({
 
 import { repriceQuote } from "@/lib/quotes/reprice";
 import { QuoteAccessError } from "@/lib/quotes/access";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { EnvError } from "@/lib/env";
 
 function seed(over: { quote?: Row; items?: Row[]; parts?: Row[] } = {}) {
   const db = new FakeSupabase({
@@ -124,11 +129,32 @@ describe("repriceQuote", () => {
     }
   });
 
+  it("session mode persists through the user's RLS client and never creates the admin client", async () => {
+    const db = seed();
+    vi.mocked(createAdminClient).mockClear();
+    // No service-role key on this deployment: the admin client cannot even be built.
+    vi.mocked(createAdminClient).mockImplementation(() => {
+      throw new EnvError("Missing environment variable SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) — see env.example.");
+    });
+    try {
+      const priced = await repriceQuote(QUOTE_ID);
+      expect(priced).not.toBeNull();
+      expect(createAdminClient).not.toHaveBeenCalled();
+      expect(db.tables.operations.length).toBe(priced!.items[0].operations.length);
+      expect(db.tables.quotes[0].pricing).toMatchObject({ rateVersionId: RATE_VERSION_ID, inputMarginPct: 30 });
+      expect(typeof db.tables.quotes[0].priced_at).toBe("string");
+    } finally {
+      vi.mocked(createAdminClient).mockImplementation(() => state.admin as ReturnType<typeof createAdminClient>);
+    }
+  });
+
   it("admin mode skips the session and prices with the admin client", async () => {
     const db = seed();
     state.session = null;
+    vi.mocked(createAdminClient).mockClear();
     const priced = await repriceQuote(QUOTE_ID, { admin: true });
     expect(priced).not.toBeNull();
+    expect(createAdminClient).toHaveBeenCalled();
     expect(db.tables.operations.length).toBe(priced!.items[0].operations.length);
   });
 

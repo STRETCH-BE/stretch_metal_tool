@@ -16,14 +16,23 @@
  *     the UI but not part of the match — one part = one item per quote.
  *   - The default PDF/e-mail locale is the customer's preference, else
  *     Polish (the company's home market).
- *   - Stale pricing: quotes.pricing remembers the rate version it was
- *     computed with. When that differs from quotes.rate_version_id (a draft
- *     re-pinned to a newly activated version) the stored numbers are stale
- *     and the builder re-prices the draft on open (isPricingStale).
+ *   - Stale pricing: quotes.pricing remembers the rate version, the margin
+ *     and the lead time it was computed with, and quotes.subtotal_* were
+ *     written by the same run in the currency of that moment. When any of
+ *     them disagrees with the header now saved on the quote (a draft
+ *     re-pinned to a newly activated version, or a header save whose
+ *     server re-price failed) the stored numbers are stale and the builder
+ *     re-prices the draft on open (isPricingStale).
+ *   - Totals table: OPERATION_TYPE_ORDER lists EVERY operation type, the
+ *     market price components (order charge, packaging, lead time) included,
+ *     so the rows of the summary add up to the total. The PDF operation
+ *     summary (summariseOperations) leaves those components out: they sit
+ *     inside the part price and are not work done on the part.
  */
 
 import type { UserLocale } from "@/lib/db/types";
-import type { Flag, FlagSeverity, OperationLine, OperationType } from "@/lib/pricing/types";
+import { toQuoteCurrency } from "@/lib/format";
+import type { Flag, FlagSeverity, OperationLine, OperationType, PricedQuote } from "@/lib/pricing/types";
 import type { Locale } from "@/lib/site-config";
 import type { OverrideKey } from "./types";
 
@@ -93,7 +102,7 @@ export function validUntilDate(from: string | Date, validityDays: number): Date 
   return start;
 }
 
-/** Operation types in display order for the totals table. */
+/** Every operation type in display order for the totals table (a type missing here would hide its money from the summary). */
 export const OPERATION_TYPE_ORDER: OperationType[] = [
   "laser_cut",
   "subcontract_cutting",
@@ -112,13 +121,20 @@ export const OPERATION_TYPE_ORDER: OperationType[] = [
   "engrave",
   "handling",
   "setup",
+  "order",
+  "packaging",
+  "leadtime",
   "other",
 ];
 
-/** Group operation lines by type keeping order — used by the PDF operation summary. */
+/** Market price components that are money, not work: inside the part price, never listed as an operation on the PDF. */
+export const PRICE_COMPONENT_TYPES: ReadonlySet<OperationType> = new Set<OperationType>(["order", "packaging", "leadtime"]);
+
+/** Group operation lines by type keeping order — used by the PDF operation summary (price components skipped). */
 export function summariseOperations(lines: ReadonlyArray<OperationLine>): { type: OperationType; count: number; unitCost: number }[] {
   const map = new Map<OperationType, { type: OperationType; count: number; unitCost: number }>();
   for (const line of lines) {
+    if (PRICE_COMPONENT_TYPES.has(line.type)) continue;
     const entry = map.get(line.type) ?? { type: line.type, count: 0, unitCost: 0 };
     entry.count += 1;
     entry.unitCost += line.unitCost;
@@ -148,14 +164,39 @@ export function isQuoteEditable(status: "draft" | "pending_override" | "sent" | 
   return status === "draft" || status === "pending_override";
 }
 
+/** Money tolerance for the stored subtotal check: quotes.subtotal_* are numeric(14,4). */
+const SUBTOTAL_TOLERANCE = 0.01;
+const PCT_TOLERANCE = 1e-6;
+
+export type StalePricingQuote = {
+  rate_version_id: string | null;
+  margin_pct: number | string;
+  lead_time_days: number | string | null;
+  currency: "PLN" | "EUR";
+  fx_rate: number | string;
+  subtotal_price: number | string;
+};
+
+export type StalePricingSnapshot = Pick<PricedQuote, "rateVersionId" | "inputMarginPct" | "leadTimeDays" | "subtotalPrice">;
+
 /**
- * The stored pricing was computed with a different rate version than the
- * one the quote is pinned to now. Unpriced quotes and quotes without a
- * pinned version are never stale (the first pricing run pins them).
+ * The stored pricing no longer matches the quote it belongs to: computed
+ * with a different rate version than the one the quote is pinned to now,
+ * with a different margin or lead time than the header carries, or its
+ * quote-currency subtotal (written by the same run) disagrees with the
+ * EUR snapshot converted at the currency and fx rate saved now. The last
+ * three happen when a header save could not be re-priced on the server.
+ * Unpriced quotes are never stale; an unpinned quote only through its
+ * inputs (the first pricing run pins it).
  */
-export function isPricingStale(
-  quote: { rate_version_id: string | null },
-  pricing: { rateVersionId: string } | null
-): boolean {
-  return pricing !== null && quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id;
+export function isPricingStale(quote: StalePricingQuote, pricing: StalePricingSnapshot | null): boolean {
+  if (pricing === null) return false;
+  if (quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id) return true;
+  const margin = Number(quote.margin_pct);
+  if (Number.isFinite(margin) && Math.abs(pricing.inputMarginPct - margin) > PCT_TOLERANCE) return true;
+  const lead = quote.lead_time_days === null ? null : Number(quote.lead_time_days);
+  if (lead !== null && Number.isFinite(lead) && lead > 0 && pricing.leadTimeDays !== null && Math.abs(pricing.leadTimeDays - lead) > PCT_TOLERANCE) return true;
+  const fx = Number(quote.fx_rate) || 1;
+  const expected = toQuoteCurrency(pricing.subtotalPrice, quote.currency, fx);
+  return Math.abs(Number(quote.subtotal_price) - expected) > SUBTOTAL_TOLERANCE;
 }

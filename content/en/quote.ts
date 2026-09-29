@@ -86,7 +86,7 @@ const builderEn: QuoteBuilderContent = {
     saved: "Header saved, prices recalculated.",
     readOnly: "Read only — this quote belongs to another user.",
     locked: "This quote has been sent — header and parts are locked. Create a new version to change it.",
-    staleRates: "The stored prices come from a different rate version than the one this quote is pinned to — recalculating on the server…",
+    staleRates: "The stored prices were computed with other inputs than the ones saved on this quote (rate version, margin, lead time or currency) — recalculating on the server…",
   },
   parts: {
     title: "Parts",

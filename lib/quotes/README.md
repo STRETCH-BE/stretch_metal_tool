@@ -23,10 +23,13 @@ types.ts       QuoteBundle, QuoteListRow, SendCheck, …
 
 ## Trust model
 
-- Reads as the user (RLS). Writes of the pricing result go through the
-  admin client, but only after `requireQuoteEditor` (admin, or the sales
-  owner — the same rule as `can_edit_quote()` in SQL) or with
-  `{ admin: true }` from a trusted, already role-checked caller.
+- Reads AND writes as the user (RLS): the pricing result is persisted
+  through the user's own client after `requireQuoteEditor` (admin, or the
+  sales owner — the same rule as `can_edit_quote()` in SQL), which is
+  exactly what the `quotes_update` / `quote_items_write` /
+  `operations_write` policies grant. Pricing never needs the service-role
+  key; only `{ admin: true }` from a trusted, already role-checked caller
+  without a request session uses the admin client.
 - Every mutation that changes a price input ends with `repriceQuote`
   (Step 12: the server re-prices on save and on send).
 - Locked quotes (`sent` / `won` / `lost`) are never re-priced, in either

@@ -244,14 +244,30 @@ describe("repriceQuoteAction", () => {
     expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "quote.reprice", entity: "quotes", entityId: QUOTE_ID, actor: USER_ID }));
   });
 
-  it("names a missing server variable (the service-role key on a deployment without it) as a configuration error, not a generic failure", async () => {
+  it("prices without the service-role key: the re-price runs as the user, so a deployment lacking the key still computes and stores prices", async () => {
     const db = seed();
-    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.mocked(createAdminClient).mockImplementationOnce(() => {
+    vi.mocked(createAdminClient).mockImplementation(() => {
       throw new EnvError("Missing environment variable SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) — see env.example.");
     });
+    try {
+      expect(await repriceQuoteAction(QUOTE_ID)).toEqual({ ok: true });
+      expect(typeof db.tables.quotes[0].priced_at).toBe("string");
+      expect(db.tables.quotes[0].pricing).toMatchObject({ rateVersionId: RATE_VERSION_ID, inputMarginPct: 30 });
+      expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "quote.reprice" }));
+    } finally {
+      vi.mocked(createAdminClient).mockImplementation(() => state.db as ReturnType<typeof createAdminClient>);
+    }
+  });
+
+  it("still names a missing server variable surfacing from the re-price as a configuration error, not a generic failure", async () => {
+    const db = seed();
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { loadRateSnapshot } = await import("@/lib/rates/load");
+    vi.mocked(loadRateSnapshot).mockImplementationOnce(async () => {
+      throw new EnvError("Missing environment variable NEXT_PUBLIC_SUPABASE_URL — see env.example.");
+    });
     const result = await repriceQuoteAction(QUOTE_ID);
-    expect(result).toEqual({ ok: false, error: "config", message: expect.stringContaining("SUPABASE_SERVICE_ROLE_KEY") });
+    expect(result).toEqual({ ok: false, error: "config", message: expect.stringContaining("NEXT_PUBLIC_SUPABASE_URL") });
     expect(db.tables.quotes[0].priced_at ?? null).toBeNull();
     expect(state.logAudit).not.toHaveBeenCalled();
     quiet.mockRestore();

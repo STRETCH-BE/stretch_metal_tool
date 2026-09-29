@@ -196,8 +196,11 @@ model); `marginPct = 1 − cost ÷ price`, red `market.margin_below_default` bel
 market version's `default_margin_pct`, amber `market.no_cost_version` without a cost
 version. `totalsByType` carries the market price and the cost version's cost per
 bucket. `PricedQuote.pricingMode`, `costRateVersionId`, `leadTimeDays`,
-`leadTimeMultiplier` and `quoteLines` record all of this. `quote_items.unit_price` is
-nullable for refused parts; the send guard blocks any quote with a red flag.
+`leadTimeMultiplier` and `quoteLines` record all of this, and `inputMarginPct` keeps
+the quote's own margin (the one the cost-plus lines used) next to the realised
+`marginPct`, so a stored snapshot can be compared with the header it came from
+(`lib/quotes/shared.ts` `isPricingStale`). `quote_items.unit_price` is nullable for
+refused parts; the send guard blocks any quote with a red flag.
 
 Acceptance: `test/pricing/market-v2.test.ts` (E1–E8 on the v2 fixture),
 `test/pricing/market-v3.test.ts` (F/B/C/P/Z/K/D on the v3 fixture, one check per rule 14–24)
