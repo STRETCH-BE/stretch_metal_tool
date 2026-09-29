@@ -1,7 +1,12 @@
 /**
  * AdminCards — the admin index: one hard-edged card per section with its
- * headline number and a link.
+ * headline number and a link (rate tables, machines, overrides, users,
+ * calculator, audit log, assembly-mode settings).
  * File path: /components/admin/admin-cards.tsx
+ *
+ * The settings card's chip: red when a settings table is missing (the
+ * assembly-mode migration is not applied), placeholder-yellow while
+ * calibration rows are unconfirmed, green once everything is confirmed.
  */
 
 import Link from "next/link";
@@ -20,6 +25,16 @@ type Card = {
   metric?: string;
   chip?: { severity: "green" | "amber" | "red" | "neutral" | "placeholder"; label: string };
 };
+
+function settingsChip(
+  settings: AdminDashboard["settings"],
+  copy: Content["admin"]["index"]["cards"]["settings"]
+): Card["chip"] {
+  if (!settings) return undefined;
+  if (settings.missing) return { severity: "red", label: copy.missing };
+  if (settings.placeholderCount > 0) return { severity: "placeholder", label: interpolate(copy.placeholders, { count: settings.placeholderCount }) };
+  return { severity: "green", label: copy.confirmed };
+}
 
 export function AdminCards({ dashboard, content }: { dashboard: AdminDashboard; content: Content }) {
   const t = content.admin.index.cards;
@@ -65,6 +80,14 @@ export function AdminCards({ dashboard, content }: { dashboard: AdminDashboard; 
     },
     { key: "calculator", title: t.calculator.title, body: t.calculator.body, href: routes.adminCalculator, cta: t.calculator.open },
     { key: "audit", title: t.audit.title, body: t.audit.body, href: routes.adminAudit, cta: t.audit.open },
+    {
+      key: "settings",
+      title: t.settings.title,
+      body: t.settings.body,
+      href: routes.adminSettings,
+      cta: t.settings.open,
+      chip: settingsChip(dashboard.settings, t.settings),
+    },
   ];
 
   return (

@@ -64,6 +64,7 @@ export type CommonContent = {
     users: string;
     overrides: string;
     audit: string;
+    settings: string;
     signOut: string;
     groupWork: string;
     groupAdmin: string;
@@ -228,6 +229,7 @@ export const common: CommonContent = {
     users: "Użytkownicy",
     overrides: "Odstępstwa",
     audit: "Dziennik zmian",
+    settings: "Ustawienia",
     signOut: "Wyloguj",
     groupWork: "Praca",
     groupAdmin: "Administracja",

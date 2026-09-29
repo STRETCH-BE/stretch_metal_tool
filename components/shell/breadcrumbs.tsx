@@ -36,6 +36,7 @@ export function Breadcrumbs() {
     users: c.common.nav.users,
     overrides: c.common.nav.overrides,
     audit: c.common.nav.audit,
+    settings: c.common.nav.settings,
   };
 
   const crumbs: Crumb[] = [];

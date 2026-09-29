@@ -13,6 +13,7 @@
 
 import type {
   FinishUnitDb,
+  JobSetupCodeDb,
   LaserModeDb,
   MachineKindDb,
   MaterialFamilyDb,
@@ -21,6 +22,7 @@ import type {
   TubeProfileFamilyDb,
   WeldProcessDb,
 } from "@/lib/db/types";
+import type { AssemblyRateField, CompanyTextField, SettingsErrorCode, SettingsTable } from "@/lib/admin/settings-types";
 
 type RateTableKey =
   | "general"
@@ -89,6 +91,7 @@ export type AdminContent = {
       users: { title: string; body: string; count: string; open: string };
       calculator: { title: string; body: string; open: string };
       audit: { title: string; body: string; open: string };
+      settings: { title: string; body: string; open: string; placeholders: string; missing: string; confirmed: string };
     };
   };
   rates: {
@@ -579,6 +582,77 @@ export type AdminContent = {
     system: string;
     openEntity: string;
   };
+  /** Assembly-mode settings tables (docs/assembly-mode-design.md §2, §5). */
+  settings: {
+    eyebrow: string;
+    title: string;
+    subtitle: string;
+    /** Sub-navigation labels, one per table. */
+    nav: Record<SettingsTable, string>;
+    navLabel: string;
+    /** `{table}` = database table name. */
+    migrationMissing: string;
+    placeholderChip: string;
+    confirmedChip: string;
+    placeholderHint: string;
+    overview: {
+      columns: { table: string; rows: string; placeholders: string; status: string; actions: string };
+      open: string;
+      statusMissing: string;
+      statusOk: string;
+      /** `{count}` placeholder rows. */
+      statusPlaceholder: string;
+      singleRow: string;
+    };
+    actions: { save: string; delete: string; deleteQuestion: string; add: string; cancel: string };
+    columns: { placeholder: string; updated: string; actions: string };
+    notices: { saved: string; deleted: string };
+    errors: Record<SettingsErrorCode, string>;
+    /** `{field}` = the column that failed validation. */
+    fieldPrefix: string;
+    company: {
+      title: string;
+      hint: string;
+      sections: { identity: string; address: string; contact: string; registry: string; bank: string; pricing: string };
+      fields: Record<CompanyTextField | "oss_active" | "assembly_margin_pct" | "subcontract_margin_pct", string>;
+      ossHelp: string;
+      marginsHelp: string;
+      /** `{fields}` = comma-separated field labels still carrying a placeholder marker. */
+      placeholderWarning: string;
+    };
+    vat: {
+      title: string;
+      hint: string;
+      columns: { country: string; rate: string };
+    };
+    packaging: {
+      title: string;
+      hint: string;
+      columns: { code: string; name: string; maxSide: string; maxMass: string; price: string; position: string };
+    };
+    shipping: {
+      title: string;
+      hint: string;
+      columns: { country: string; maxKg: string; price: string; carrier: string; position: string };
+    };
+    setups: {
+      title: string;
+      hint: string;
+      columns: { code: string; name: string; cost: string };
+      codes: Record<JobSetupCodeDb, string>;
+    };
+    assembly: {
+      title: string;
+      hint: string;
+      fields: Record<AssemblyRateField, string>;
+      distortionHelp: string;
+    };
+    weldSpeeds: {
+      title: string;
+      hint: string;
+      columns: { process: string; thickness: string; speed: string };
+    };
+  };
 };
 
 export const admin: AdminContent = {
@@ -623,6 +697,14 @@ export const admin: AdminContent = {
         title: "Dziennik zmian",
         body: "Kto, co i kiedy zmienił — stawki, odstępstwa, statusy, użytkownicy.",
         open: "Otwórz dziennik",
+      },
+      settings: {
+        title: "Ustawienia wyceny",
+        body: "Dane firmy na PDF, stawki VAT, opakowania, transport, ustawienia zleceń, robocizna zespołów i prędkości spawania.",
+        open: "Otwórz ustawienia",
+        placeholders: "{count} wartości do potwierdzenia",
+        missing: "Brak tabel — uruchom migrację",
+        confirmed: "Potwierdzone",
       },
     },
   },
@@ -1265,5 +1347,120 @@ export const admin: AdminContent = {
     results: "{count} wpisów",
     system: "system",
     openEntity: "Otwórz",
+  },
+  settings: {
+    eyebrow: "Ustawienia",
+    title: "Ustawienia wyceny",
+    subtitle: "Dane firmy, stawki VAT, opakowania, transport, ustawienia zleceń, robocizna zespołów spawanych i prędkości spawania. Tabele bez wersji — zmiana działa od następnego przeliczenia wyceny.",
+    nav: {
+      company: "Firma",
+      vat: "VAT",
+      packaging: "Opakowania",
+      shipping: "Transport",
+      setups: "Ustawienia zleceń",
+      assembly: "Zespoły spawane",
+      weldSpeeds: "Prędkości spawania",
+    },
+    navLabel: "Tabele ustawień",
+    migrationMissing: "Tabela {table} nie istnieje w tej bazie — uruchom migrację supabase/migrations/20260930100000_assembly_mode.sql.",
+    placeholderChip: "placeholder — potwierdź",
+    confirmedChip: "potwierdzone",
+    placeholderHint: "Wiersze oznaczone „placeholder” to kalibracyjne wartości zastępcze [CONFIRM] z migracji. Zapisz wiersz (nawet bez zmian), aby potwierdzić jego wartość — wycena przestanie wtedy nosić flagę stawek tymczasowych.",
+    overview: {
+      columns: { table: "Tabela", rows: "Wiersze", placeholders: "Do potwierdzenia", status: "Status", actions: "Akcje" },
+      open: "Otwórz",
+      statusMissing: "brak tabeli",
+      statusOk: "potwierdzone",
+      statusPlaceholder: "{count} do potwierdzenia",
+      singleRow: "1 wiersz",
+    },
+    actions: { save: "Zapisz", delete: "Usuń", deleteQuestion: "Usunąć ten wiersz?", add: "Dodaj wiersz", cancel: "Anuluj" },
+    columns: { placeholder: "Status", updated: "Zmieniono", actions: "Akcje" },
+    notices: { saved: "Zapisano.", deleted: "Wiersz usunięty." },
+    errors: {
+      forbidden: "Tylko administrator może zmieniać ustawienia.",
+      validation: "Sprawdź wartości w formularzu.",
+      duplicate: "Taki wiersz już istnieje (ten sam klucz).",
+      notFound: "Nie znaleziono wiersza — odśwież stronę.",
+      missingTable: "Tabela nie istnieje — uruchom migrację 20260930100000_assembly_mode.sql.",
+      db: "Błąd bazy danych.",
+    },
+    fieldPrefix: "Pole: {field}",
+    company: {
+      title: "Dane firmy",
+      hint: "Blok nadawcy na PDF wyceny (nazwa, adres, NIP, konto bankowe), przełącznik OSS oraz marże zespołów. Wartości z markerami 000-000, PL00, XXXX lub [CONFIRM] blokują eksport PDF.",
+      sections: { identity: "Firma", address: "Adres", contact: "Kontakt", registry: "Rejestry", bank: "Bank", pricing: "Wycena" },
+      fields: {
+        brand: "Marka (nagłówek PDF)",
+        legal_name: "Nazwa prawna",
+        street: "Ulica i numer",
+        postal_code: "Kod pocztowy",
+        city: "Miasto",
+        country: "Kraj (ISO-2)",
+        phone: "Telefon",
+        email: "E-mail",
+        website: "Strona WWW",
+        nip: "NIP",
+        regon: "REGON",
+        krs: "KRS",
+        bank_name: "Bank",
+        iban_pln: "IBAN (PLN)",
+        iban_eur: "IBAN (EUR)",
+        swift: "SWIFT / BIC",
+        oss_active: "OSS aktywny (VAT kraju przeznaczenia dla klientów prywatnych w UE)",
+        assembly_margin_pct: "Minimalna marża zespołu (%)",
+        subcontract_margin_pct: "Narzut na podwykonawstwo (%)",
+      },
+      ossHelp: "Przy aktywnym OSS klient prywatny (B2C) z innego kraju UE dostaje stawkę VAT kraju przeznaczenia z tabeli VAT; bez OSS — stawkę polską.",
+      marginsHelp: "Zespół spawany jest wyceniany z marżą max(marża wyceny, ta wartość) od przychodu. Narzut na podwykonawstwo dolicza się do kosztu formowania u podwykonawcy. Zakres 0–90 %.",
+      placeholderWarning: "Dane firmy zawierają wartości zastępcze: {fields}. Uzupełnij je przed wysłaniem wyceny.",
+    },
+    vat: {
+      title: "Stawki VAT",
+      hint: "Stawka VAT wg kraju: PL dla sprzedaży krajowej i dla klientów bez numeru VAT; kraj przeznaczenia dla klientów prywatnych w UE przy aktywnym OSS. Klient z numerem VAT UE poza Polską: 0 % (odwrotne obciążenie).",
+      columns: { country: "Kraj", rate: "Stawka VAT (%)" },
+    },
+    packaging: {
+      title: "Opakowania",
+      hint: "Pierwszy wiersz w kolejności pozycji, którego limity (największy bok, masa brutto = masa netto + 5 %) mieszczą przesyłkę — inaczej ostatni. Cena doliczana raz na wycenę.",
+      columns: { code: "Kod", name: "Nazwa", maxSide: "Maks. bok (mm)", maxMass: "Maks. masa (kg)", price: "Cena (EUR)", position: "Kolejność" },
+    },
+    shipping: {
+      title: "Transport",
+      hint: "Progi wagowe wg kraju przeznaczenia: pierwszy próg z maks. kg ≥ masa brutto przesyłki. Brak wiersza dla kraju → transport trzeba wpisać ręcznie w wycenie.",
+      columns: { country: "Kraj", maxKg: "Do (kg)", price: "Cena (EUR)", carrier: "Przewoźnik", position: "Kolejność" },
+    },
+    setups: {
+      title: "Ustawienia zleceń",
+      hint: "Koszt ustawienia naliczany RAZ na zlecenie i rozkładany na ilość: gniazdo lasera na każdą parę materiał/grubość, prasa gdy jakikolwiek element jest gięty, walce gdy walcowany u nas, spawanie raz na typ zespołu.",
+      columns: { code: "Kod", name: "Nazwa", cost: "Koszt (EUR)" },
+      codes: {
+        laser_nest: "Gniazdo lasera (na materiał / grubość)",
+        press_brake: "Ustawienie prasy krawędziowej",
+        roll: "Ustawienie walców",
+        weld_fitup: "Ustawienie spawania i pasowania (na typ zespołu)",
+      },
+    },
+    assembly: {
+      title: "Zespoły spawane",
+      hint: "Robocizna zespołu: pasowanie i gratowanie na element, sczepy na sztukę, spawanie z prędkości efektywnych, obsługa na zespół, gięcie krokowe na uderzenie, walcowanie na metr. Minuty pasowania, sczepów i spawania × współczynnik odkształceń → godziny × stawka; godziny łuku × gaz i drut.",
+      fields: {
+        labour_rate_eur_h: "Stawka robocizny (EUR/h)",
+        gas_wire_eur_h: "Gaz i drut (EUR/h łuku)",
+        tack_seconds: "Sczep (s/szt.)",
+        fitup_min_per_part: "Pasowanie (min/element)",
+        deburr_min_per_part: "Gratowanie (min/element)",
+        handling_min_per_assembly: "Obsługa (min/zespół)",
+        distortion_factor: "Współczynnik odkształceń",
+        step_bend_seconds_per_hit: "Gięcie krokowe (s/uderzenie)",
+        roll_min_per_m: "Walcowanie (min/m)",
+      },
+      distortionHelp: "Mnożnik na prostowanie i poprawki po spawaniu (≥ 1), stosowany tylko do pasowania, sczepów i spawania.",
+    },
+    weldSpeeds: {
+      title: "Prędkości spawania",
+      hint: "Prędkości EFEKTYWNE (z zatrzymaniami i przestawianiem) w mm/min wg metody i grubości. Wyszukiwanie: wiersze metody, najmniejsza grubość ≥ grubości spoiny, inaczej największa.",
+      columns: { process: "Metoda", thickness: "Grubość (mm)", speed: "Prędkość (mm/min)" },
+    },
   },
 };

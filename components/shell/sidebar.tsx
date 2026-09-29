@@ -41,6 +41,7 @@ const ADMIN_ITEMS: NavItem[] = [
   { key: "users", href: routes.adminUsers },
   { key: "overrides", href: routes.adminOverrides },
   { key: "audit", href: routes.adminAudit },
+  { key: "settings", href: routes.adminSettings },
 ];
 
 function matches(pathname: string, href: string): boolean {

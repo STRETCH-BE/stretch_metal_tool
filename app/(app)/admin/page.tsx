@@ -1,6 +1,7 @@
 /**
  * Admin index — cards for rate tables (active version + placeholders),
- * machines, overrides (pending), users, calculator and audit log.
+ * machines, overrides (pending), users, calculator, audit log and the
+ * assembly-mode settings tables (missing / unconfirmed placeholders).
  * File path: /app/(app)/admin/page.tsx
  *
  * Admin only (requireRole). Numbers come from lib/admin/dashboard.ts.

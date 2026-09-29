@@ -21,8 +21,9 @@ export const routes = {
   quotePdf: (id: string, locale?: "pl" | "en") =>
     `/api/quotes/${id}/pdf${locale ? `?locale=${locale}` : ""}`,
   /** PDF export with the per-part operation summary toggle (?ops=1). */
-  quotePdfExport: (id: string, locale: "pl" | "en", ops: boolean) =>
-    `/api/quotes/${id}/pdf?locale=${locale}${ops ? "&ops=1" : ""}`,
+  /** `parts=1` adds the "parts of assembly" appendix (assembly members are never rows of the main table). */
+  quotePdfExport: (id: string, locale: "pl" | "en", ops: boolean, parts = false) =>
+    `/api/quotes/${id}/pdf?locale=${locale}${ops ? "&ops=1" : ""}${parts ? "&parts=1" : ""}`,
   quoteUpload: (id: string) => `/quotes/${id}/upload`,
 
   upload: "/upload",
@@ -48,6 +49,10 @@ export const routes = {
   adminUsers: "/admin/users",
   adminOverrides: "/admin/overrides",
   adminAudit: "/admin/audit",
+  /** Assembly-mode settings tables (company data, VAT, packaging, shipping, setups, assembly labour, weld speeds). */
+  adminSettings: "/admin/settings",
+  /** One settings table by its URL slug (lib/admin/settings-types.ts SETTINGS_TABLE_SLUGS). */
+  adminSettingsTable: (table: string) => `/admin/settings/${encodeURIComponent(table)}`,
 
   api: {
     health: "/api/health",

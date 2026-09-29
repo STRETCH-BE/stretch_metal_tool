@@ -60,6 +60,7 @@ export const common: CommonContent = {
     users: "Users",
     overrides: "Overrides",
     audit: "Audit log",
+    settings: "Settings",
     signOut: "Sign out",
     groupWork: "Work",
     groupAdmin: "Administration",
