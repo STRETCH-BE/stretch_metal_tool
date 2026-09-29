@@ -18,6 +18,11 @@
  *              no row for the material → the same-thickness steel row × the
  *              family factor, amber bend_rate_from_steel; no steel row → red
  *              not_benchmarked)
+ *   + welding: the version's rate_weld rows like cost mode; NO rows → cost-plus:
+ *     the cost version's weld lines (options.costRates, every seam needs a row
+ *     for its process there) × 1 ÷ (1 − the quote's margin), amber
+ *     market.cost_plus instead of refusing the part; no cost version → red
+ *     not_benchmarked as before. The welding-only block follows the same rule.
  *   + threads: setup_per_line ÷ qty + count × price_by_thickness[t]
  *   + features: setup_per_line ÷ qty + count × price_each (material + thickness range)
  *   + finishes: setup_per_line ÷ qty + price_per_part + units × price
@@ -93,11 +98,12 @@ import { PricingError } from "./errors";
 import { evaluateContextFlags, evaluateQuoteFlags } from "./feasibility";
 import { machiningCost, mmToM } from "./formulas";
 import { OPERATION_LABELS } from "./labels";
-import { findFeatureRate, findThreadRate, normaliseThreadSize } from "./lookup";
+import { findFeatureRate, findThreadRate, findWeldRate, normaliseThreadSize } from "./lookup";
 import { applicableMinPartRules, decidePackaging, describeMinPartSizes, parseMinPartRule, resolveLeadTimeMultiplier, type LeadTimeResolution, type MinPartRule } from "./market-rules";
 import { laserLine, makeLine, rollLine, weldLines } from "./operations";
 import {
   marginToMarkup,
+  priceFromCost,
   type BendRate,
   type DriverUnit,
   type FeatureRate,
@@ -272,10 +278,15 @@ type Verdict = {
   /** False when the part has no exact laser row (material / thickness missing or not benchmarked). */
   priceable: boolean;
   bend: PlannedBend | null;
+  /** Welds priced cost-plus from the cost version (the market version has no rate_weld row). */
+  weldingCostPlus: boolean;
   threads: PlannedThread[];
   features: PlannedFeature[];
   finishes: PlannedFinish[];
 };
+
+/** What market mode may price cost-plus when the version has no rows: the cost version and the quote's margin. */
+type CostPlusFallback = { costRates: RateSnapshot | null; marginPct: number };
 
 const FINISH_KEY = (code: string): string => code.trim().toLowerCase();
 
@@ -284,7 +295,7 @@ function colourOf(colour: string | null | undefined): string | null {
   return text === "" ? null : text;
 }
 
-function assessPart(ctx: PartContext): Verdict {
+function assessPart(ctx: PartContext, fallback: CostPlusFallback): Verdict {
   const { rates, material, thicknessMm, annotations, item, geometry } = ctx;
   const refusals: Flag[] = [];
   const notes: Flag[] = [];
@@ -356,7 +367,18 @@ function assessPart(ctx: PartContext): Verdict {
     notBenchmarked("bending", { count: 0, longestMm: 0, materialCode: materialCode ?? "", thicknessMm: thicknessMm ?? 0 });
   }
   if (annotations.roll && rates.roll.length === 0) notBenchmarked("rolling");
-  if (annotations.welds.length > 0 && rates.weld.length === 0) notBenchmarked("welding", { count: annotations.welds.length });
+  let weldingCostPlus = false;
+  if (annotations.welds.length > 0 && rates.weld.length === 0) {
+    // No benchmarked welding rate: the seams are priced cost-plus from the cost
+    // version when it has a row for every seam's process, else the part is refused.
+    const cost = fallback.costRates;
+    if (cost && cost.weld.length > 0 && annotations.welds.every((w) => findWeldRate(cost, w.process, w.beadMm) !== null)) {
+      weldingCostPlus = true;
+      notes.push(partFlag(ctx, "market.cost_plus", "amber", { operation: "welding", marginPct: fallback.marginPct, count: annotations.welds.length }));
+    } else {
+      notBenchmarked("welding", { count: annotations.welds.length });
+    }
+  }
 
   // Threads: size row + price at exactly this thickness for this material.
   const threads: PlannedThread[] = [];
@@ -435,7 +457,7 @@ function assessPart(ctx: PartContext): Verdict {
     }
   }
 
-  return { refusals, notes, priceable: priceable && refusals.length === 0, bend, threads, features, finishes };
+  return { refusals, notes, priceable: priceable && refusals.length === 0, bend, weldingCostPlus, threads, features, finishes };
 }
 
 type PricingItemExtra = QuoteInput["items"][number]["extras"][number];
@@ -908,6 +930,22 @@ function addAmount(map: Partial<Record<OperationType, number>>, type: OperationT
   map[type] = (map[type] ?? 0) + amount;
 }
 
+/**
+ * Cost-mode lines → selling lines at the quote's margin (price = cost ÷ (1 − m),
+ * the cost-mode rule) for an operation the market version has no rows for.
+ * The audit fields say so: source = cost_plus, the cost version, the margin
+ * and the cost each line started from.
+ */
+function costPlusLines(lines: readonly OperationLine[], marginPct: number, costRateVersionId: string): OperationLine[] {
+  return lines.map((line) => ({
+    ...line,
+    unitCost: priceFromCost(line.unitCost, marginPct),
+    setupShare: priceFromCost(line.setupShare, marginPct),
+    rateRef: { ...line.rateRef, values: { ...line.rateRef.values, source: "cost_plus", costRateVersionId, marginPct, costEur: line.unitCost } },
+    details: { ...line.details, source: "cost_plus", costRateVersionId, marginPct, costEur: line.unitCost },
+  }));
+}
+
 function accumulateMarket(map: Partial<Record<OperationType, number>>, operations: readonly OperationLine[], qty: number): void {
   for (const op of operations) {
     const total = op.unitCost * qty;
@@ -943,7 +981,7 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
 
   const leadTimeDays = input.leadTimeDays ?? null;
   const lead = resolveLeadTimeMultiplier(rates.leadtime, leadTimeDays);
-  const verdicts = ctxs.map(assessPart);
+  const verdicts = ctxs.map((ctx) => assessPart(ctx, { costRates: options.costRates, marginPct: input.marginPct }));
 
   // Finishes with a minimum lead time (coatings): the quote cannot be offered below the largest one.
   const finishMinLead = new Map<string, number>();
@@ -1000,9 +1038,15 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
     push(laserSetupLine(ctx, groupPieces));
     push(orderChargeLine(ctx, totalPieces));
     if (verdict.bend) lines.push(...bendLinesMarket(ctx, verdict.bend));
-    // Rolls / welds only when the version benchmarks them (assessPart refused them otherwise).
+    // Rolls only when the version benchmarks them (assessPart refused them otherwise).
     push(rollLine(ctx));
-    lines.push(...weldLines(ctx));
+    // Welds: the version's rows, else cost-plus from the cost version (assessPart decided; refused when neither).
+    if (verdict.weldingCostPlus && options.costRates) {
+      const costCtx = buildPartContext(ctx.part, ctx.item, options.costRates, machines);
+      lines.push(...costPlusLines(weldLines(costCtx), input.marginPct, options.costRates.versionId));
+    } else {
+      lines.push(...weldLines(ctx));
+    }
     lines.push(...threadLinesMarket(ctx, verdict.threads));
     lines.push(...featureLinesMarket(ctx, verdict.features));
     for (const plan of verdict.finishes) {
@@ -1068,12 +1112,17 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
   let welding: PricedQuote["welding"] = null;
   let weldingFlags: Flag[] = [];
   if (input.weldingOnly) {
-    if (rates.weld.length === 0) {
-      quoteFlags.push(quoteFlag("market.not_benchmarked", "red", { operation: "welding" }));
-    } else {
+    if (rates.weld.length > 0) {
       const block = priceWeldingOnly(input.weldingOnly, rates, general.defaultMarginPct);
       welding = { operations: block.operations, cost: block.cost, price: block.price, minOrderApplied: block.minOrderApplied };
       weldingFlags = block.flags;
+    } else if (options.costRates && options.costRates.weld.length > 0) {
+      // No benchmarked welding rate: the block is priced cost-plus from the cost version at the quote's margin.
+      const block = priceWeldingOnly(input.weldingOnly, options.costRates, input.marginPct);
+      welding = { operations: costPlusLines(block.operations, input.marginPct, options.costRates.versionId), cost: block.cost, price: block.price, minOrderApplied: block.minOrderApplied };
+      weldingFlags = [...block.flags, quoteFlag("market.cost_plus", "amber", { operation: "welding", marginPct: input.marginPct, count: input.weldingOnly.seams.length })];
+    } else {
+      quoteFlags.push(quoteFlag("market.not_benchmarked", "red", { operation: "welding" }));
     }
   }
 

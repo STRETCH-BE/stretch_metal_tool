@@ -362,6 +362,11 @@ export const flags: FlagsContent = {
       message:
         "Gięcie wycenione wg stawki dla stali {thicknessMm} mm × {factor} ({family}) — brak benchmarku dla {materialCode}; sprawdź przed wysłaniem.",
     },
+    "market.cost_plus": {
+      label: "Cena koszt plus marża",
+      message:
+        "{operation}: brak stawki w cenniku rynkowym — wyceniono ze stawek kosztowych plus marża {marginPct} % z tej oferty; sprawdź przed wysłaniem.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",
