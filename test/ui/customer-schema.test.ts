@@ -30,6 +30,9 @@ const VALID = {
   customer_class: "key",
   preferred_locale: "en",
   notes: "",
+  customer_type: "b2b",
+  contact_person: " Hans Meier ",
+  requested_terms: "30 days net, 2 % within 14 days",
 };
 
 describe("parseCustomerForm — country", () => {
@@ -73,6 +76,9 @@ describe("parseCustomerForm — values echo", () => {
       customer_class: "new",
       preferred_locale: "pl",
       notes: "Pays late.",
+      customer_type: "b2c",
+      contact_person: "",
+      requested_terms: "",
     };
     const result = parseCustomerForm(form(typed));
     expect(result.ok).toBe(false);
@@ -97,5 +103,21 @@ describe("parseCustomerForm — values echo", () => {
     expect(result.data.email).toBe("buyer@acme.de");
     expect(result.data.notes).toBeNull();
     expect(result.data.preferred_locale).toBe("en");
+    expect(result.data.customer_type).toBe("b2b");
+    expect(result.data.contact_person).toBe("Hans Meier");
+    expect(result.data.requested_terms).toBe("30 days net, 2 % within 14 days");
+  });
+});
+
+describe("parseCustomerForm — customer type (assembly mode)", () => {
+  it("is required: a missing or unknown value reports `required` on the field", () => {
+    for (const customer_type of ["", "private", "B2B"]) {
+      const result = parseCustomerForm(form({ ...VALID, customer_type }));
+      expect(result.ok, customer_type).toBe(false);
+      if (!result.ok) expect(result.fieldErrors).toEqual({ customer_type: "required" });
+    }
+    const b2c = parseCustomerForm(form({ ...VALID, customer_type: "b2c", contact_person: "", requested_terms: "" }));
+    expect(b2c.ok).toBe(true);
+    if (b2c.ok) expect(b2c.data).toMatchObject({ customer_type: "b2c", contact_person: null, requested_terms: null });
   });
 });

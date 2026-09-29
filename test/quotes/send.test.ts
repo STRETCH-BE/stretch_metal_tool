@@ -8,7 +8,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
-import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
+import { JOB_RATES, MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
 import { ITEM_ID, QUOTE_ID, USER_ID, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, redFlag } from "./fixtures";
 
 const state = vi.hoisted(() => ({
@@ -30,6 +30,7 @@ vi.mock("@/lib/rates/load", () => ({
   loadActiveRateVersionId: vi.fn(async () => RATE_VERSION_ID),
   loadRateSnapshot: vi.fn(async () => RATE_SNAPSHOT_V1),
   loadMachinePark: vi.fn(async () => MACHINE_PARK),
+  loadJobRates: vi.fn(async () => JOB_RATES),
 }));
 
 import { buildQuoteEmail, sendQuote } from "@/lib/quotes/send";

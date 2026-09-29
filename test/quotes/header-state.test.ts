@@ -63,6 +63,10 @@ describe("header-state", () => {
       notes: "n",
       showOperationsOnPdf: true,
       weldingSeparate: true,
+      customerReference: null,
+      contactPerson: null,
+      shipping: null,
+      priceScale: [],
     });
   });
 });

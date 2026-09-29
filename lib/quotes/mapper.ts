@@ -24,21 +24,38 @@
  *   - `toJson` round-trips through JSON so NaN/Infinity (which cannot
  *     appear after validation anyway) become null instead of breaking the
  *     jsonb insert, and class instances/undefined are stripped.
+ *   - Assembly mode (docs/assembly-mode-design.md §2): assemblies and
+ *     their seams map to QuoteInput.assemblies, the member columns of an
+ *     item (assembly_id, qty_per_assembly, material_override,
+ *     material_note, forming) to the PricingItem, the customer's type /
+ *     country / VAT id and the quote's shipping + price scale to the
+ *     quote-level inputs. A MEMBER's order quantity in the input is
+ *     assembly.qty × qty_per_assembly whatever quote_items.qty holds;
+ *     `memberQtyUpdates` lists the rows whose stored qty disagrees so the
+ *     re-price writes them back. All of it is optional on the source: the
+ *     client preview and older callers pass none of it and get the same
+ *     input as before (assemblies [], no customer type, no shipping).
+ *   - pricedToPersistence takes the ids of ALL items: an item the engine
+ *     did not price as a line (a member priced inside its assembly) gets
+ *     unit_cost 0 / unit_price null / no flags instead of keeping a stale
+ *     loose-part price; a refused item keeps null as before.
  */
 
 import type { PartGeometry } from "@/lib/geometry/types";
-import type { CurrencyCode, CustomerRow, Json, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
+import type { AssemblyRow, AssemblySeamRow, CompanySettingsRow, CurrencyCode, CustomerRow, Json, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
 import { resolveMarginPct } from "@/lib/pricing/price-quote";
 import type {
   OperationLine,
   PricedQuote,
+  PricingAssembly,
   PricingItem,
   PricingPart,
   QuoteInput,
   RateSnapshot,
 } from "@/lib/pricing/types";
 import { toQuoteCurrency } from "@/lib/format";
-import { parseAnnotations, parseExtras, parseGeometry, parseWeldingOnly } from "./schema";
+import { normalisePriceScale, parseAnnotations, parseExtras, parseForming, parseGeometry, parseShipping, parseWeldingOnly } from "./schema";
+import { seamRowToPricingSeam } from "./seams";
 
 export function toJson(value: unknown): Json {
   return JSON.parse(JSON.stringify(value ?? null)) as Json;
@@ -118,36 +135,94 @@ export function partRowToPricingPart(row: PartRow): PricingPart {
   };
 }
 
-/** quote_items row → PricingItem. */
-export function itemRowToPricingItem(row: QuoteItemRow): PricingItem {
+/** Order quantity of an assembly member: assembly.qty × qty_per_assembly (≥ 1 each). */
+export function memberQty(assembly: Pick<AssemblyRow, "qty">, item: Pick<QuoteItemRow, "qty_per_assembly">): number {
+  const perAssembly = Math.max(1, Math.floor(num(item.qty_per_assembly) ?? 1));
+  return Math.max(1, Math.floor(num(assembly.qty) ?? 1)) * perAssembly;
+}
+
+/**
+ * quote_items row → PricingItem. With its assembly given, a member's qty is
+ * the derived order quantity (assembly.qty × qty_per_assembly); the stored
+ * column is only trusted for loose parts.
+ */
+export function itemRowToPricingItem(row: QuoteItemRow, assembly: Pick<AssemblyRow, "id" | "qty"> | null = null): PricingItem {
+  const member = assembly && row.assembly_id === assembly.id;
   return {
     id: row.id,
     partId: row.part_id,
-    qty: Number(row.qty),
+    qty: member ? memberQty(assembly, row) : Number(row.qty),
     extras: parseExtras(row.extras),
     scrapPct: num(row.scrap_pct),
+    assemblyId: member ? assembly.id : null,
+    qtyPerAssembly: Math.max(1, Math.floor(num(row.qty_per_assembly) ?? 1)),
+    materialOverride: Boolean(row.material_override),
+    materialNote: row.material_note ?? null,
+    forming: parseForming(row.forming),
   };
 }
 
+/** assemblies + assembly_seams rows → PricingAssembly[] in position order (seams per assembly in position order). */
+export function assemblyRowsToPricing(assemblies: ReadonlyArray<AssemblyRow>, seams: ReadonlyArray<AssemblySeamRow>): PricingAssembly[] {
+  const seamsByAssembly = new Map<string, AssemblySeamRow[]>();
+  for (const seam of seams) {
+    const list = seamsByAssembly.get(seam.assembly_id) ?? [];
+    list.push(seam);
+    seamsByAssembly.set(seam.assembly_id, list);
+  }
+  return [...assemblies]
+    .sort((a, b) => num(a.position)! - num(b.position)! || a.created_at.localeCompare(b.created_at))
+    .map((row, index) => ({
+      id: row.id,
+      position: index,
+      name: row.name,
+      drawingRef: row.drawing_ref,
+      qty: Math.max(1, Math.floor(num(row.qty) ?? 1)),
+      materialCode: row.material_code,
+      thicknessMm: num(row.thickness_mm),
+      seams: (seamsByAssembly.get(row.id) ?? [])
+        .sort((a, b) => num(a.position)! - num(b.position)! || a.created_at.localeCompare(b.created_at))
+        .map(seamRowToPricingSeam),
+    }));
+}
+
+/** Members whose stored quote_items.qty disagrees with assembly.qty × qty_per_assembly (the re-price writes these back). */
+export function memberQtyUpdates(items: ReadonlyArray<QuoteItemRow>, assemblies: ReadonlyArray<AssemblyRow>): { id: string; qty: number }[] {
+  const byId = new Map(assemblies.map((a) => [a.id, a] as const));
+  const out: { id: string; qty: number }[] = [];
+  for (const item of items) {
+    const assembly = item.assembly_id ? byId.get(item.assembly_id) : undefined;
+    if (!assembly) continue;
+    const qty = memberQty(assembly, item);
+    if (Number(item.qty) !== qty) out.push({ id: item.id, qty });
+  }
+  return out;
+}
+
 export type QuoteInputSource = {
-  quote: Pick<QuoteRow, "type" | "margin_pct" | "welding_only" | "lead_time_days">;
-  customer: Pick<CustomerRow, "customer_class"> | null;
+  quote: Pick<QuoteRow, "type" | "margin_pct" | "welding_only" | "lead_time_days"> & Partial<Pick<QuoteRow, "shipping" | "price_scale">>;
+  customer: (Pick<CustomerRow, "customer_class"> & Partial<Pick<CustomerRow, "customer_type" | "country" | "vat_id">>) | null;
   items: QuoteItemRow[];
   parts: PartRow[];
   rates: RateSnapshot;
+  /** Welded assemblies of the quote and their seams (absent = none). */
+  assemblies?: ReadonlyArray<AssemblyRow>;
+  seams?: ReadonlyArray<AssemblySeamRow>;
 };
 
 /** Assemble the engine input for a quote. Items are sorted by position. */
 export function buildQuoteInput(source: QuoteInputSource): QuoteInput {
   const partsById = new Map(source.parts.map((p) => [p.id, p] as const));
+  const assembliesById = new Map((source.assemblies ?? []).map((a) => [a.id, a] as const));
   const items = [...source.items]
     .sort((a, b) => a.position - b.position || a.created_at.localeCompare(b.created_at))
     .filter((item) => partsById.has(item.part_id))
-    .map(itemRowToPricingItem);
+    .map((item) => itemRowToPricingItem(item, item.assembly_id ? (assembliesById.get(item.assembly_id) ?? null) : null));
   const usedPartIds = new Set(items.map((i) => i.partId));
   const parts = source.parts.filter((p) => usedPartIds.has(p.id)).map(partRowToPricingPart);
   const customerClass = source.customer?.customer_class ?? null;
   const weldingOnly = parseWeldingOnly(source.quote.welding_only);
+  const customerType = source.customer?.customer_type === "b2c" ? "b2c" : source.customer?.customer_type === "b2b" ? "b2b" : null;
   return {
     type: source.quote.type,
     marginPct: resolveMarginPct(source.rates, customerClass, num(source.quote.margin_pct)),
@@ -156,6 +231,25 @@ export function buildQuoteInput(source: QuoteInputSource): QuoteInput {
     parts,
     weldingOnly: source.quote.type === "welding_only" ? weldingOnly ?? { seams: [], partsCount: 0 } : weldingOnly,
     leadTimeDays: num(source.quote.lead_time_days),
+    assemblies: assemblyRowsToPricing(source.assemblies ?? [], source.seams ?? []),
+    customerType,
+    customerCountry: source.customer?.country ? String(source.customer.country).toUpperCase() : null,
+    customerVatId: source.customer?.vat_id ?? null,
+    shipping: parseShipping(source.quote.shipping),
+    priceScale: normalisePriceScale(source.quote.price_scale),
+  };
+}
+
+/** company_settings row → CompanySettingsRow with the numeric / boolean columns coerced (PostgREST sends numerics as strings). */
+export function companyRowToSettings(row: Record<string, unknown> | null | undefined): CompanySettingsRow | null {
+  if (!row || typeof row !== "object") return null;
+  const oss = row.oss_active;
+  return {
+    ...(row as unknown as CompanySettingsRow),
+    id: Number(row.id ?? 1),
+    assembly_margin_pct: num(row.assembly_margin_pct as number | string | null) ?? 0,
+    subcontract_margin_pct: num(row.subcontract_margin_pct as number | string | null) ?? 0,
+    oss_active: oss === true || oss === "true",
   };
 }
 
@@ -217,10 +311,16 @@ export function operationLineToRow(itemId: string, position: number, line: Opera
   };
 }
 
-/** PricedQuote → the row updates persisted by repriceQuote. */
+/**
+ * PricedQuote → the row updates persisted by repriceQuote. `allItemIds`
+ * (the quote's item rows) lets an item the engine did not return as a line
+ * — a member priced inside its assembly — be reset instead of keeping a
+ * stale loose price (see the header).
+ */
 export function pricedToPersistence(
   priced: PricedQuote,
-  quote: { currency: CurrencyCode; fx_rate: number | string }
+  quote: { currency: CurrencyCode; fx_rate: number | string },
+  allItemIds: ReadonlyArray<string> = []
 ): Persistence {
   const fx = Number(quote.fx_rate) || 1;
   const items: ItemUpdate[] = priced.items.map((item) => ({
@@ -229,6 +329,10 @@ export function pricedToPersistence(
     unit_price: item.unitPrice,
     flags: toJson(item.flags),
   }));
+  const priced_ids = new Set(items.map((i) => i.id));
+  for (const id of allItemIds) {
+    if (!priced_ids.has(id)) items.push({ id, unit_cost: 0, unit_price: null, flags: [] });
+  }
   const operations: OperationInsert[] = priced.items.flatMap((item) =>
     item.operations.map((line, index) => operationLineToRow(item.itemId, index, line))
   );

@@ -89,6 +89,9 @@ const TYPED = {
   customer_class: "new",
   preferred_locale: "en",
   notes: "Met at the fair.",
+  customer_type: "b2b",
+  contact_person: "Mehmet",
+  requested_terms: "",
 };
 
 describe("createCustomer", () => {
@@ -110,6 +113,16 @@ describe("createCustomer", () => {
     expect(state.status).toBe("error");
     expect(state.fieldErrors).toEqual({ name: "required", email: "invalidEmail" });
     expect(state.values).toEqual(TYPED);
+    expect(createClient).not.toHaveBeenCalled();
+  });
+
+  it("requires the customer type (no silent B2B default) and echoes the values", async () => {
+    getCurrentUser.mockResolvedValue(session("sales"));
+    const missing = { ...TYPED, name: "Acme", email: "buyer@acme.de", customer_type: "" };
+    const state = await createCustomer(INITIAL_CUSTOMER_FORM_STATE, form(missing));
+    expect(state.status).toBe("error");
+    expect(state.fieldErrors).toEqual({ customer_type: "required" });
+    expect(state.values).toEqual(missing);
     expect(createClient).not.toHaveBeenCalled();
   });
 
@@ -139,7 +152,7 @@ describe("createCustomer", () => {
       createCustomer(INITIAL_CUSTOMER_FORM_STATE, form(valid))
     ).rejects.toThrow(`NEXT_REDIRECT:/customers/${ID}?created=1`);
     expect(client.insert).toHaveBeenCalledWith(
-      expect.objectContaining({ country: "TR", email: "buyer@acme.de", created_by: "user-1" })
+      expect.objectContaining({ country: "TR", email: "buyer@acme.de", created_by: "user-1", customer_type: "b2b", contact_person: "Mehmet", requested_terms: null })
     );
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "customer.create" }));
     expect(revalidatePath).toHaveBeenCalled();
@@ -189,6 +202,21 @@ describe("updateCustomer", () => {
     expect(state).not.toHaveProperty("values");
     expect(logAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: "customer.update", entityId: ID })
+    );
+    expect(logAudit).not.toHaveBeenCalledWith(expect.objectContaining({ action: "customer.type_change" }));
+  });
+
+  it("audits a B2B → B2C switch on its own", async () => {
+    getCurrentUser.mockResolvedValue(session("sales"));
+    const after = { ...ROW, customer_type: "b2c" as const, requested_terms: "Przedpłata 100 %" };
+    const client = stubClient({ maybeSingle: { data: ROW, error: null }, single: { data: after, error: null } });
+    createClient.mockResolvedValue(client);
+    const valid = { ...TYPED, name: "Acme", email: "", customer_type: "b2c", requested_terms: "Przedpłata 100 %" };
+    const state = await updateCustomer(ID, INITIAL_CUSTOMER_FORM_STATE, form(valid));
+    expect(state).toEqual({ status: "saved", customer: after });
+    expect(client.update).toHaveBeenCalledWith(expect.objectContaining({ customer_type: "b2c", requested_terms: "Przedpłata 100 %" }));
+    expect(logAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "customer.type_change", entityId: ID, before: { customer_type: "b2b" }, after: { customer_type: "b2c" } })
     );
   });
 });

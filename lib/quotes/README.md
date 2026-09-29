@@ -10,9 +10,13 @@ reprice.ts     repriceQuote(quoteId, { admin? })        → PricedQuote | null  
 queries.ts     listQuotes, getQuoteBundle/loadQuoteBundle, listQuoteAudit, listCustomerOptions
 actions.ts     "use server": createQuote, updateQuoteHeader, updateItem, removeItem, addItem,
                reorderItems, updateWeldingOnly, duplicateAsNewVersion, requestOverride,
-               confirmFlag, setQuoteStatus, sendQuoteAction, repriceQuoteAction
+               confirmFlag, setQuoteStatus, sendQuoteAction, repriceQuoteAction,
+               assembly mode: createAssembly, updateAssembly, removeAssembly, setItemAssembly,
+               setItemMaterialOverride, setItemForming, resolveForming, confirmNoForming,
+               addSeam, addSeamFromPart, updateSeam, removeSeam, unpairSeam
 send.ts        sendQuote(quoteId, { locale }) → { sent, mailed, pdfPath }, buildQuoteEmail
-send-guard.ts  canSend(bundle) → { ok, reasons[] }                              (pure)
+send-guard.ts  canSend(bundle) → { ok, reasons[] }, exportBlockReasons(bundle)  (pure)
+seams.ts       matchSeam (double-click / neighbour-edge guard), seamTotals        (pure)
 mapper.ts      rows → QuoteInput, PricedQuote → row updates                     (pure)
 schema.ts      zod guards for stored JSON + every action input                  (pure)
 shared.ts      quoteNumberLabel, nextVersionNumber, worstSeverity, …            (pure)

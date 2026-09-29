@@ -11,7 +11,12 @@
  * ascending/descending; `range` slices. Inserted rows get uuid-ish ids
  * and timestamps when missing. Not a database: no RLS, no cascades
  * beyond parts → quote_items → operations (implemented because
- * removeItem relies on it).
+ * removeItem relies on it) and assemblies → assembly_seams / member
+ * quote_items (the real FK is ON DELETE CASCADE on both; removeAssembly
+ * must detach the members before deleting, and the fake mirrors the
+ * cascade so a wrong order would show up in the tests). Deleting a seam
+ * clears paired_seam_id on the seams that pointed at it (ON DELETE SET
+ * NULL).
  */
 
 import { randomUUID } from "node:crypto";
@@ -151,6 +156,15 @@ export class FakeSupabase {
       this.tables.quote_items = this.rowsOf("quote_items").filter((i) => !ids.includes(i.part_id));
       const itemIds = items.map((i) => i.id);
       this.tables.operations = this.rowsOf("operations").filter((o) => !itemIds.includes(o.quote_item_id));
+    }
+    if (table === "assemblies") {
+      const ids = Array.from(targets).map((r) => r.id);
+      this.tables.assembly_seams = this.rowsOf("assembly_seams").filter((s) => !ids.includes(s.assembly_id));
+      this.tables.quote_items = this.rowsOf("quote_items").filter((i) => !ids.includes(i.assembly_id));
+    }
+    if (table === "assembly_seams") {
+      const ids = Array.from(targets).map((r) => r.id);
+      for (const seam of this.rowsOf("assembly_seams")) if (ids.includes(seam.paired_seam_id)) seam.paired_seam_id = null;
     }
     return Array.from(targets);
   }

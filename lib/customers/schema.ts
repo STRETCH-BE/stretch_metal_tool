@@ -16,10 +16,17 @@
  * `values`: React 19 resets a <form action> after the action settles, so
  * every failed submit echoes the raw submitted strings back in the state
  * and the form uses them as defaultValue (nothing typed is lost).
+ *
+ * Assembly mode (docs/assembly-mode-design.md §2): `customer_type` (b2b |
+ * b2c) is REQUIRED on create and update — the VAT presentation and the
+ * payment terms on the PDF depend on it, so no silent default; a missing
+ * or unknown value reports "required" on that field. `contact_person` and
+ * `requested_terms` (the customer's own payment wish) are optional text.
+ * Form field names are exactly these snake_case keys.
  */
 
 import { z } from "zod";
-import type { CustomerRow, UserLocale } from "@/lib/db/types";
+import type { CustomerRow, CustomerTypeDb, UserLocale } from "@/lib/db/types";
 import type {
   CustomerClassCode,
   CustomerCountryCode,
@@ -64,6 +71,8 @@ export const CUSTOMER_CLASSES = [
   "distributor",
 ] as const satisfies readonly CustomerClassCode[];
 
+export const CUSTOMER_TYPES = ["b2b", "b2c"] as const satisfies readonly CustomerTypeDb[];
+
 export const DEFAULT_COUNTRY: CustomerCountryCode = "PL";
 export const DEFAULT_CUSTOMER_CLASS: CustomerClassCode = "standard";
 
@@ -107,6 +116,10 @@ export const customerSchema = z.object({
     .enum(["", "pl", "en"], "invalidLocale")
     .transform((v): UserLocale | null => (v === "" ? null : v)),
   notes: optionalText(2000),
+  /** Required: B2B (VAT id, reverse charge abroad) or B2C (private person: gross prices, prepayment). */
+  customer_type: z.enum(CUSTOMER_TYPES, "required"),
+  contact_person: optionalText(200),
+  requested_terms: optionalText(500),
 });
 
 export type CustomerInput = z.output<typeof customerSchema>;
@@ -125,6 +138,9 @@ export const CUSTOMER_FIELDS: readonly CustomerField[] = [
   "customer_class",
   "preferred_locale",
   "notes",
+  "customer_type",
+  "contact_person",
+  "requested_terms",
 ];
 
 export type CustomerFormState = {

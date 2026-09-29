@@ -32,8 +32,34 @@
  *   - requestOverride flips quotes.status to pending_override; the admin
  *     queue (admin module) decides and flips it back.
  *   - setQuoteStatus accepts won/lost only from `sent`.
+ *
+ * Assembly mode (docs/assembly-mode-design.md §2, §5):
+ *   - removeAssembly DETACHES the members first (assembly_id null,
+ *     qty_per_assembly 1, qty kept) and only then deletes the row: the FK
+ *     quote_items.assembly_id is ON DELETE CASCADE, so deleting first would
+ *     take the member items with it. Seams cascade in the DB.
+ *   - setItemAssembly recomputes quote_items.qty = assembly.qty ×
+ *     qty_per_assembly when moving a part in; moving it out keeps the last
+ *     computed qty as the loose quantity.
+ *   - confirmNoForming stores the confirmation as ONE forming operation
+ *     whose resolution is { kind: "none_needed" } carrying the geometry the
+ *     drawing suggested (the roll annotation's radius / angle / width, else
+ *     the bend lines as a bend operation, else a roll with zeros). The
+ *     engine's formingSuspected() treats any none_needed operation as the
+ *     confirmation; nothing new was added to the contract for it. Existing
+ *     forming operations are replaced by the confirmation — "none needed"
+ *     contradicts them.
+ *   - addSeamFromPart (the viewer's weld tool) applies matchSeam: the same
+ *     edge marked twice returns the existing seam (no duplicate row); the
+ *     neighbour part's edge of the same joint is stored paired and not
+ *     counted. addSeam (typed in the builder) never matches. unpairSeam
+ *     puts a wrongly paired seam back into the count.
+ *   - updateQuoteHeader treats the new header fields (customer reference,
+ *     contact person, shipping, price scale) as "keep when omitted", so a
+ *     client posting the old header shape does not erase them.
  */
 
+import { randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
@@ -45,30 +71,46 @@ import { EnvError } from "@/lib/env";
 import { routes } from "@/lib/routes";
 import { isPricingError } from "@/lib/pricing/errors";
 import { loadActiveRateVersionId } from "@/lib/rates/load";
-import type { Json, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
-import { QuoteAccessError, requireQuoteEditor, requireQuoteReader } from "./access";
+import type { AssemblyRow, AssemblySeamRow, Json, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
+import type { FormingOperation } from "@/lib/pricing/types";
+import { QuoteAccessError, requireQuoteEditor, requireQuoteReader, type QuoteEditor } from "./access";
 import { createDraftQuote } from "./create";
-import { toJson } from "./mapper";
+import { memberQty, toJson } from "./mapper";
 import { listQuoteVersions } from "./queries";
 import { repriceQuote } from "./reprice";
 import {
+  assemblyInputSchema,
+  assemblyUpdateSchema,
   decisionStatusSchema,
   fail,
   firstErrorCode,
+  formingInputSchema,
+  formingResolutionSchema,
+  itemAssemblySchema,
+  itemMaterialOverrideSchema,
   itemUpdateSchema,
   OK,
   overrideRequestSchema,
+  parseAnnotations,
   parseFlags,
+  parseForming,
+  parseGeometry,
   parseNewQuoteForm,
   quoteHeaderSchema,
   readNewQuoteForm,
+  seamInputSchema,
+  seamPatchSchema,
   weldingOnlySchema,
+  type AssemblyInput,
   type ItemUpdateInput,
   type NewQuoteFormState,
   type OverrideRequestInput,
   type QuoteActionResult,
+  type QuoteErrorCode,
   type QuoteHeaderInput,
+  type SeamInput,
 } from "./schema";
+import { matchSeam, seamInputToColumns, seamRowToInput } from "./seams";
 import { sendQuote } from "./send";
 import { isUuid, nextVersionNumber, overrideMatchesFlag } from "./shared";
 import type { MailOutcome, SendBlockReason } from "./types";
@@ -80,10 +122,17 @@ function revalidateQuote(id: string) {
   revalidatePath(routes.quote(id));
 }
 
-function accessFailure(error: unknown): QuoteActionResult | null {
+/** The failure half of QuoteActionResult (also the failure half of the assembly / seam results). */
+type ActionFailure = { ok: false; error: QuoteErrorCode; message?: string };
+
+function failure(error: QuoteErrorCode, message?: string): ActionFailure {
+  return message ? { ok: false, error, message } : { ok: false, error };
+}
+
+function accessFailure(error: unknown): ActionFailure | null {
   if (error instanceof QuoteAccessError) {
     if (error.code === "unauthenticated") redirect(routes.login);
-    return fail(error.code);
+    return failure(error.code);
   }
   return null;
 }
@@ -177,7 +226,7 @@ export async function updateQuoteHeader(quoteId: string, input: QuoteHeaderInput
     if (!customer) return fail("notFound");
   }
 
-  const update = {
+  const update: Partial<QuoteRow> = {
     customer_id: data.customerId,
     currency: data.currency,
     fx_rate: data.currency === "EUR" ? 1 : data.fxRate,
@@ -190,6 +239,11 @@ export async function updateQuoteHeader(quoteId: string, input: QuoteHeaderInput
     show_operations_on_pdf: data.showOperationsOnPdf,
     welding_separate: data.weldingSeparate,
   };
+  // Assembly-mode fields: omitted = keep (see the header).
+  if (data.customerReference !== undefined) update.customer_reference = data.customerReference;
+  if (data.contactPerson !== undefined) update.contact_person = data.contactPerson;
+  if (data.shipping !== undefined) update.shipping = data.shipping === null ? null : toJson(data.shipping);
+  if (data.priceScale !== undefined) update.price_scale = data.priceScale;
   const { error } = await supabase.from("quotes").update(update).eq("id", quoteId);
   if (error) {
     console.error("[quotes] header update failed", error);
@@ -219,6 +273,10 @@ function pickHeader(quote: QuoteRow): Json {
     notes: quote.notes,
     show_operations_on_pdf: quote.show_operations_on_pdf,
     welding_separate: quote.welding_separate,
+    customer_reference: quote.customer_reference,
+    contact_person: quote.contact_person,
+    shipping: quote.shipping,
+    price_scale: quote.price_scale,
   });
 }
 
@@ -358,6 +416,459 @@ export async function reorderItems(quoteId: string, orderedItemIds: string[]): P
     after: { order: ids.data },
   });
   return repriceAndRevalidate(quoteId);
+}
+
+/* ─── Assemblies (docs/assembly-mode-design.md) ───────────── */
+
+export type AssemblyActionResult = QuoteActionResult | { ok: true; assemblyId: string };
+
+export type SeamActionResult =
+  | { ok: true; seamId: string; pairedSeamId: string | null }
+  | { ok: false; error: QuoteErrorCode; message?: string };
+
+async function loadAssembly(assemblyId: string): Promise<AssemblyRow | null> {
+  if (!isUuid(assemblyId)) return null;
+  const supabase = await createClient();
+  const { data } = await supabase.from("assemblies").select("*").eq("id", assemblyId).maybeSingle();
+  return data ?? null;
+}
+
+async function loadSeam(seamId: string): Promise<AssemblySeamRow | null> {
+  if (!isUuid(seamId)) return null;
+  const supabase = await createClient();
+  const { data } = await supabase.from("assembly_seams").select("*").eq("id", seamId).maybeSingle();
+  return data ?? null;
+}
+
+/** requireQuoteEditor as a result instead of a throw. */
+async function editorFor(quoteId: string): Promise<{ editor: QuoteEditor } | { failure: ActionFailure }> {
+  try {
+    return { editor: await requireQuoteEditor(quoteId, { editableOnly: true }) };
+  } catch (error) {
+    return { failure: accessFailure(error) ?? failure("generic") };
+  }
+}
+
+function positionAfter(last: { position?: number | string } | null | undefined): number {
+  const value = last?.position;
+  return value === undefined || value === null ? 0 : (Number(value) || 0) + 1;
+}
+
+async function nextAssemblyPosition(supabase: QuoteEditor["supabase"], quoteId: string): Promise<number> {
+  const { data } = await supabase.from("assemblies").select("position").eq("quote_id", quoteId).order("position", { ascending: false }).limit(1).maybeSingle();
+  return positionAfter(data);
+}
+
+async function nextSeamPosition(supabase: QuoteEditor["supabase"], assemblyId: string): Promise<number> {
+  const { data } = await supabase.from("assembly_seams").select("position").eq("assembly_id", assemblyId).order("position", { ascending: false }).limit(1).maybeSingle();
+  return positionAfter(data);
+}
+
+function assemblyJson(row: AssemblyRow | Partial<AssemblyRow>): Json {
+  return toJson({
+    quote_id: row.quote_id,
+    name: row.name,
+    drawing_ref: row.drawing_ref,
+    qty: row.qty,
+    material_code: row.material_code,
+    thickness_mm: row.thickness_mm,
+    notes: row.notes,
+    position: row.position,
+  });
+}
+
+/** New welded assembly on a quote; position = next. */
+export async function createAssembly(quoteId: string, input: AssemblyInput): Promise<AssemblyActionResult> {
+  const parsed = assemblyInputSchema.safeParse(input);
+  if (!parsed.success) return fail(firstErrorCode(parsed.error));
+  const access = await editorFor(quoteId);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const position = await nextAssemblyPosition(supabase, quoteId);
+  const row = {
+    quote_id: quoteId,
+    position,
+    name: parsed.data.name,
+    drawing_ref: parsed.data.drawingRef,
+    qty: parsed.data.qty,
+    material_code: parsed.data.materialCode,
+    thickness_mm: parsed.data.thicknessMm,
+    notes: parsed.data.notes,
+  };
+  const { data: inserted, error } = await supabase.from("assemblies").insert(row).select("id").single();
+  if (error || !inserted) {
+    console.error("[quotes] assembly create failed", error);
+    return fail("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "assembly.create", entity: "assemblies", entityId: inserted.id, after: assemblyJson(row) });
+  const repriced = await repriceAndRevalidate(quoteId);
+  if (!repriced.ok) return repriced;
+  return { ok: true, assemblyId: inserted.id };
+}
+
+export async function updateAssembly(assemblyId: string, input: Partial<AssemblyInput>): Promise<QuoteActionResult> {
+  const parsed = assemblyUpdateSchema.safeParse(input);
+  if (!parsed.success) return fail(firstErrorCode(parsed.error));
+  const assembly = await loadAssembly(assemblyId);
+  if (!assembly) return fail("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const data = parsed.data;
+  const update: Partial<AssemblyRow> = {};
+  if (data.name !== undefined) update.name = data.name;
+  if (data.drawingRef !== undefined) update.drawing_ref = data.drawingRef;
+  if (data.qty !== undefined) update.qty = data.qty;
+  if (data.materialCode !== undefined) update.material_code = data.materialCode;
+  if (data.thicknessMm !== undefined) update.thickness_mm = data.thicknessMm;
+  if (data.notes !== undefined) update.notes = data.notes;
+  if (Object.keys(update).length === 0) return OK;
+  const { error } = await supabase.from("assemblies").update(update).eq("id", assemblyId);
+  if (error) {
+    console.error("[quotes] assembly update failed", error);
+    return fail("generic");
+  }
+  await logAudit({
+    actor: session.user.id,
+    action: "assembly.update",
+    entity: "assemblies",
+    entityId: assemblyId,
+    before: assemblyJson(assembly),
+    after: assemblyJson({ ...assembly, ...update }),
+  });
+  return repriceAndRevalidate(assembly.quote_id);
+}
+
+/** Members become loose parts (assembly_id null, qty_per_assembly 1); the seams cascade in the DB. */
+export async function removeAssembly(assemblyId: string): Promise<QuoteActionResult> {
+  const assembly = await loadAssembly(assemblyId);
+  if (!assembly) return fail("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const { error: detachError } = await supabase.from("quote_items").update({ assembly_id: null, qty_per_assembly: 1 }).eq("assembly_id", assemblyId);
+  if (detachError) {
+    console.error("[quotes] assembly detach members failed", detachError);
+    return fail("generic");
+  }
+  const { error } = await supabase.from("assemblies").delete().eq("id", assemblyId);
+  if (error) {
+    console.error("[quotes] assembly remove failed", error);
+    return fail("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "assembly.remove", entity: "assemblies", entityId: assemblyId, before: assemblyJson(assembly) });
+  return repriceAndRevalidate(assembly.quote_id);
+}
+
+/** Move an item into an assembly (qty = assembly.qty × qtyPerAssembly) or out of it (loose, qty kept). */
+export async function setItemAssembly(itemId: string, input: { assemblyId: string | null; qtyPerAssembly?: number }): Promise<QuoteActionResult> {
+  const parsed = itemAssemblySchema.safeParse(input);
+  if (!parsed.success) return fail(firstErrorCode(parsed.error));
+  const item = await loadItem(itemId);
+  if (!item) return fail("notFound");
+  const access = await editorFor(item.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const update: Partial<QuoteItemRow> = {};
+  if (parsed.data.assemblyId) {
+    const assembly = await loadAssembly(parsed.data.assemblyId);
+    if (!assembly || assembly.quote_id !== item.quote_id) return fail("notFound");
+    const perAssembly = parsed.data.qtyPerAssembly ?? (item.assembly_id === assembly.id ? Math.max(1, Number(item.qty_per_assembly) || 1) : 1);
+    update.assembly_id = assembly.id;
+    update.qty_per_assembly = perAssembly;
+    update.qty = memberQty(assembly, { qty_per_assembly: perAssembly });
+  } else {
+    update.assembly_id = null;
+    update.qty_per_assembly = 1;
+  }
+  const { error } = await supabase.from("quote_items").update(update).eq("id", itemId);
+  if (error) {
+    console.error("[quotes] item assembly update failed", error);
+    return fail("generic");
+  }
+  await logAudit({
+    actor: session.user.id,
+    action: "quote.item.assembly",
+    entity: "quote_items",
+    entityId: itemId,
+    before: toJson({ quote_id: item.quote_id, assembly_id: item.assembly_id, qty_per_assembly: item.qty_per_assembly, qty: item.qty }),
+    after: toJson({ quote_id: item.quote_id, ...update }),
+  });
+  return repriceAndRevalidate(item.quote_id);
+}
+
+export async function setItemMaterialOverride(itemId: string, input: { materialOverride: boolean; materialNote: string | null }): Promise<QuoteActionResult> {
+  const parsed = itemMaterialOverrideSchema.safeParse(input);
+  if (!parsed.success) return fail(firstErrorCode(parsed.error));
+  const item = await loadItem(itemId);
+  if (!item) return fail("notFound");
+  const access = await editorFor(item.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const update = { material_override: parsed.data.materialOverride, material_note: parsed.data.materialNote };
+  const { error } = await supabase.from("quote_items").update(update).eq("id", itemId);
+  if (error) {
+    console.error("[quotes] item material override failed", error);
+    return fail("generic");
+  }
+  await logAudit({
+    actor: session.user.id,
+    action: "quote.item.material_override",
+    entity: "quote_items",
+    entityId: itemId,
+    before: toJson({ quote_id: item.quote_id, material_override: item.material_override, material_note: item.material_note }),
+    after: toJson({ quote_id: item.quote_id, ...update }),
+  });
+  return repriceAndRevalidate(item.quote_id);
+}
+
+/* ─── Forming operations ──────────────────────────────────── */
+
+async function storeForming(editor: QuoteEditor, item: QuoteItemRow, forming: FormingOperation[], action: string): Promise<QuoteActionResult> {
+  const { error } = await editor.supabase.from("quote_items").update({ forming: toJson(forming) }).eq("id", item.id);
+  if (error) {
+    console.error("[quotes] forming update failed", error);
+    return fail("generic");
+  }
+  await logAudit({
+    actor: editor.session.user.id,
+    action,
+    entity: "quote_items",
+    entityId: item.id,
+    before: toJson({ quote_id: item.quote_id, forming: item.forming }),
+    after: toJson({ quote_id: item.quote_id, forming }),
+  });
+  return repriceAndRevalidate(item.quote_id);
+}
+
+/** Replace the item's forming operations (ids kept when given, generated otherwise). */
+export async function setItemForming(itemId: string, forming: unknown): Promise<QuoteActionResult> {
+  const parsed = formingInputSchema.safeParse(forming);
+  if (!parsed.success) return fail(firstErrorCode(parsed.error));
+  const item = await loadItem(itemId);
+  if (!item) return fail("notFound");
+  const access = await editorFor(item.quote_id);
+  if ("failure" in access) return access.failure;
+  const seen = new Set<string>();
+  const ops: FormingOperation[] = parsed.data.map((op) => {
+    let id = op.id ?? randomUUID();
+    while (seen.has(id)) id = randomUUID();
+    seen.add(id);
+    return { ...op, id, resolution: op.resolution ?? null } as FormingOperation;
+  });
+  return storeForming(access.editor, item, ops, "quote.item.forming");
+}
+
+/** Set the resolution of one forming operation (in_house, step_bend, subcontract, none_needed). */
+export async function resolveForming(itemId: string, operationId: string, resolution: unknown): Promise<QuoteActionResult> {
+  const parsedResolution = formingResolutionSchema.safeParse(resolution);
+  if (!parsedResolution.success) return fail(firstErrorCode(parsedResolution.error));
+  if (typeof operationId !== "string" || operationId.length === 0 || operationId.length > 80) return fail("invalid");
+  const item = await loadItem(itemId);
+  if (!item) return fail("notFound");
+  const access = await editorFor(item.quote_id);
+  if ("failure" in access) return access.failure;
+  const forming = parseForming(item.forming);
+  const index = forming.findIndex((op) => op.id === operationId);
+  if (index < 0) return fail("notFound");
+  const next = forming.map((op, i) => (i === index ? ({ ...op, resolution: parsedResolution.data } as FormingOperation) : op));
+  return storeForming(access.editor, item, next, "forming.resolve");
+}
+
+/**
+ * The user confirms the part needs no forming although the drawing
+ * suggested it: stored as one operation resolved none_needed with the
+ * suspected geometry (see the header).
+ */
+export async function confirmNoForming(itemId: string): Promise<QuoteActionResult> {
+  const item = await loadItem(itemId);
+  if (!item) return fail("notFound");
+  const access = await editorFor(item.quote_id);
+  if ("failure" in access) return access.failure;
+  const { data: part } = await access.editor.supabase.from("parts").select("annotations, geometry").eq("id", item.part_id).maybeSingle();
+  const partRow = part as Pick<PartRow, "annotations" | "geometry"> | null;
+  const annotations = parseAnnotations(partRow?.annotations);
+  const geometry = parseGeometry(partRow?.geometry);
+  const resolution = { kind: "none_needed" } as const;
+  const clampAngle = (value: unknown) => Math.min(360, Math.max(0, Math.abs(Number(value) || 0)));
+  // What the drawing suggested: the roll annotation, else the bend lines
+  // (annotated, or on the DXF's layers / drawn — candidates awaiting a
+  // triage answer are not a suggestion yet), else a roll with zeros.
+  const bendLines = [
+    ...annotations.bends.map((b) => ({ lengthMm: Number(b.lengthMm) || 0, angleDeg: Number(b.angleDeg) || 0 })),
+    ...(geometry?.measures.bendLines ?? []).filter((b) => b.source !== "candidate").map((b) => ({ lengthMm: Number(b.lengthMm) || 0, angleDeg: Number(b.angleDeg ?? 90) || 0 })),
+  ];
+  let op: FormingOperation;
+  if (annotations.roll) {
+    op = {
+      id: randomUUID(),
+      kind: "roll",
+      insideRadiusMm: Math.max(0, Number(annotations.roll.radiusMm) || 0),
+      angleDeg: clampAngle(annotations.roll.arcAngleDeg),
+      widthMm: Math.max(0, Number(annotations.roll.axisLengthMm) || 0),
+      resolution,
+    };
+  } else if (bendLines.length > 0) {
+    op = {
+      id: randomUUID(),
+      kind: "bend",
+      bends: bendLines.length,
+      angleDeg: clampAngle(bendLines[0].angleDeg),
+      lengthMm: Math.max(0, ...bendLines.map((b) => b.lengthMm)),
+      resolution,
+    };
+  } else {
+    op = { id: randomUUID(), kind: "roll", insideRadiusMm: 0, angleDeg: 0, widthMm: 0, resolution };
+  }
+  return storeForming(access.editor, item, [op], "forming.confirm_none");
+}
+
+/* ─── Assembly seams ──────────────────────────────────────── */
+
+function seamJson(row: Partial<AssemblySeamRow>): Json {
+  return toJson({
+    assembly_id: row.assembly_id,
+    part_id: row.part_id,
+    label: row.label,
+    length_mm: row.length_mm,
+    process: row.process,
+    seam_type: row.seam_type,
+    stitch_bead_mm: row.stitch_bead_mm,
+    stitch_pitch_mm: row.stitch_pitch_mm,
+    tack_count: row.tack_count,
+    sides: row.sides,
+    thickness_mm: row.thickness_mm,
+    paired_seam_id: row.paired_seam_id,
+    entity_ids: row.entity_ids,
+  });
+}
+
+async function insertSeam(editor: QuoteEditor, assembly: AssemblyRow, input: SeamInput, pairedSeamId: string | null): Promise<SeamActionResult> {
+  const parsed = seamInputSchema.safeParse(input);
+  if (!parsed.success) return failure(firstErrorCode(parsed.error));
+  const { session, supabase } = editor;
+  const position = await nextSeamPosition(supabase, assembly.id);
+  const columns = seamInputToColumns(parsed.data);
+  const row = { ...columns, points: toJson(columns.points), assembly_id: assembly.id, position, paired_seam_id: pairedSeamId };
+  const { data: inserted, error } = await supabase.from("assembly_seams").insert(row).select("id").single();
+  if (error || !inserted) {
+    console.error("[quotes] seam add failed", error);
+    return failure("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "seam.add", entity: "assembly_seams", entityId: inserted.id, after: seamJson(row) });
+  const repriced = await repriceAndRevalidate(assembly.quote_id);
+  if (!repriced.ok) return repriced;
+  return { ok: true, seamId: inserted.id, pairedSeamId };
+}
+
+/** A seam typed in the builder (never matched against existing seams). */
+export async function addSeam(assemblyId: string, input: SeamInput): Promise<SeamActionResult> {
+  const parsed = seamInputSchema.safeParse(input);
+  if (!parsed.success) return failure(firstErrorCode(parsed.error));
+  const assembly = await loadAssembly(assemblyId);
+  if (!assembly) return failure("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  return insertSeam(access.editor, assembly, input, null);
+}
+
+/**
+ * The viewer's weld tool on a part that belongs to an assembly: the same
+ * edge twice → the existing seam (idempotent); the neighbour's edge →
+ * stored paired and not counted; otherwise a new counted seam.
+ */
+export async function addSeamFromPart(partId: string, input: SeamInput): Promise<SeamActionResult> {
+  if (!isUuid(partId)) return failure("notFound");
+  const candidate = seamInputSchema.safeParse({ ...input, partId });
+  if (!candidate.success) return failure(firstErrorCode(candidate.error));
+  const supabase = await createClient();
+  const { data: item } = await supabase.from("quote_items").select("*").eq("part_id", partId).maybeSingle();
+  if (!item || !item.assembly_id) return failure("notFound");
+  const assembly = await loadAssembly(item.assembly_id);
+  if (!assembly || assembly.quote_id !== item.quote_id) return failure("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { data: existingRows, error } = await access.editor.supabase.from("assembly_seams").select("*").eq("assembly_id", assembly.id).order("position");
+  if (error) {
+    console.error("[quotes] seams read failed", error);
+    return failure("generic");
+  }
+  const existing = (existingRows ?? []) as AssemblySeamRow[];
+  const match = matchSeam(existing, {
+    partId,
+    entityIds: candidate.data.entityIds,
+    lengthMm: candidate.data.lengthMm,
+    process: candidate.data.process,
+  });
+  if (match.kind === "duplicate") return { ok: true, seamId: match.seam.id, pairedSeamId: match.seam.paired_seam_id };
+  return insertSeam(access.editor, assembly, { ...input, partId }, match.kind === "paired" ? match.seam.id : null);
+}
+
+export async function updateSeam(seamId: string, input: Partial<SeamInput>): Promise<QuoteActionResult> {
+  const patch = seamPatchSchema.safeParse(input);
+  if (!patch.success) return failure(firstErrorCode(patch.error));
+  const seam = await loadSeam(seamId);
+  if (!seam) return failure("notFound");
+  const assembly = await loadAssembly(seam.assembly_id);
+  if (!assembly) return failure("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const merged: Record<string, unknown> = { ...seamRowToInput(seam) };
+  for (const [key, value] of Object.entries(patch.data)) if (value !== undefined) merged[key] = value;
+  const full = seamInputSchema.safeParse(merged);
+  if (!full.success) return failure(firstErrorCode(full.error));
+  const columns = seamInputToColumns(full.data);
+  const update = { ...columns, points: toJson(columns.points) };
+  const { error } = await supabase.from("assembly_seams").update(update).eq("id", seamId);
+  if (error) {
+    console.error("[quotes] seam update failed", error);
+    return failure("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "seam.update", entity: "assembly_seams", entityId: seamId, before: seamJson(seam), after: seamJson({ ...seam, ...update }) });
+  return repriceAndRevalidate(assembly.quote_id);
+}
+
+/** Delete a seam; a seam paired to it becomes counted again. */
+export async function removeSeam(seamId: string): Promise<QuoteActionResult> {
+  const seam = await loadSeam(seamId);
+  if (!seam) return failure("notFound");
+  const assembly = await loadAssembly(seam.assembly_id);
+  if (!assembly) return failure("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const { error: unpairError } = await supabase.from("assembly_seams").update({ paired_seam_id: null }).eq("paired_seam_id", seamId);
+  if (unpairError) {
+    console.error("[quotes] seam unpair failed", unpairError);
+    return failure("generic");
+  }
+  const { error } = await supabase.from("assembly_seams").delete().eq("id", seamId);
+  if (error) {
+    console.error("[quotes] seam remove failed", error);
+    return failure("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "seam.remove", entity: "assembly_seams", entityId: seamId, before: seamJson(seam) });
+  return repriceAndRevalidate(assembly.quote_id);
+}
+
+/** Put a seam matchSeam paired wrongly back into the count. */
+export async function unpairSeam(seamId: string): Promise<QuoteActionResult> {
+  const seam = await loadSeam(seamId);
+  if (!seam) return failure("notFound");
+  if (!seam.paired_seam_id) return OK;
+  const assembly = await loadAssembly(seam.assembly_id);
+  if (!assembly) return failure("notFound");
+  const access = await editorFor(assembly.quote_id);
+  if ("failure" in access) return access.failure;
+  const { session, supabase } = access.editor;
+  const { error } = await supabase.from("assembly_seams").update({ paired_seam_id: null }).eq("id", seamId);
+  if (error) {
+    console.error("[quotes] seam unpair failed", error);
+    return failure("generic");
+  }
+  await logAudit({ actor: session.user.id, action: "seam.unpair", entity: "assembly_seams", entityId: seamId, before: seamJson(seam), after: seamJson({ ...seam, paired_seam_id: null }) });
+  return repriceAndRevalidate(assembly.quote_id);
 }
 
 /* ─── Welding-only seams ──────────────────────────────────── */

@@ -17,6 +17,11 @@
  * resets the <form> after the action settles, so the form re-populates
  * its defaultValues from them and a typo in one field never wipes the
  * rest (test/ui/customer-actions.test.ts).
+ *
+ * Assembly mode: a change of `customer_type` (B2B ↔ B2C) is audited on
+ * its own ("customer.type_change") next to the full update entry, because
+ * it flips the VAT presentation and the payment terms of every quote the
+ * customer receives from then on.
  */
 
 import { redirect } from "next/navigation";
@@ -140,6 +145,16 @@ export async function updateCustomer(
     before: asJson(before),
     after: asJson(after),
   });
+  if (before && after && before.customer_type !== after.customer_type) {
+    await logAudit({
+      actor: session.user.id,
+      action: "customer.type_change",
+      entity: "customers",
+      entityId: id,
+      before: { customer_type: before.customer_type },
+      after: { customer_type: after.customer_type },
+    });
+  }
   revalidateCustomer(id);
   return { status: "saved", customer: after };
 }

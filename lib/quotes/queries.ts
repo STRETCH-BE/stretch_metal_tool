@@ -21,12 +21,22 @@
  * PostgREST embeds, which keeps the hand-written Database types honest.
  * `loadQuoteBundle(client, id)` takes the client explicitly so the
  * re-pricing glue can run it with the admin client when asked to.
+ *
+ * Assembly mode: the bundle also carries the quote's assemblies (position
+ * order), their seams (assembly, then position) and the company_settings
+ * row. A database that lags the code (assembly-mode migration not applied:
+ * PostgREST PGRST205 / Postgres 42P01) reads those as empty / null instead
+ * of taking the quote page down; any other error surfaces like every
+ * table. company_settings is read here directly (not through
+ * lib/rates/load) so the quote tests that mock the rate loader keep
+ * working; the numeric / boolean coercion lives in the mapper.
  */
 
 import type { Session } from "@/lib/auth";
 import { createClient, type ServerSupabase } from "@/lib/supabase/server";
 import { createAdminClient, type AdminSupabase } from "@/lib/supabase/admin";
-import type { CustomerRow, OperationRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
+import type { AssemblyRow, AssemblySeamRow, CustomerRow, OperationRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
+import { companyRowToSettings } from "./mapper";
 import { parseFlags, parsePricing, parseWeldingOnly } from "./schema";
 import { isQuoteEditor, isUuid, worstSeverity } from "./shared";
 import type { QuoteAuditRow, QuoteBundle, QuoteListFilters, QuoteListResult, QuoteListRow } from "./types";
@@ -35,11 +45,27 @@ export type QuoteReadClient = ServerSupabase | AdminSupabase;
 
 export const QUOTES_PAGE_SIZE = 50;
 
-type DbError = { message: string } | null;
+type DbError = { message: string; code?: string } | null;
 
 async function rows<T>(query: PromiseLike<{ data: unknown; error: DbError }>, what: string): Promise<T[]> {
   const { data, error } = await query;
   if (error) throw new Error(`${what}: ${error.message}`);
+  return (data ?? []) as T[];
+}
+
+/** PostgREST ("not in the schema cache") and Postgres (undefined_table) codes for a table that does not exist. */
+const MISSING_TABLE_CODES = new Set(["PGRST205", "42P01"]);
+
+/** Like rows(), but a table the deployed database does not have yet reads as empty (logged, never silent). */
+async function optionalRows<T>(query: PromiseLike<{ data: unknown; error: DbError }>, what: string, table: string): Promise<T[]> {
+  const { data, error } = await query;
+  if (error) {
+    if (error.code && MISSING_TABLE_CODES.has(error.code)) {
+      console.warn(`[quotes] ${table} is missing (${error.code}) — apply supabase/migrations/20260930100000_assembly_mode.sql`);
+      return [];
+    }
+    throw new Error(`${what}: ${error.message}`);
+  }
   return (data ?? []) as T[];
 }
 
@@ -178,12 +204,30 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
   ]);
 
   const itemIds = items.map((i) => i.id);
-  const operations = itemIds.length
-    ? await rows<OperationRow>(
-        client.from("operations").select("*").in("quote_item_id", itemIds).order("position"),
-        "loadQuoteBundle/operations"
+  const [operations, assemblies, companyRows] = await Promise.all([
+    itemIds.length
+      ? rows<OperationRow>(
+          client.from("operations").select("*").in("quote_item_id", itemIds).order("position"),
+          "loadQuoteBundle/operations"
+        )
+      : Promise.resolve([] as OperationRow[]),
+    optionalRows<AssemblyRow>(
+      client.from("assemblies").select("*").eq("quote_id", quoteId).order("position").order("created_at"),
+      "loadQuoteBundle/assemblies",
+      "assemblies"
+    ),
+    optionalRows<Record<string, unknown>>(client.from("company_settings").select("*").eq("id", 1).limit(1), "loadQuoteBundle/company", "company_settings"),
+  ]);
+  const assemblyIds = assemblies.map((a) => a.id);
+  const seams = assemblyIds.length
+    ? await optionalRows<AssemblySeamRow>(
+        client.from("assembly_seams").select("*").in("assembly_id", assemblyIds).order("position").order("created_at"),
+        "loadQuoteBundle/seams",
+        "assembly_seams"
       )
     : [];
+  const assemblyOrder = new Map(assemblyIds.map((id, index) => [id, index] as const));
+  seams.sort((a, b) => (assemblyOrder.get(a.assembly_id) ?? 0) - (assemblyOrder.get(b.assembly_id) ?? 0) || Number(a.position) - Number(b.position));
 
   return {
     quote: quote as QuoteRow,
@@ -197,9 +241,9 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
     pricing: parsePricing(quote.pricing),
     flags: parseFlags(quote.flags),
     weldingOnly: parseWeldingOnly(quote.welding_only),
-    assemblies: [],
-    seams: [],
-    company: null,
+    assemblies,
+    seams,
+    company: companyRowToSettings(companyRows[0] ?? null),
   };
 }
 
@@ -217,13 +261,13 @@ export async function listQuoteVersions(client: QuoteReadClient, number: string)
   );
 }
 
-/** Customers for the header/new-quote selects (id, name, country, class, e-mail, locale). */
-export type CustomerOption = Pick<CustomerRow, "id" | "name" | "country" | "customer_class" | "email" | "preferred_locale">;
+/** Customers for the header/new-quote selects (id, name, country, class, e-mail, locale, type, contact person). */
+export type CustomerOption = Pick<CustomerRow, "id" | "name" | "country" | "customer_class" | "email" | "preferred_locale" | "customer_type" | "contact_person">;
 
 export async function listCustomerOptions(): Promise<CustomerOption[]> {
   const supabase = await createClient();
   return rows<CustomerOption>(
-    supabase.from("customers").select("id, name, country, customer_class, email, preferred_locale").order("name").limit(500),
+    supabase.from("customers").select("id, name, country, customer_class, email, preferred_locale, customer_type, contact_person").order("name").limit(500),
     "listCustomerOptions"
   );
 }

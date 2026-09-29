@@ -5,7 +5,7 @@
  * File path: /test/quotes/fixtures.ts
  */
 
-import type { CustomerRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
+import type { AssemblyRow, AssemblySeamRow, CompanySettingsRow, CustomerRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
 import { priceQuote } from "@/lib/pricing/price-quote";
 import type { Flag, PricedQuote } from "@/lib/pricing/types";
 import { toQuoteCurrency } from "@/lib/format";
@@ -22,6 +22,10 @@ export const ITEM_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 export const CUSTOMER_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 export const USER_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 export const ADMIN_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+export const ASSEMBLY_ID = "a55e3b1e-0000-4000-8000-000000000001";
+export const SEAM_ID = "5ea30000-0000-4000-8000-000000000001";
+export const PART_ID_2 = "22222222-2222-4222-8222-222222222222";
+export const ITEM_ID_2 = "33333333-cccc-4ccc-8ccc-cccccccccccc";
 
 export function makeCustomer(over: Partial<CustomerRow> = {}): CustomerRow {
   return {
@@ -152,6 +156,76 @@ export function makeItemRow(over: Partial<QuoteItemRow> = {}): QuoteItemRow {
   };
 }
 
+/** A welded assembly of the fixture quote (S235 3 mm box, qty 1). */
+export function makeAssemblyRow(over: Partial<AssemblyRow> = {}): AssemblyRow {
+  return {
+    id: ASSEMBLY_ID,
+    quote_id: QUOTE_ID,
+    position: 0,
+    name: "Heat store box rev 3",
+    drawing_ref: "HSB-3",
+    qty: 1,
+    material_code: "S235",
+    thickness_mm: 3,
+    notes: null,
+    created_at: "2026-09-25T10:03:00Z",
+    ...over,
+  };
+}
+
+/** A continuous 1 250 mm MIG seam on the fixture assembly, marked from PART_ID's edge. */
+export function makeSeamRow(over: Partial<AssemblySeamRow> = {}): AssemblySeamRow {
+  return {
+    id: SEAM_ID,
+    assembly_id: ASSEMBLY_ID,
+    position: 0,
+    label: null,
+    part_id: PART_ID,
+    entity_ids: ["e1", "e2"],
+    points: null,
+    length_mm: 1250,
+    process: "mig_mag",
+    thickness_mm: null,
+    seam_type: "continuous",
+    stitch_bead_mm: null,
+    stitch_pitch_mm: null,
+    tack_count: null,
+    sides: 1,
+    paired_seam_id: null,
+    created_at: "2026-09-25T10:04:00Z",
+    ...over,
+  };
+}
+
+/** The seeded company_settings row (placeholders replaced by plausible data; see the migration for the real seed). */
+export function makeCompanySettings(over: Partial<CompanySettingsRow> = {}): CompanySettingsRow {
+  return {
+    id: 1,
+    brand: "STRETCHMETAL",
+    legal_name: "Alto Design Sp. z o.o.",
+    street: "ul. Legionów 59",
+    postal_code: "42-200",
+    city: "Częstochowa",
+    country: "PL",
+    phone: "+32 485 48 30 35",
+    email: "info@stretchmetal.pl",
+    website: "https://stretchmetal.pl",
+    nip: "PL5732911703",
+    regon: "383390837",
+    krs: "0000786996",
+    bank_name: "ING Bank Śląski",
+    iban_pln: "PL05 1050 1142 1000 0090 3188 9240",
+    iban_eur: "PL05 1050 1142 1000 0090 3188 9240",
+    swift: "INGBPLPW",
+    oss_active: false,
+    assembly_margin_pct: 30,
+    subcontract_margin_pct: 15,
+    updated_by: null,
+    updated_at: "2026-09-25T00:00:00Z",
+    ...over,
+  };
+}
+
 export function makeOverride(over: Partial<OverrideRow> = {}): OverrideRow {
   return {
     id: "11111111-1111-4111-8111-111111111111",
@@ -192,6 +266,9 @@ export type BundleOptions = {
   priced?: PricedQuote | null;
   items?: QuoteItemRow[];
   parts?: PartRow[];
+  assemblies?: AssemblyRow[];
+  seams?: AssemblySeamRow[];
+  company?: CompanySettingsRow | null;
 };
 
 export function makeBundle(options: BundleOptions = {}): QuoteBundle {
@@ -218,9 +295,9 @@ export function makeBundle(options: BundleOptions = {}): QuoteBundle {
     pricing: priced,
     flags,
     weldingOnly: null,
-    assemblies: [],
-    seams: [],
-    company: null,
+    assemblies: options.assemblies ?? [],
+    seams: options.seams ?? [],
+    company: options.company ?? null,
   };
 }
 

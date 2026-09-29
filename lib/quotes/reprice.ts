@@ -51,16 +51,26 @@
  * yield the same PricedQuote; operations are delete+insert per item so a
  * second run leaves exactly the same set. Returns null (and clears the
  * pricing columns) when there is nothing to price.
+ *
+ * Assembly mode (docs/assembly-mode-design.md): the admin-edited job
+ * rates (setups, assembly labour, weld speeds, packaging, shipping, VAT)
+ * are loaded with loadJobRates and passed as `jobRates`; a loader failure
+ * is logged and prices the quote WITHOUT them (null) rather than failing
+ * the save, because the loose-part model does not need them and the
+ * settings tables may not exist yet on a deployment. Before pricing, a
+ * member's quote_items.qty is written back to assembly.qty ×
+ * qty_per_assembly when it disagrees (the input already uses the
+ * product), so the stored rows never lie about the order quantity.
  */
 
 import { getCurrentUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { loadActiveRateVersionId, loadCostRateVersionId, loadMachinePark, loadRateSnapshot, type RatesClient } from "@/lib/rates/load";
+import { loadActiveRateVersionId, loadCostRateVersionId, loadJobRates, loadMachinePark, loadRateSnapshot, type RatesClient } from "@/lib/rates/load";
 import { priceQuote } from "@/lib/pricing/price-quote";
-import type { PricedQuote, RateSnapshot } from "@/lib/pricing/types";
+import type { JobRates, PricedQuote, RateSnapshot } from "@/lib/pricing/types";
 import { QuoteAccessError } from "./access";
-import { buildQuoteInput, emptyPersistence, hasPriceableContent, pricedToPersistence } from "./mapper";
+import { buildQuoteInput, emptyPersistence, hasPriceableContent, memberQtyUpdates, pricedToPersistence } from "./mapper";
 import { loadQuoteBundle } from "./queries";
 import { isQuoteEditable, isQuoteEditor, isUuid } from "./shared";
 
@@ -100,7 +110,7 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
     if (error) throw new Error(`repriceQuote/pin: ${error.message}`);
   }
 
-  const [rates, machines] = await Promise.all([loadRateSnapshot(reader, versionId), loadMachinePark(reader)]);
+  const [rates, machines, jobRates] = await Promise.all([loadRateSnapshot(reader, versionId), loadMachinePark(reader), loadJobRatesTolerant(reader)]);
 
   // Market mode: the margin is measured against a cost version, pinned on
   // the quote next to the price version the first time (same rule as
@@ -116,12 +126,22 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
       costRates = await loadRateSnapshot(reader, costId);
     }
   }
+  // Members: the stored qty must equal assembly.qty × qty_per_assembly.
+  for (const member of memberQtyUpdates(bundle.items, bundle.assemblies)) {
+    const { error } = await writer.from("quote_items").update({ qty: member.qty }).eq("id", member.id);
+    if (error) throw new Error(`repriceQuote/member-qty ${member.id}: ${error.message}`);
+    const row = bundle.items.find((i) => i.id === member.id);
+    if (row) row.qty = member.qty;
+  }
+
   const input = buildQuoteInput({
     quote: bundle.quote,
     customer: bundle.customer,
     items: bundle.items,
     parts: bundle.parts,
     rates,
+    assemblies: bundle.assemblies,
+    seams: bundle.seams,
   });
 
   const pricedAt = new Date().toISOString();
@@ -136,8 +156,8 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
     return null;
   }
 
-  const priced = priceQuote(input, rates, machines, { costRates });
-  const persistence = pricedToPersistence(priced, bundle.quote);
+  const priced = priceQuote(input, rates, machines, { costRates, jobRates });
+  const persistence = pricedToPersistence(priced, bundle.quote, bundle.items.map((i) => i.id));
 
   for (const item of persistence.items) {
     const { error } = await writer
@@ -164,4 +184,14 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   if (error) throw new Error(`repriceQuote/quote: ${error.message}`);
 
   return priced;
+}
+
+/** The job rates, or null when they cannot be loaded (logged): the loose-part model prices without them. */
+async function loadJobRatesTolerant(reader: RatesClient): Promise<JobRates | null> {
+  try {
+    return await loadJobRates(reader);
+  } catch (error) {
+    console.warn("[quotes] job rates unavailable — pricing without them", error instanceof Error ? error.message : error);
+    return null;
+  }
 }

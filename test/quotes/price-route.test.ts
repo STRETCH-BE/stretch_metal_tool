@@ -6,7 +6,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FakeSupabase } from "./fake-supabase";
-import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
+import { JOB_RATES, MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
 import { ITEM_ID, QUOTE_ID, USER_ID, makeCustomer, makeItemRow, makePartRow, makeQuoteRow } from "./fixtures";
 
 type FakeSession = { user: { id: string }; profile: { id: string; role: string } } | null;
@@ -33,6 +33,7 @@ vi.mock("@/lib/rates/load", () => ({
   loadActiveRateVersionId: vi.fn(async () => RATE_VERSION_ID),
   loadRateSnapshot: vi.fn(async () => RATE_SNAPSHOT_V1),
   loadMachinePark: vi.fn(async () => MACHINE_PARK),
+  loadJobRates: vi.fn(async () => JOB_RATES),
 }));
 
 import { POST } from "@/app/api/quotes/[id]/price/route";

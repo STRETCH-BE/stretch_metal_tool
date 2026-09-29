@@ -18,12 +18,24 @@
  * "no geometry" (red geometry flags) rather than crashing the whole quote.
  * Annotations are merged over EMPTY_ANNOTATIONS so a stored `{}` (the
  * column default) is a valid, empty annotation set.
+ *
+ * Assembly mode (docs/assembly-mode-design.md §2, §5): the stored
+ * `quote_items.forming` and `quotes.shipping` JSON get the same tolerant
+ * treatment (parseForming drops malformed operations, parseShipping
+ * returns null), the seam / assembly / member action inputs are validated
+ * here, and the header gains customer reference, contact person, shipping
+ * and price scale. Header text fields added in that round are "keep when
+ * omitted" (undefined = leave the column alone, null = clear it) so a
+ * client that still posts the old header shape does not erase them. The
+ * price scale is NORMALISED (deduplicated, sorted ascending) rather than
+ * rejected for order — the user types "100, 50" and means both.
  */
 
 import { z } from "zod";
 import { EMPTY_ANNOTATIONS, type PartAnnotations, type PartGeometry } from "@/lib/geometry/types";
-import type { ExtraOperation, PricedQuote, WeldingOnlySeam } from "@/lib/pricing/types";
-import type { CurrencyCode, Json, QuoteStatus, QuoteTypeDb } from "@/lib/db/types";
+import type { ExtraOperation, FormingOperation, FormingResolution, PricedQuote, ShippingInput, WeldingOnlySeam } from "@/lib/pricing/types";
+import type { WeldProcess } from "@/lib/geometry/types";
+import type { CurrencyCode, Json, QuoteStatus, QuoteTypeDb, SeamTypeDb } from "@/lib/db/types";
 import type { WeldingOnlyBlock } from "./types";
 
 /* ─── Error codes ─────────────────────────────────────────── */
@@ -70,8 +82,11 @@ const nonNegativeInt = z.number().int("invalidNumber").min(0, "invalidNumber");
 export const CURRENCIES = ["PLN", "EUR"] as const satisfies readonly CurrencyCode[];
 export const QUOTE_TYPES = ["fabrication", "welding_only"] as const satisfies readonly QuoteTypeDb[];
 export const QUOTE_STATUSES = ["draft", "pending_override", "sent", "won", "lost"] as const satisfies readonly QuoteStatus[];
-export const WELD_PROCESSES = ["mig_mag", "tig", "laser", "mma"] as const;
+export const WELD_PROCESSES = ["mig_mag", "tig", "laser", "mma"] as const satisfies readonly WeldProcess[];
 export const TUBE_FAMILIES = ["round", "square", "rectangular", "open"] as const;
+export const SEAM_TYPES = ["continuous", "stitch", "tack"] as const satisfies readonly SeamTypeDb[];
+/** Longest price scale (extra quantities per item / assembly) a quote may carry. */
+export const PRICE_SCALE_MAX = 12;
 
 const optionalText = (max: number) =>
   z
@@ -82,6 +97,16 @@ const optionalText = (max: number) =>
     .nullable()
     .optional()
     .transform((v) => v ?? null);
+
+/** Like optionalText, but an OMITTED field stays undefined (= keep the stored value); null / "" clear it. */
+const optionalTextKeep = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max, "tooLong")
+    .transform((v) => (v === "" ? null : v))
+    .nullable()
+    .optional();
 
 /* ─── Stored JSON guards ──────────────────────────────────── */
 
@@ -256,6 +281,128 @@ export function parseWeldingOnly(json: Json | null | undefined): WeldingOnlyBloc
   return { seams: result.data.seams as WeldingOnlySeam[], partsCount: result.data.partsCount };
 }
 
+/* ─── Forming operations (quote_items.forming) ────────────── */
+
+const formingId = z.string().trim().min(1, "required").max(80, "tooLong");
+
+export const formingResolutionSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("in_house") }),
+  z.object({ kind: z.literal("step_bend"), hits: positiveInt.max(10_000, "invalidQty") }),
+  z.object({
+    kind: z.literal("subcontract"),
+    supplier: z.string().trim().min(1, "required").max(120, "tooLong"),
+    costEur: nonNegative,
+    extraLeadDays: nonNegativeInt.max(365, "invalidNumber"),
+  }),
+  z.object({ kind: z.literal("none_needed") }),
+]);
+
+/** One stored forming operation (id required). */
+export const formingOperationSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: formingId,
+    kind: z.literal("roll"),
+    insideRadiusMm: nonNegative,
+    angleDeg: nonNegative.max(360, "invalidNumber"),
+    widthMm: nonNegative,
+    resolution: formingResolutionSchema.nullable().default(null),
+  }),
+  z.object({
+    id: formingId,
+    kind: z.literal("bend"),
+    bends: nonNegativeInt.max(10_000, "invalidQty"),
+    angleDeg: nonNegative.max(360, "invalidNumber"),
+    lengthMm: nonNegative,
+    resolution: formingResolutionSchema.nullable().default(null),
+  }),
+]);
+
+/** Action input: the same operations, ids optional (the action generates missing ones). */
+export const formingOperationInputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: formingId.optional(),
+    kind: z.literal("roll"),
+    insideRadiusMm: nonNegative,
+    angleDeg: nonNegative.max(360, "invalidNumber"),
+    widthMm: nonNegative,
+    resolution: formingResolutionSchema.nullable().optional(),
+  }),
+  z.object({
+    id: formingId.optional(),
+    kind: z.literal("bend"),
+    bends: nonNegativeInt.max(10_000, "invalidQty"),
+    angleDeg: nonNegative.max(360, "invalidNumber"),
+    lengthMm: nonNegative,
+    resolution: formingResolutionSchema.nullable().optional(),
+  }),
+]);
+
+export const formingInputSchema = z.array(formingOperationInputSchema).max(50, "tooLong");
+
+export type FormingOperationInput = z.input<typeof formingOperationInputSchema>;
+
+/** Stored forming JSON → FormingOperation[] (malformed entries are dropped, never crash a quote). */
+export function parseForming(json: Json | null | undefined): FormingOperation[] {
+  if (!Array.isArray(json)) return [];
+  const out: FormingOperation[] = [];
+  for (const entry of json) {
+    const result = formingOperationSchema.safeParse(entry);
+    if (result.success) out.push(result.data as FormingOperation);
+  }
+  return out;
+}
+
+export function parseFormingResolution(value: unknown): FormingResolution | null {
+  const result = formingResolutionSchema.safeParse(value);
+  return result.success ? (result.data as FormingResolution) : null;
+}
+
+/* ─── Shipping (quotes.shipping) ──────────────────────────── */
+
+const countryCode = z
+  .string()
+  .trim()
+  .transform((v) => v.toUpperCase())
+  .refine((v) => /^[A-Z]{2}$/.test(v), "invalid");
+
+export const shippingInputSchema = z.object({
+  countryCode,
+  grossKg: nonNegative.max(100_000, "invalidNumber").nullable().default(null),
+  costEur: nonNegative.nullable().default(null),
+  source: z.enum(["manual", "table"]).default("table"),
+  carrier: optionalText(80),
+  extraLeadDays: nonNegativeInt.max(365, "invalidNumber").default(0),
+});
+
+export type ShippingInputValues = z.input<typeof shippingInputSchema>;
+
+/** Stored shipping JSON → ShippingInput, or null when missing/malformed. */
+export function parseShipping(json: Json | null | undefined): ShippingInput | null {
+  if (!json || typeof json !== "object" || Array.isArray(json)) return null;
+  const result = shippingInputSchema.safeParse(json);
+  return result.success ? (result.data as ShippingInput) : null;
+}
+
+/* ─── Price scale (quotes.price_scale) ────────────────────── */
+
+/** Positive integer quantities; deduplicated and sorted ascending; at most PRICE_SCALE_MAX distinct values. */
+export const priceScaleSchema = z
+  .array(positiveInt.max(1_000_000, "invalidQty"))
+  .max(100, "tooLong")
+  .transform((list) => normalisePriceScale(list))
+  .refine((list) => list.length <= PRICE_SCALE_MAX, "tooLong");
+
+/** Keeps the positive integers, deduplicates and sorts ascending (stored rows may hold anything). */
+export function normalisePriceScale(values: ReadonlyArray<unknown> | null | undefined): number[] {
+  if (!Array.isArray(values)) return [];
+  const set = new Set<number>();
+  for (const v of values) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isInteger(n) && n > 0) set.add(n);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
 /* ─── Pricing snapshot (quotes.pricing) ───────────────────── */
 
 const pricingGuard = z.looseObject({
@@ -349,6 +496,11 @@ export const quoteHeaderSchema = z
     notes: optionalText(4000),
     showOperationsOnPdf: z.boolean(),
     weldingSeparate: z.boolean(),
+    /** Assembly mode: omitted = keep the stored value (an old client posting the old shape changes nothing). */
+    customerReference: optionalTextKeep(120),
+    contactPerson: optionalTextKeep(200),
+    shipping: shippingInputSchema.nullable().optional(),
+    priceScale: priceScaleSchema.optional(),
   })
   .refine((v) => fxRateValidFor(v.currency, v.fxRate), fxMatchesCurrency);
 
@@ -378,6 +530,114 @@ export const itemUpdateSchema = z.object({
 });
 
 export type ItemUpdateInput = z.input<typeof itemUpdateSchema>;
+
+/* ─── Assembly mode action inputs ─────────────────────────── */
+
+export const assemblyInputSchema = z.object({
+  name: z.string().trim().min(1, "required").max(200, "tooLong"),
+  drawingRef: optionalText(120),
+  qty: positiveInt.max(1_000_000, "invalidQty"),
+  materialCode: optionalText(40),
+  thicknessMm: positive.max(1000, "invalidNumber").nullable().optional().transform((v) => v ?? null),
+  notes: optionalText(2000),
+});
+
+export const assemblyUpdateSchema = z.object({
+  name: z.string().trim().min(1, "required").max(200, "tooLong").optional(),
+  drawingRef: optionalTextKeep(120),
+  qty: positiveInt.max(1_000_000, "invalidQty").optional(),
+  materialCode: optionalTextKeep(40),
+  thicknessMm: positive.max(1000, "invalidNumber").nullable().optional(),
+  notes: optionalTextKeep(2000),
+});
+
+/** createAssembly input (the exact shape the builder posts). */
+export type AssemblyInput = {
+  name: string;
+  drawingRef?: string | null;
+  qty: number;
+  materialCode?: string | null;
+  thicknessMm?: number | null;
+  notes?: string | null;
+};
+
+export const itemAssemblySchema = z.object({
+  assemblyId: z.string().uuid("invalid").nullable(),
+  qtyPerAssembly: positiveInt.max(100_000, "invalidQty").optional(),
+});
+
+export const itemMaterialOverrideSchema = z.object({
+  materialOverride: z.boolean(),
+  materialNote: optionalText(500),
+});
+
+/** A seam of a welded assembly as the builder / viewer posts it (addSeam, addSeamFromPart; Partial for updateSeam). */
+export type SeamInput = {
+  label?: string | null;
+  partId?: string | null;
+  entityIds?: string[];
+  points?: { x: number; y: number }[] | null;
+  lengthMm: number;
+  process: WeldProcess;
+  thicknessMm?: number | null;
+  seamType: "continuous" | "stitch" | "tack";
+  stitchBeadMm?: number | null;
+  stitchPitchMm?: number | null;
+  tackCount?: number | null;
+  sides?: 1 | 2;
+};
+
+const seamInputBase = z.object({
+  label: optionalText(120),
+  partId: z.string().uuid("invalid").nullable().optional().transform((v) => v ?? null),
+  entityIds: z.array(z.string().trim().min(1, "required").max(80, "tooLong")).max(500, "tooLong").default([]),
+  points: z.array(point).max(2000, "tooLong").nullable().optional().transform((v) => v ?? null),
+  lengthMm: nonNegative.max(1_000_000, "invalidNumber"),
+  process: z.enum(WELD_PROCESSES, "invalid"),
+  thicknessMm: positive.max(1000, "invalidNumber").nullable().optional().transform((v) => v ?? null),
+  seamType: z.enum(SEAM_TYPES, "invalid"),
+  stitchBeadMm: positive.nullable().optional().transform((v) => v ?? null),
+  stitchPitchMm: positive.nullable().optional().transform((v) => v ?? null),
+  tackCount: nonNegativeInt.max(100_000, "invalidQty").nullable().optional().transform((v) => v ?? null),
+  sides: z.union([z.literal(1), z.literal(2)], "invalid").default(1),
+});
+
+/**
+ * Full seam: a stitch seam needs its bead and pitch, a tack seam its tack
+ * count (both "required"); the fields of the other patterns are ignored by
+ * the engine but kept as typed.
+ */
+export const seamInputSchema = seamInputBase.superRefine((v, ctx) => {
+  if (v.seamType === "stitch" && (v.stitchBeadMm === null || v.stitchPitchMm === null)) {
+    ctx.addIssue({ code: "custom", message: "required", path: [v.stitchBeadMm === null ? "stitchBeadMm" : "stitchPitchMm"] });
+  }
+  if (v.seamType === "tack" && v.tackCount === null) {
+    ctx.addIssue({ code: "custom", message: "required", path: ["tackCount"] });
+  }
+});
+
+/**
+ * updateSeam patch: every field optional and WITHOUT defaults (zod's
+ * .partial() would still fill entityIds [] / sides 1 and reset the stored
+ * values); the action merges the defined keys over the stored row and
+ * re-validates the result with seamInputSchema.
+ */
+export const seamPatchSchema = z.object({
+  label: optionalTextKeep(120),
+  partId: z.string().uuid("invalid").nullable().optional(),
+  entityIds: z.array(z.string().trim().min(1, "required").max(80, "tooLong")).max(500, "tooLong").optional(),
+  points: z.array(point).max(2000, "tooLong").nullable().optional(),
+  lengthMm: nonNegative.max(1_000_000, "invalidNumber").optional(),
+  process: z.enum(WELD_PROCESSES, "invalid").optional(),
+  thicknessMm: positive.max(1000, "invalidNumber").nullable().optional(),
+  seamType: z.enum(SEAM_TYPES, "invalid").optional(),
+  stitchBeadMm: positive.nullable().optional(),
+  stitchPitchMm: positive.nullable().optional(),
+  tackCount: nonNegativeInt.max(100_000, "invalidQty").nullable().optional(),
+  sides: z.union([z.literal(1), z.literal(2)], "invalid").optional(),
+});
+
+export type SeamInputValues = z.output<typeof seamInputSchema>;
 
 export const overrideRequestSchema = z.object({
   quoteId: z.string().uuid("invalid"),

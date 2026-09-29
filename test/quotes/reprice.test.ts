@@ -11,8 +11,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Row } from "./fake-supabase";
 import { FakeSupabase } from "./fake-supabase";
-import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
-import { ITEM_ID, PART_ID, QUOTE_ID, USER_ID, makeCustomer, makeItemRow, makePartRow, makeQuoteRow } from "./fixtures";
+import { JOB_RATES, MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID } from "@/test/helpers/rates";
+import { ASSEMBLY_ID, ITEM_ID, PART_ID, QUOTE_ID, USER_ID, makeAssemblyRow, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, makeSeamRow } from "./fixtures";
 
 const state = vi.hoisted(() => ({
   rls: null as unknown as { from: unknown },
@@ -27,6 +27,7 @@ vi.mock("@/lib/rates/load", () => ({
   loadActiveRateVersionId: vi.fn(async () => RATE_VERSION_ID),
   loadRateSnapshot: vi.fn(async (_client: unknown, versionId?: string | null) => ({ ...RATE_SNAPSHOT_V1, versionId: versionId ?? RATE_VERSION_ID })),
   loadMachinePark: vi.fn(async () => MACHINE_PARK),
+  loadJobRates: vi.fn(async () => JOB_RATES),
 }));
 
 import { repriceQuote } from "@/lib/quotes/reprice";
@@ -34,12 +35,14 @@ import { QuoteAccessError } from "@/lib/quotes/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { EnvError } from "@/lib/env";
 
-function seed(over: { quote?: Row; items?: Row[]; parts?: Row[] } = {}) {
+function seed(over: { quote?: Row; items?: Row[]; parts?: Row[]; assemblies?: Row[]; seams?: Row[] } = {}) {
   const db = new FakeSupabase({
     quotes: [over.quote ?? makeQuoteRow()],
     customers: [makeCustomer()],
     quote_items: over.items ?? [makeItemRow()],
     parts: over.parts ?? [makePartRow()],
+    assemblies: over.assemblies ?? [],
+    assembly_seams: over.seams ?? [],
     operations: [{ id: "old-op", quote_item_id: ITEM_ID, position: 0, type: "other", label: "stale", driver_qty: 1, driver_unit: "each", rate_ref: {}, unit_cost: 99, setup_share: 0, details: {}, notes: null, auto: false }],
     overrides: [],
     rate_versions: [{ id: RATE_VERSION_ID, label: "v1", active: true }],
@@ -164,6 +167,38 @@ describe("repriceQuote", () => {
     const priced = await repriceQuote(QUOTE_ID);
     expect(vi.mocked(loadRateSnapshot).mock.calls.at(-1)?.[1]).toBe("old-version");
     expect(priced!.rateVersionId).toBe("old-version");
+  });
+
+  it("writes a member's qty back to assembly.qty × qty_per_assembly before pricing and passes the job rates", async () => {
+    const { loadJobRates } = await import("@/lib/rates/load");
+    vi.mocked(loadJobRates).mockClear();
+    const db = seed({
+      items: [makeItemRow({ qty: 50, assembly_id: ASSEMBLY_ID, qty_per_assembly: 2 })],
+      assemblies: [makeAssemblyRow({ qty: 3 })],
+      seams: [makeSeamRow()],
+    });
+    const priced = await repriceQuote(QUOTE_ID);
+    expect(priced).not.toBeNull();
+    expect(db.tables.quote_items[0].qty).toBe(6);
+    const memberWrite = db.writes.find((w) => w.op === "update" && w.table === "quote_items" && "qty" in w.patch);
+    expect(memberWrite).toMatchObject({ patch: { qty: 6 } });
+    expect(loadJobRates).toHaveBeenCalledTimes(1);
+    // every member row still carries a unit_cost / unit_price write (a line or a reset)
+    expect(db.writes.some((w) => w.op === "update" && w.table === "quote_items" && "unit_cost" in w.patch)).toBe(true);
+  });
+
+  it("prices without the job rates when their loader fails (settings tables not migrated yet)", async () => {
+    const { loadJobRates } = await import("@/lib/rates/load");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.mocked(loadJobRates).mockImplementationOnce(async () => {
+      throw new Error("company_settings: relation does not exist");
+    });
+    const db = seed();
+    const priced = await repriceQuote(QUOTE_ID);
+    expect(priced).not.toBeNull();
+    expect(typeof db.tables.quotes[0].priced_at).toBe("string");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("keeps the part id on every persisted flag", async () => {

@@ -1,16 +1,23 @@
 /**
  * Rows → QuoteInput assembly and PricedQuote → persistence mapping
- * (lib/quotes/mapper.ts), the light JSON guards, and the real pricing
- * engine run on 200164-like data through the mapper.
+ * (lib/quotes/mapper.ts), the light JSON guards, the real pricing engine
+ * run on 200164-like data through the mapper, and the assembly-mode
+ * mapping (assemblies + seams, member qty rule, forming, customer type,
+ * shipping, price scale, member reset in the persistence).
  * File path: /test/quotes/mapper.test.ts
  */
 import { describe, expect, it } from "vitest";
 import { priceQuote } from "@/lib/pricing/price-quote";
 import {
+  assemblyRowsToPricing,
   buildQuoteInput,
+  companyRowToSettings,
   emptyGeometry,
   emptyPersistence,
   hasPriceableContent,
+  itemRowToPricingItem,
+  memberQty,
+  memberQtyUpdates,
   partRowToPricingPart,
   pricedToPersistence,
   toJson,
@@ -18,7 +25,7 @@ import {
 import { parseAnnotations, parseExtras, parseFlags, parseGeometry, parsePricing, parseWeldingOnly } from "@/lib/quotes/schema";
 import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
 import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID, cloneSnapshot } from "@/test/helpers/rates";
-import { ITEM_ID, PART_ID, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, priceFixture } from "./fixtures";
+import { ASSEMBLY_ID, ITEM_ID, ITEM_ID_2, PART_ID, PART_ID_2, SEAM_ID, makeAssemblyRow, makeCustomer, makeItemRow, makePartRow, makeQuoteRow, makeSeamRow, priceFixture } from "./fixtures";
 
 describe("JSON guards", () => {
   it("parseGeometry accepts the engine shape and rejects junk", () => {
@@ -204,5 +211,115 @@ describe("real priceQuote through the mapper (200164 × 50, 4 bends, stitch weld
   it("is deterministic", () => {
     const again = priceQuote(input, RATE_SNAPSHOT_V1, MACHINE_PARK);
     expect(toJson(again)).toEqual(toJson(priced));
+  });
+});
+
+describe("assembly mode mapping", () => {
+  const rates = RATE_SNAPSHOT_V1;
+  const ASSEMBLY_2 = "a55e3b1e-0000-4000-8000-000000000002";
+
+  it("without assemblies, customer type, shipping or price scale the input carries the empty defaults", () => {
+    const input = buildQuoteInput({ quote: makeQuoteRow(), customer: makeCustomer(), items: [makeItemRow()], parts: [makePartRow()], rates });
+    expect(input.assemblies).toEqual([]);
+    expect(input.customerType).toBe("b2b");
+    expect(input.customerCountry).toBe("PL");
+    expect(input.customerVatId).toBe("PL5250001234");
+    expect(input.shipping).toBeNull();
+    expect(input.priceScale).toEqual([]);
+    expect(input.items[0]).toMatchObject({ qty: 50, assemblyId: null, qtyPerAssembly: 1, materialOverride: false, materialNote: null, forming: [] });
+    // the client preview passes a narrow quote and no customer
+    const narrow = buildQuoteInput({ quote: { type: "fabrication", margin_pct: 30, welding_only: null, lead_time_days: 11 }, customer: null, items: [], parts: [], rates });
+    expect(narrow).toMatchObject({ assemblies: [], customerType: null, customerCountry: null, customerVatId: null, shipping: null, priceScale: [] });
+  });
+
+  it("maps assemblies with their seams in position order and members with qty = assembly.qty × qty_per_assembly", () => {
+    const second = makePartRow({ id: PART_ID_2, name: "P2" });
+    const assemblies = [
+      makeAssemblyRow({ id: ASSEMBLY_2, position: 1, name: "Second", qty: 2, material_code: "DC01", thickness_mm: "2.000" as unknown as number }),
+      makeAssemblyRow({ qty: 3 }),
+    ];
+    const seams = [
+      makeSeamRow({ id: "s-b", position: 1, length_mm: 1260 }),
+      makeSeamRow({ id: SEAM_ID, position: 0 }),
+      makeSeamRow({ id: "s-paired", position: 2, part_id: PART_ID_2, paired_seam_id: SEAM_ID, length_mm: "1250.00" as unknown as number }),
+      makeSeamRow({ id: "s-tack", assembly_id: ASSEMBLY_2, seam_type: "tack", tack_count: 11, length_mm: 0 }),
+    ];
+    const items = [
+      makeItemRow({ id: ITEM_ID_2, part_id: PART_ID_2, position: 1, qty: 1, assembly_id: ASSEMBLY_2, qty_per_assembly: 4, material_override: true, material_note: "DC01 zamiast S235", forming: [{ id: "r1", kind: "roll", insideRadiusMm: 90, angleDeg: 180, widthMm: 247, resolution: { kind: "step_bend", hits: 19 } }, { bogus: true }] }),
+      makeItemRow({ qty: 999, assembly_id: ASSEMBLY_ID, qty_per_assembly: 2 }),
+    ];
+    const input = buildQuoteInput({ quote: makeQuoteRow(), customer: makeCustomer(), items, parts: [makePartRow(), second], rates, assemblies, seams });
+
+    expect(input.assemblies?.map((a) => [a.id, a.position, a.qty, a.thicknessMm])).toEqual([
+      [ASSEMBLY_ID, 0, 3, 3],
+      [ASSEMBLY_2, 1, 2, 2],
+    ]);
+    const first = input.assemblies![0];
+    expect(first.seams.map((s) => s.id)).toEqual([SEAM_ID, "s-b", "s-paired"]);
+    expect(first.seams[2]).toMatchObject({ pairedSeamId: SEAM_ID, lengthMm: 1250, partId: PART_ID_2 });
+    expect(input.assemblies![1].seams).toEqual([expect.objectContaining({ id: "s-tack", type: "tack", tackCount: 11 })]);
+
+    // member qty rule: the stored 999 / 1 are ignored
+    expect(input.items[0]).toMatchObject({ id: ITEM_ID, assemblyId: ASSEMBLY_ID, qtyPerAssembly: 2, qty: 6 });
+    expect(input.items[1]).toMatchObject({ id: ITEM_ID_2, assemblyId: ASSEMBLY_2, qtyPerAssembly: 4, qty: 8, materialOverride: true, materialNote: "DC01 zamiast S235" });
+    expect(input.items[1].forming).toEqual([{ id: "r1", kind: "roll", insideRadiusMm: 90, angleDeg: 180, widthMm: 247, resolution: { kind: "step_bend", hits: 19 } }]);
+
+    // rows whose stored qty disagrees
+    expect(memberQtyUpdates(items, assemblies)).toEqual([
+      { id: ITEM_ID_2, qty: 8 },
+      { id: ITEM_ID, qty: 6 },
+    ]);
+    expect(memberQty({ qty: 3 }, { qty_per_assembly: "2" as unknown as number })).toBe(6);
+  });
+
+  it("an item pointing at an assembly that is not in the quote is priced as a loose part", () => {
+    const item = makeItemRow({ qty: 7, assembly_id: "a55e3b1e-0000-4000-8000-00000000dead", qty_per_assembly: 5 });
+    expect(itemRowToPricingItem(item, null)).toMatchObject({ qty: 7, assemblyId: null, qtyPerAssembly: 5 });
+    expect(buildQuoteInput({ quote: makeQuoteRow(), customer: null, items: [item], parts: [makePartRow()], rates, assemblies: [makeAssemblyRow()] }).items[0]).toMatchObject({ qty: 7, assemblyId: null });
+    expect(memberQtyUpdates([item], [makeAssemblyRow()])).toEqual([]);
+  });
+
+  it("maps customer type / country / VAT id, shipping and the price scale (normalised)", () => {
+    const input = buildQuoteInput({
+      quote: makeQuoteRow({ shipping: { countryCode: "fi", grossKg: 12, costEur: 45, source: "table", carrier: "courier", extraLeadDays: 3 }, price_scale: [200, 50, 50, 20] }),
+      customer: makeCustomer({ customer_type: "b2c", country: "fi", vat_id: null }),
+      items: [],
+      parts: [],
+      rates,
+    });
+    expect(input.customerType).toBe("b2c");
+    expect(input.customerCountry).toBe("FI");
+    expect(input.customerVatId).toBeNull();
+    expect(input.shipping).toEqual({ countryCode: "FI", grossKg: 12, costEur: 45, source: "table", carrier: "courier", extraLeadDays: 3 });
+    expect(input.priceScale).toEqual([20, 50, 200]);
+    expect(buildQuoteInput({ quote: makeQuoteRow({ shipping: { nope: 1 } }), customer: null, items: [], parts: [], rates }).shipping).toBeNull();
+  });
+
+  it("assemblyRowsToPricing tolerates numeric strings and unknown seams", () => {
+    const out = assemblyRowsToPricing([makeAssemblyRow({ qty: "2" as unknown as number, position: "0" as unknown as number })], [makeSeamRow({ assembly_id: "elsewhere" })]);
+    expect(out).toEqual([expect.objectContaining({ id: ASSEMBLY_ID, qty: 2, seams: [] })]);
+  });
+
+  it("pricedToPersistence resets items the engine did not return (members priced inside their assembly)", () => {
+    const priced = priceFixture();
+    const persistence = pricedToPersistence(priced, { currency: "EUR", fx_rate: 1 }, [ITEM_ID, ITEM_ID_2]);
+    expect(persistence.items.map((i) => i.id)).toEqual([ITEM_ID, ITEM_ID_2]);
+    expect(persistence.items[1]).toEqual({ id: ITEM_ID_2, unit_cost: 0, unit_price: null, flags: [] });
+    // without the list the behaviour is unchanged
+    expect(pricedToPersistence(priced, { currency: "EUR", fx_rate: 1 }).items).toHaveLength(1);
+  });
+
+  it("companyRowToSettings coerces the PostgREST strings", () => {
+    expect(companyRowToSettings(null)).toBeNull();
+    expect(companyRowToSettings({ id: "1", brand: "STRETCHMETAL", oss_active: "true", assembly_margin_pct: "30.00", subcontract_margin_pct: "15.00" })).toMatchObject({ id: 1, brand: "STRETCHMETAL", oss_active: true, assembly_margin_pct: 30, subcontract_margin_pct: 15 });
+  });
+
+  it("the engine accepts the mapped input (assemblies present, no members priced twice)", () => {
+    const items = [makeItemRow({ assembly_id: ASSEMBLY_ID, qty_per_assembly: 2 })];
+    const input = buildQuoteInput({ quote: makeQuoteRow(), customer: makeCustomer(), items, parts: [makePartRow()], rates, assemblies: [makeAssemblyRow({ qty: 3 })], seams: [makeSeamRow()] });
+    const priced = priceQuote(input, rates, MACHINE_PARK);
+    expect(priced.rateVersionId).toBe(RATE_VERSION_ID);
+    const persistence = pricedToPersistence(priced, { currency: "EUR", fx_rate: 1 }, items.map((i) => i.id));
+    expect(persistence.items.map((i) => i.id)).toEqual([ITEM_ID]);
   });
 });
