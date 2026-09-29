@@ -17,7 +17,7 @@ export const siteConfig = {
   displayName: "STRETCHMETAL",
   /** Application name shown in the tab strip and PDF metadata. */
   appName: "StretchMetal Quote",
-  // [CONFIRM] legal entity — assumed the group's Polish company carries the brand
+  /** The legal entity behind the brand ("Stretchmetal by Alto Design Sp. z o.o."). */
   legalName: "Alto Design Sp. z o.o.",
   parent: "Stretchgroup",
   tagline: "Stal. Cięta. Spawana. Malowana.",
@@ -35,10 +35,8 @@ export const siteConfig = {
     // Belgian contact number (as on the website)
     phone: "+32485483035",
     phoneDisplay: "+32 485 48 30 35",
-    // [CONFIRM] email
     email: "info@stretchmetal.pl",
     address: {
-      // [CONFIRM] address — assumed same premises as Stretch Sufit / Alto Design
       street: "ul. Legionów 59",
       city: "Częstochowa",
       postalCode: "42-200",
@@ -49,15 +47,20 @@ export const siteConfig = {
     hours: "Mo-Fr 08:00-16:00",
   },
 
-  /** Company registration + bank data printed in the quote PDF footer. */
+  /**
+   * Company registration + bank data printed in the quote PDF footer, as
+   * given by the owner on 29 Sep 2026. One bank account was given: it is
+   * printed for PLN and EUR quotes alike until a separate EUR account exists.
+   */
   legal: {
-    nip: "000-000-00-00", // [CONFIRM] NIP
-    regon: "000000000", // [CONFIRM] REGON
-    krs: "0000000000", // [CONFIRM] KRS
-    bankName: "Bank", // [CONFIRM] bank name
-    ibanPln: "PL00 0000 0000 0000 0000 0000 0000", // [CONFIRM] PLN account
-    ibanEur: "PL00 0000 0000 0000 0000 0000 0000", // [CONFIRM] EUR account
-    swift: "XXXXPLPX", // [CONFIRM] SWIFT/BIC
+    /** EU VAT number (NIP 573-291-17-03). */
+    nip: "PL5732911703",
+    regon: "383390837",
+    krs: "0000786996",
+    bankName: "ING Bank Śląski",
+    ibanPln: "PL05 1050 1142 1000 0090 3188 9240",
+    ibanEur: "PL05 1050 1142 1000 0090 3188 9240",
+    swift: "INGBPLPW",
   },
 
   /** Quote defaults that are policy (not rates) — rates live in the DB. */
