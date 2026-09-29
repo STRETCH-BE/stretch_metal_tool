@@ -314,7 +314,6 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
               <NumberInput
                 id="q-margin"
                 dense
-                disabled={marketMode}
                 value={header.marginPct}
                 onValueChange={(v) => v !== null && patchHeader({ marginPct: v })}
                 decimals={2}
