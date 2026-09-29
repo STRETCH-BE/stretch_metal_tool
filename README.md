@@ -183,6 +183,66 @@ cylinders / cones, so everything runs inside the Vercel function
   present in `test/fixtures/sst/` and is skipped otherwise — those files
   are never committed.
 
+## Assembly mode (welded assemblies, forming, VAT, price scale)
+
+Design and contracts: `docs/assembly-mode-design.md`; stream notes:
+`docs/assembly-mode-notes/`. Schema: migration
+`20260930100000_assembly_mode.sql` (apply it to the cloud project before
+using assemblies — the app tolerates a database without it: quotes price
+as before, assemblies are simply unavailable and the PDF export asks for
+the customer type).
+
+- **Two kinds of quote line.** Loose parts keep the 247TailorSteel + 10 %
+  market model. A *welded assembly* (name, drawing reference, qty, material)
+  groups member parts (qty per assembly) and owns its seams; it is priced as
+  ONE line: member parts at cost (cost version material + cutting) +
+  assembly labour (fit-up per part, tacks, seam length ÷ effective weld
+  speed, gas and wire, deburr, handling; distortion factor on fit-up, tacks
+  and welding) + job setups charged once per job and spread over the qty
+  (laser nest per material/thickness, press brake, roll, weld fit-up) +
+  subcontracted forming at the subcontract margin; price = cost ÷ (1 −
+  max(quote margin, `assembly_margin_pct`)). The cost/margin breakdown is
+  admin-only.
+- **Seams** are marked from a part edge in the viewer ("add as assembly
+  seam") or typed in the assembly editor. The same edge twice is one seam;
+  the neighbour part's matching edge is stored *paired* and not counted
+  (`lib/quotes/seams.ts`).
+- **Forming.** Roll (inside radius, angle, width) and bend (count, angle,
+  length) operations on a member are checked against the machine park
+  (`machines`: roll min R200 / max t 6 / max width 3200, press brake
+  3200 kN / 4420 mm). Infeasible → red `forming.not_feasible` until *step
+  bending* (hits = ceil(arc ÷ 15 mm), priced as press-brake time) or
+  *subcontracting* (supplier, cost, extra lead days) is chosen. A blank
+  whose drawing suggests forming but has no operation is red
+  `forming.suspected` until confirmed.
+- **Packaging and shipping** come from `packaging_rates` (size/weight table)
+  and `shipping_rates` (country × weight band) or a manual shipping cost;
+  shipping is its own PDF line.
+- **VAT** (`lib/pricing/vat.ts`): Poland → 23 % always; abroad with a VAT ID
+  → 0 % (reverse charge / WDT inside the EU, export outside); abroad without
+  a VAT ID → 23 %; a B2C customer in another EU country pays that country's
+  rate only when `company_settings.oss_active` is on. The PDF prints
+  net / VAT / gross, or the 0 % note.
+- **Price scale**: `quotes.price_scale` (e.g. 20/50/100/200/500/1000)
+  re-prices every line at each quantity (setups spread) into a PDF table.
+- **Export guards** (PDF download and send): customer name/address,
+  customer type (B2B / B2C), company settings without placeholders
+  (`000-000`, `PL00`, `XXXX`, `[CONFIRM]`), no unresolved forming.
+
+Admin → **Settings** (`/admin/settings`) edits the seven settings tables;
+every seeded number is a calibration placeholder (`placeholder = true`,
+`-- [CONFIRM]` in the migration) until an admin saves the row:
+
+| table | what to fill |
+|---|---|
+| `company_settings` | legal data, bank, `oss_active`, `assembly_margin_pct` (30), `subcontract_margin_pct` (15) |
+| `vat_rates` | country → VAT % (PL 23, FI 25.5, BE 21, NL 21, DE 19, AT 20, FR 20 seeded) |
+| `packaging_rates` | carton / carton + foam / crate / pallet: max side, max mass, price |
+| `shipping_rates` | country × max kg → price (carrier); no band → manual shipping |
+| `job_setup_rates` | laser nest, press brake, roll, weld fit-up: EUR once per job |
+| `assembly_rates` | labour €/h, gas + wire €/h, tack s, fit-up min/part, deburr min/part, handling min, distortion factor, step-bend s/hit, roll min/m |
+| `weld_speeds` | process × thickness → effective mm/min (incl. stops and repositioning) |
+
 ## Adding a rate table
 
 1. Migration: a `rate_<name>` table with `rate_version_id uuid references rate_versions(id) on delete cascade`, a natural unique key, `placeholder boolean default true`, RLS policies (all read, admin write — copy the block in the initial migration) and a line in `clone_rate_version()` so versions copy the new rows.
