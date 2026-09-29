@@ -406,6 +406,7 @@ const builderEn: QuoteBuilderContent = {
     locked: "The quote is locked (sent or decided).",
     noRates: "No active rate version — the admin must activate one.",
     pricing: "Pricing failed: {message}",
+    config: "Server configuration error — the values were saved but the price was not computed: {message}",
     sendFailed: "Sending failed: {message}",
     cannotSend: "The quote does not meet the sending rules.",
     mail: "PDF stored, but the e-mail was not sent. Check the mail configuration.",

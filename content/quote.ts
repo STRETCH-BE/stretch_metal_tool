@@ -212,6 +212,7 @@ export type QuoteErrorKey =
   | "locked"
   | "noRates"
   | "pricing"
+  | "config"
   | "cannotSend"
   | "mail"
   | "sendFailed"
@@ -920,6 +921,7 @@ const builderPl: QuoteBuilderContent = {
     locked: "Wycena jest zablokowana (wysłana lub rozstrzygnięta).",
     noRates: "Brak aktywnego cennika — administrator musi aktywować wersję cennika.",
     pricing: "Nie udało się policzyć ceny: {message}",
+    config: "Błąd konfiguracji serwera — dane zapisano, ale wycena nie została policzona: {message}",
     sendFailed: "Wysyłka nie powiodła się: {message}",
     cannotSend: "Wycena nie spełnia warunków wysyłki.",
     mail: "PDF zapisany, ale e-mail nie został wysłany. Sprawdź konfigurację poczty.",

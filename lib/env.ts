@@ -9,7 +9,7 @@
 function required(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new Error(
+    throw new EnvError(
       `Missing environment variable ${name} — see env.example and the README "Environment variables" table.`
     );
   }
@@ -22,6 +22,18 @@ function required(name: string): string {
  * with @supabase/ssr, so either variable name is accepted. Same for the
  * server key: legacy "service_role" JWT or the new secret key (sb_secret_…).
  */
+/**
+ * A required environment variable is missing on this deployment (e.g. the
+ * service-role key not enabled for Vercel's Preview environment). Callers
+ * that turn errors into UI messages can tell it apart from a bug.
+ */
+export class EnvError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EnvError";
+  }
+}
+
 export function publicSupabaseKey(): string | undefined {
   return (
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
@@ -34,7 +46,7 @@ export const env = {
   supabaseAnonKey: () => {
     const key = publicSupabaseKey();
     if (!key) {
-      throw new Error(
+      throw new EnvError(
         "Missing environment variable NEXT_PUBLIC_SUPABASE_ANON_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) — see env.example."
       );
     }
@@ -44,7 +56,7 @@ export const env = {
     const key =
       process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
     if (!key) {
-      throw new Error(
+      throw new EnvError(
         "Missing environment variable SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) — see env.example."
       );
     }
