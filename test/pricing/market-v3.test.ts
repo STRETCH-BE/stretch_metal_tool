@@ -5,7 +5,8 @@
  * (features), P1–P3 (powder coating), Z1–Z2 (zinc, hot-dip), K1
  * (certificates), D1–D2 (edge finishing) and V2 (the v2 numbers are
  * unchanged), ±1 %, plus one check per rule 14–24 of the v3 prompt, and
- * B6–B7 for the same-thickness steel fallback of the bending rate.
+ * B6–B7 for the same-thickness steel fallback of the bending rate and W1–W3
+ * for welding priced cost-plus from the cost version (v3 has no weld rows).
  * Rates come only from test/fixtures/rates/market-247-v3.json, the DB rows
  * of migration 20260928090000_rates_v3_market.sql (flat laser = v2 copied).
  * File path: /test/pricing/market-v3.test.ts
@@ -18,7 +19,8 @@ import { getContent } from "@/content";
 import { flagMessage } from "@/lib/parts/flag-message";
 import { priceQuote } from "@/lib/pricing/price-quote";
 import { rowsToMachinePark, rowsToRateSnapshot, type RateRows } from "@/lib/pricing/snapshot";
-import type { Flag, FlagCode, OperationLine, PricedQuote, PricingItem, PricingPart, QuoteInput } from "@/lib/pricing/types";
+import { priceFromCost, type Flag, type FlagCode, type OperationLine, type PricedQuote, type PricingItem, type PricingPart, type QuoteInput } from "@/lib/pricing/types";
+import type { WeldAnnotation } from "@/lib/geometry/types";
 import { makeAnnotations, makeRectPartGeometry, type RectBendLine, type RectHole } from "@/test/helpers/geometry";
 import { makeItem, makePricingPart, makeQuoteInput } from "@/test/helpers/quote";
 import { RATE_SNAPSHOT_V1 } from "@/test/helpers/rates";
@@ -380,6 +382,100 @@ describe("B — bending (rule 14)", () => {
     const mixed = addOn(rect({ id: "m", lengthMm: 400, widthMm: 1000, thicknessMm: 2, materialCode: "DC01", bendLengthsMm: [160, 1000] }), rect({ id: "m", lengthMm: 400, widthMm: 1000, thicknessMm: 2, materialCode: "DC01" }), {});
     expect(mixed.addOn).toBeCloseTo(2.7747 + 2 * 1.113 + 1.9371 + (1.9371 + 14.8646 * 0.8), 6);
     expect(mixed.priced.items[0].flags.some((f) => f.code === "market.extrapolated_rate")).toBe(false); // 1000 ≤ 1460 benchmarked
+  });
+});
+
+describe("W — welding cost-plus (v3 has no rate_weld rows; the v1 cost version does)", () => {
+  const seam = (id: string, lengthMm: number, extra: Partial<WeldAnnotation> = {}): WeldAnnotation => ({
+    id,
+    entityIds: [],
+    points: null,
+    lengthMm,
+    process: "mig_mag",
+    beadMm: 4,
+    pattern: "full",
+    stitch: null,
+    sides: 1,
+    effectiveLengthMm: lengthMm,
+    ...extra,
+  });
+  const plain = rect({ id: "w", lengthMm: 200, widthMm: 160, thicknessMm: 2, materialCode: "DC01" });
+  const welded = (welds: WeldAnnotation[]) => makePricingPart({ ...plain, annotations: makeAnnotations({ welds }) });
+  const priceWith = (part: PricingPart, extra: Partial<QuoteInput> = {}, leadTimeDays = 11) => quote([part], [makeItem({ id: "x", partId: "w" })], leadTimeDays, extra);
+  const weldOps = (ops: readonly OperationLine[]) => ({ weld: ops.find((o) => o.type === "weld")!, setup: ops.find((o) => o.type === "setup" && o.id.includes("weld-setup"))! });
+
+  it("W1: one 300 mm MIG seam at 30 % margin → v1 cost 13.50 ÷ 0.7 = 19.29 + set-up 15 ÷ 0.7 = 21.43, amber market.cost_plus, no red, cost side unchanged", () => {
+    const priced = priceWith(welded([seam("w1", 300)]), { marginPct: 30 });
+    const base = priceWith(plain, { marginPct: 30 });
+    const item = priced.items[0];
+    expect(item.unitPrice).not.toBeNull();
+    expect(unit(priced) - unit(base)).toBeCloseTo((300 * 0.045 + 15) / 0.7, 6);
+    const { weld, setup } = weldOps(item.operations);
+    expect(weld.unitCost).toBeCloseTo(13.5 / 0.7, 9);
+    expect(weld).toMatchObject({ driverQty: 300, driverUnit: "mm" });
+    expect(weld.rateRef).toMatchObject({ table: "rate_weld", key: "mig_mag/4", values: { source: "cost_plus", marginPct: 30, costEur: 13.5, costRateVersionId: COST.versionId, pricePerMm: 0.045 } });
+    expect(weld.details).toMatchObject({ source: "cost_plus", costEur: 13.5, marginPct: 30, process: "mig_mag", effectiveLengthMm: 300 });
+    expect(setup.unitCost).toBeCloseTo(15 / 0.7, 9);
+    expect(setup.setupShare).toBeCloseTo(15 / 0.7, 9);
+    expect(setup.rateRef.values).toMatchObject({ source: "cost_plus", costEur: 15 });
+    const amber = item.flags.find((f) => f.code === "market.cost_plus");
+    expect(amber?.severity).toBe("amber");
+    expect(amber?.params).toMatchObject({ operation: "welding", marginPct: 30, count: 1 });
+    expect(codes(item.flags)).not.toContain("market.not_benchmarked");
+    expect(codes(item.flags)).not.toContain("weld.no_rate_row");
+    expect(reds(item.flags)).toEqual([]);
+    // the summary's welding row: cost from the cost version, price cost-plus
+    expect(priced.totalsByType.weld?.cost).toBeCloseTo(13.5, 6);
+    expect(priced.totalsByType.weld?.price).toBeCloseTo(13.5 / 0.7, 6);
+    expect(priced.subtotalPrice - base.subtotalPrice).toBeCloseTo((13.5 + 15) / 0.7, 6);
+  });
+
+  it("W1b: margin 0 → price = cost; stitch 30/60 on 2 sides halves and doubles the length; the lead-time multiplier applies like any line", () => {
+    const zero = priceWith(welded([seam("w1", 300)]), { marginPct: 0 });
+    expect(weldOps(zero.items[0].operations).weld.unitCost).toBeCloseTo(13.5, 9);
+    expect(zero.items[0].flags.find((f) => f.code === "market.cost_plus")?.params).toMatchObject({ marginPct: 0 });
+    const stitch = priceWith(welded([seam("w1", 600, { pattern: "stitch", stitch: { beadLengthMm: 30, pitchMm: 60 }, sides: 2, effectiveLengthMm: 600 })]), { marginPct: 30 });
+    expect(weldOps(stitch.items[0].operations).weld).toMatchObject({ driverQty: 600 });
+    expect(weldOps(stitch.items[0].operations).weld.unitCost).toBeCloseTo((600 * 0.045) / 0.7, 9);
+    const rush = priceWith(welded([seam("w1", 300)]), { marginPct: 30 }, 4);
+    const rushBase = priceWith(plain, { marginPct: 30 }, 4);
+    expect(unit(rush) - unit(rushBase)).toBeCloseTo(((13.5 + 15) / 0.7) * 1.75, 6);
+  });
+
+  it("W2: no cost version, or a seam process the cost version has no row for → still red market.not_benchmarked: welding, no price", () => {
+    const part = welded([seam("w1", 300)]);
+    const input = makeQuoteInput({ parts: [part], items: [makeItem({ id: "x", partId: "w" })], leadTimeDays: 11, marginPct: 30 });
+    const noCost = priceQuote(input, V3, MACHINES, { costRates: null });
+    expect(noCost.items[0].unitPrice).toBeNull();
+    expect(noCost.items[0].flags.find((f) => f.code === "market.not_benchmarked")?.params).toMatchObject({ operation: "welding", count: 1 });
+    expect(codes(noCost.items[0].flags)).not.toContain("market.cost_plus");
+    const noMig = priceQuote(input, V3, MACHINES, { costRates: { ...COST, weld: COST.weld.filter((w) => w.process !== "mig_mag") } });
+    expect(noMig.items[0].unitPrice).toBeNull();
+    expect(codes(noMig.items[0].flags)).toContain("market.not_benchmarked");
+    // a part without seams is untouched
+    expect(codes(priceWith(plain, { marginPct: 30 }).items[0].flags)).not.toContain("market.cost_plus");
+  });
+
+  it("W3: the welding-only block (customer-supplied parts) is priced cost-plus the same way, with the amber flag at quote level", () => {
+    const block: NonNullable<QuoteInput["weldingOnly"]> = {
+      seams: [{ id: "s1", label: "", process: "mig_mag", beadMm: 4, lengthMm: 1000, pattern: "full", stitch: null, sides: 1, qty: 2 }],
+      partsCount: 2,
+    };
+    const priced = quote([], [], 11, { type: "welding_only", marginPct: 30, weldingOnly: block });
+    expect(priced.welding).not.toBeNull();
+    const cost = priced.welding!.cost;
+    expect(cost).toBeCloseTo(2 * 1000 * 0.045 + 15 + 2 * 5, 6); // seams + set-up + handling per part (v1 placeholders), above the 60 minimum
+    expect(priced.welding!.price).toBeCloseTo(priceFromCost(cost, 30), 6);
+    expect(priced.welding!.operations.reduce((sum, o) => sum + o.unitCost, 0)).toBeCloseTo(priced.welding!.price, 6);
+    expect(priced.welding!.operations.every((o) => o.rateRef.values.source === "cost_plus")).toBe(true);
+    expect(priced.subtotalPrice).toBeCloseTo(priced.welding!.price, 6);
+    const amber = priced.flags.find((f) => f.code === "market.cost_plus");
+    expect(amber?.severity).toBe("amber");
+    expect(amber?.params).toMatchObject({ operation: "welding", marginPct: 30, count: 1 });
+    expect(codes(priced.flags)).not.toContain("market.not_benchmarked");
+    const noCost = priceQuote(makeQuoteInput({ type: "welding_only", marginPct: 30, weldingOnly: block }), V3, MACHINES, { costRates: null });
+    expect(noCost.welding).toBeNull();
+    expect(noCost.flags.find((f) => f.code === "market.not_benchmarked")?.params).toMatchObject({ operation: "welding" });
   });
 });
 

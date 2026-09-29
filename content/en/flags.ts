@@ -373,6 +373,11 @@ export const flags: FlagsContent = {
       message:
         "Bending priced from the {thicknessMm} mm steel rate × {factor} ({family}) — not benchmarked for {materialCode}; check before sending.",
     },
+    "market.cost_plus": {
+      label: "Cost-plus price",
+      message:
+        "{operation}: no benchmarked rate in the market version — priced from the cost rates plus this quote's {marginPct} % margin; check before sending.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

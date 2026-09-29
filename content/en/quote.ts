@@ -76,7 +76,8 @@ const builderEn: QuoteBuilderContent = {
     leadTimeDays: "Lead time (working days)",
     leadTimeDaysHelp: "Promised lead time — on a market rate version it drives the price multiplier.",
     costVersion: "Cost version",
-    marginMarketHelp: "Market rate version: prices are selling prices; the margin comes from the comparison with the cost version.",
+    marginMarketHelp:
+      "Market rate version: benchmarked prices are selling prices. This margin prices only what the version does not benchmark (e.g. welding) from the cost rates; the margin in the summary comes from the comparison with the cost version.",
     paymentTerms: "Payment terms",
     notes: "Internal notes",
     showOperationsOnPdf: "Show operations on the PDF",

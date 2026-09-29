@@ -367,10 +367,16 @@ describe("E8 — everything the version does not benchmark is refused (red, unit
     expect(roll.items[0].flags.find((f) => f.code === "market.not_benchmarked")?.params).toMatchObject({ operation: "rolling" });
 
     const seam = { id: "s1", label: "Seam", process: "mig_mag" as const, beadMm: 4, lengthMm: 1000, pattern: "full" as const, stitch: null, sides: 1 as const, qty: 1 };
+    // Welding-only without weld rows: priced cost-plus from the cost version (amber market.cost_plus);
+    // refused only when there is no cost version to price it from.
     const welding = quote([], [], 11, { type: "welding_only", weldingOnly: { seams: [seam], partsCount: 1 } });
-    expect(welding.flags.find((f) => f.code === "market.not_benchmarked")?.params).toMatchObject({ operation: "welding" });
-    expect(welding.welding).toBeNull();
-    expect(reds(welding.flags)).toHaveLength(1);
+    expect(welding.welding).not.toBeNull();
+    expect(welding.flags.find((f) => f.code === "market.cost_plus")?.params).toMatchObject({ operation: "welding" });
+    expect(reds(welding.flags)).toHaveLength(0);
+    const noCost = priceQuote(makeQuoteInput({ type: "welding_only", leadTimeDays: 11, marginPct: 0, weldingOnly: { seams: [seam], partsCount: 1 } }), V2, MACHINES, { costRates: null });
+    expect(noCost.flags.find((f) => f.code === "market.not_benchmarked")?.params).toMatchObject({ operation: "welding" });
+    expect(noCost.welding).toBeNull();
+    expect(reds(noCost.flags)).toHaveLength(1);
   });
 
   it("a refused line is not counted in the set-up or order-charge split of the others", () => {

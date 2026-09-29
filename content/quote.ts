@@ -590,7 +590,8 @@ const builderPl: QuoteBuilderContent = {
     leadTimeDays: "Termin (dni robocze)",
     leadTimeDaysHelp: "Obiecany termin — w cenniku rynkowym steruje mnożnikiem ceny.",
     costVersion: "Cennik kosztowy",
-    marginMarketHelp: "Cennik rynkowy: ceny są cenami sprzedaży, marża wynika z porównania z cennikiem kosztowym.",
+    marginMarketHelp:
+      "Cennik rynkowy: ceny z benchmarku są cenami sprzedaży. Ta marża wycenia tylko to, czego cennik nie obejmuje (np. spawanie), ze stawek kosztowych; marża w podsumowaniu wynika z porównania z cennikiem kosztowym.",
     paymentTerms: "Warunki płatności",
     notes: "Uwagi wewnętrzne",
     showOperationsOnPdf: "Pokaż operacje na PDF",

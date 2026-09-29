@@ -542,6 +542,7 @@ export type FlagCode =
   /** Market mode: a bend longer than the benchmarked length — priced with the per-metre extension, amber. */
   | "market.extrapolated_rate"
   | "market.bend_rate_from_steel"
+  | "market.cost_plus"
   | "rates.placeholder";
 
 export type Flag = {
