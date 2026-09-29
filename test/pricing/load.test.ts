@@ -5,7 +5,7 @@
  * File path: /test/pricing/load.test.ts
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PricingError } from "@/lib/pricing/errors";
 import { loadActiveRateVersionId, loadMachinePark, loadRateSnapshot, type RatesClient } from "@/lib/rates/load";
 import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID, machineParkToRows, rateSnapshotToRows } from "@/test/helpers/rates";
@@ -13,13 +13,13 @@ import { MACHINE_PARK, RATE_SNAPSHOT_V1, RATE_VERSION_ID, machineParkToRows, rat
 type Row = Record<string, unknown>;
 type Call = { table: string; filters: [string, unknown][]; orders: string[]; single: boolean };
 
-function stubClient(tables: Record<string, Row[]>, options: { failTable?: string } = {}) {
+function stubClient(tables: Record<string, Row[]>, options: { failTable?: string; failError?: { message: string; code?: string } } = {}) {
   const calls: Call[] = [];
   const from = (table: string) => {
     const call: Call = { table, filters: [], orders: [], single: false };
     calls.push(call);
     const run = () => {
-      if (options.failTable === table) return { data: null, error: { message: "boom" } };
+      if (options.failTable === table) return { data: null, error: options.failError ?? { message: "boom" } };
       let data = tables[table] ?? [];
       for (const [column, value] of call.filters) data = data.filter((row) => row[column] === value);
       return { data: call.single ? (data[0] ?? null) : data, error: null };
@@ -124,6 +124,35 @@ describe("loadMachinePark", () => {
     const park = await loadMachinePark(client);
     expect(park.map((m) => m.code)).toEqual([...MACHINE_PARK].map((m) => m.code).sort());
     expect(park.find((m) => m.kind === "flat_laser")?.limits).toEqual(MACHINE_PARK[0].limits);
+  });
+
+  it("carries the press-brake tools; a MISSING press_brake_tools table (PGRST205 / 42P01) is logged and yields a park without tools", async () => {
+    const tables = seededTables();
+    tables.press_brake_tools = [
+      { code: "die-v8", kind: "die", name: "V8", v_mm: "8", min_flange_mm: "6", placeholder: true },
+      { code: "punch-120", kind: "punch", name: "P120", height_mm: 120, type: "straight", tip_radius_mm: 1, throat_depth_mm: null, placeholder: true },
+    ];
+    const withTools = await loadMachinePark(stubClient(tables).client);
+    const brake = withTools.find((m) => m.kind === "press_brake");
+    expect(brake && brake.kind === "press_brake" ? (brake.tools ?? []).map((t) => t.code) : null).toEqual(["die-v8", "punch-120"]);
+    for (const code of ["PGRST205", "42P01"]) {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { client } = stubClient(seededTables(), { failTable: "press_brake_tools", failError: { message: "Could not find the table 'public.press_brake_tools' in the schema cache", code } });
+      const park = await loadMachinePark(client);
+      const missing = park.find((m) => m.kind === "press_brake");
+      expect(missing && missing.kind === "press_brake" ? missing.tools : null, code).toEqual([]);
+      expect(park.map((m) => m.code).sort()).toEqual(MACHINE_PARK.map((m) => m.code).sort());
+      expect(warn, code).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain("press_brake_tools");
+      warn.mockRestore();
+    }
+  });
+
+  it("any other press_brake_tools error is still a db_error naming the table", async () => {
+    const { client } = stubClient(seededTables(), { failTable: "press_brake_tools", failError: { message: "permission denied", code: "42501" } });
+    await expect(loadMachinePark(client)).rejects.toMatchObject({ code: "db_error", details: { table: "press_brake_tools" } });
+    const noCode = stubClient(seededTables(), { failTable: "press_brake_tools" });
+    await expect(loadMachinePark(noCode.client)).rejects.toBeInstanceOf(PricingError);
   });
 
   it("propagates invalid limits as a PricingError", async () => {

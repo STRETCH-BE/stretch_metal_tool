@@ -10,7 +10,12 @@
  * queried filtered by rate_version_id; `loadRateSnapshot()` without a
  * version id uses the active one and throws PricingError
  * "no_active_rate_version" when there is none. DB errors surface as
- * PricingError "db_error" naming the table.
+ * PricingError "db_error" naming the table — except a MISSING
+ * press_brake_tools table (PGRST205 / 42P01: the sheet-metal migration not
+ * applied yet), which loadMachinePark logs and treats as "no tools": the
+ * tooling only feeds two DFM rules, and a schema that lags the code must
+ * not take the machine park, and with it the part page's material list,
+ * down.
  */
 
 import type {
@@ -41,7 +46,10 @@ import type { ServerSupabase } from "@/lib/supabase/server";
 
 export type RatesClient = ServerSupabase | AdminSupabase;
 
-type DbError = { message: string } | null;
+type DbError = { message: string; code?: string } | null;
+
+/** PostgREST ("not in the schema cache") and Postgres (undefined_table) codes for a table that does not exist. */
+const MISSING_TABLE_CODES = new Set(["PGRST205", "42P01"]);
 
 /**
  * The row types are given explicitly (not inferred from the query): the
@@ -199,14 +207,31 @@ export function rowsToPressBrakeTools(list: Loose<PressBrakeToolRow>[]): PressBr
   return out;
 }
 
-/** The machine park with validated limits (throws on malformed limits JSON); the press brake carries its tools. */
+/**
+ * The press-brake tools, or [] when the table does not exist (logged, never
+ * silent — see the header). Any other error is a db_error like every table.
+ */
+async function loadPressBrakeTools(supabase: RatesClient): Promise<PressBrakeTool[]> {
+  const { data, error } = (await supabase.from("press_brake_tools").select("*").order("code")) as { data: unknown; error: DbError };
+  if (error) {
+    if (error.code && MISSING_TABLE_CODES.has(error.code)) {
+      console.warn(
+        `[rates] press_brake_tools is missing (${error.code}) — apply supabase/migrations/20260928130000_sheetmetal_tables.sql; the DFM tooling rules run without tools until then`
+      );
+      return [];
+    }
+    throw new PricingError("db_error", `press_brake_tools: ${error.message}`, { table: "press_brake_tools" });
+  }
+  return rowsToPressBrakeTools((data ?? []) as Loose<PressBrakeToolRow>[]);
+}
+
+/** The machine park with validated limits (throws on malformed limits JSON); the press brake carries its tools (none when the table is missing). */
 export async function loadMachinePark(supabase: RatesClient): Promise<MachinePark> {
-  const [machines, tools] = await Promise.all([
+  const [machines, toolList] = await Promise.all([
     rows<MachineRow>(supabase.from("machines").select("*").order("code"), "machines"),
-    rows<Loose<PressBrakeToolRow>>(supabase.from("press_brake_tools").select("*").order("code"), "press_brake_tools"),
+    loadPressBrakeTools(supabase),
   ]);
   const park = rowsToMachinePark(machines);
-  const toolList = rowsToPressBrakeTools(tools);
   return park.map((m) => (m.kind === "press_brake" ? { ...m, tools: toolList } : m));
 }
 

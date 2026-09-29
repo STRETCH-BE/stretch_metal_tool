@@ -160,6 +160,10 @@ function collisionFlags(input: DfmInput): Flag[] {
   const t = input.thicknessMm;
   const punches = input.tools.filter((x): x is Extract<PressBrakeTool, { kind: "punch" }> => x.kind === "punch");
   const out: Flag[] = [];
+  // No punch in the tooling table at all (table empty or missing): nothing to
+  // judge against — skipped like the flange rule without dies, never a flag
+  // on every U shape.
+  if (punches.length === 0) return out;
   const bends = input.sheet.bends;
   for (let i = 0; i < bends.length; i++) {
     for (let j = i + 1; j < bends.length; j++) {
