@@ -67,6 +67,7 @@ export const pdf: PdfContent = {
       setup: "Production setup",
       order: "Order charge",
       packaging: "Packaging",
+      shipping: "Shipping",
       leadtime: "Lead time",
       other: "Other",
     },

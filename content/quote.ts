@@ -147,6 +147,7 @@ export type OperationTypeCode =
   | "setup"
   | "order"
   | "packaging"
+  | "shipping"
   | "leadtime"
   | "other";
 export type OperationLabelCode =
@@ -178,6 +179,22 @@ export type OperationLabelCode =
   | "bend_line_setup"
   | "feature_setup"
   | "finish_minimum"
+  | "packaging"
+  | "shipping"
+  | "assembly_parts"
+  | "assembly_fitup"
+  | "assembly_tack"
+  | "assembly_weld"
+  | "assembly_gas_wire"
+  | "assembly_deburr"
+  | "assembly_handling"
+  | "step_bend"
+  | "roll_forming"
+  | "subcontract_forming"
+  | "setup_laser_nest"
+  | "setup_press_brake"
+  | "setup_roll"
+  | "setup_weld_fitup"
   | "deburr_nonferrous"
   | "deburr_one_side"
   | "edge_round"
@@ -669,6 +686,7 @@ const builderPl: QuoteBuilderContent = {
       other: "Inne",
       order: "Opłata za zamówienie",
       packaging: "Opakowanie",
+      shipping: "Transport",
       leadtime: "Termin realizacji",
     },
     labels: {
@@ -700,6 +718,22 @@ const builderPl: QuoteBuilderContent = {
       bend_line_setup: "Przezbrojenie — linie gięcia",
       feature_setup: "Przezbrojenie — obróbka otworów (na pozycję)",
       finish_minimum: "Dopłata do minimum wykończenia",
+      packaging: "Opakowanie",
+      shipping: "Transport",
+      assembly_parts: "Części zespołu (koszt materiału i cięcia)",
+      assembly_fitup: "Składanie (fit-up)",
+      assembly_tack: "Sczepianie",
+      assembly_weld: "Spawanie spoin",
+      assembly_gas_wire: "Gaz i drut",
+      assembly_deburr: "Gratowanie części",
+      assembly_handling: "Manipulacja zespołu",
+      step_bend: "Gięcie krokowe (uderzenia prasy)",
+      roll_forming: "Walcowanie",
+      subcontract_forming: "Formowanie w kooperacji",
+      setup_laser_nest: "Przezbrojenie — nest laserowy (raz na zlecenie)",
+      setup_press_brake: "Przezbrojenie — prasa krawędziowa (raz na zlecenie)",
+      setup_roll: "Przezbrojenie — walcarka (raz na zlecenie)",
+      setup_weld_fitup: "Przezbrojenie — stanowisko spawalnicze (raz na zlecenie)",
       deburr_nonferrous: "Gratowanie (obie strony, aluminium / nierdzewna)",
       deburr_one_side: "Gratowanie (strona zadziorów)",
       edge_round: "Zaokrąglanie krawędzi (obie strony)",

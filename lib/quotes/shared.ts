@@ -126,12 +126,13 @@ export const OPERATION_TYPE_ORDER: OperationType[] = [
   "setup",
   "order",
   "packaging",
+  "shipping",
   "leadtime",
   "other",
 ];
 
 /** Market price components that are money, not work: inside the part price, never listed as an operation on the PDF. */
-export const PRICE_COMPONENT_TYPES: ReadonlySet<OperationType> = new Set<OperationType>(["order", "packaging", "leadtime"]);
+export const PRICE_COMPONENT_TYPES: ReadonlySet<OperationType> = new Set<OperationType>(["order", "packaging", "shipping", "leadtime"]);
 
 /** Group operation lines by type keeping order — used by the PDF operation summary (price components skipped). */
 export function summariseOperations(lines: ReadonlyArray<OperationLine>): { type: OperationType; count: number; unitCost: number }[] {

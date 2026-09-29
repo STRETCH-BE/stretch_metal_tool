@@ -193,6 +193,7 @@ describe("OPERATION_TYPE_ORDER", () => {
       setup: true,
       order: true,
       packaging: true,
+      shipping: true,
       leadtime: true,
       other: true,
     };

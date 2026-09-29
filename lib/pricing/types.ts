@@ -594,6 +594,8 @@ export type OperationType =
   | "setup"
   | "order"
   | "packaging"
+  /** Quote-level shipping line (PricedQuote.shipping), outside the assembly margin. */
+  | "shipping"
   | "leadtime"
   | "other";
 

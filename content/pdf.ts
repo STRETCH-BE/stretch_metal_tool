@@ -159,6 +159,7 @@ export const pdf: PdfContent = {
       setup: "Przygotowanie produkcji",
       order: "Opłata za zamówienie",
       packaging: "Opakowanie",
+      shipping: "Transport",
       leadtime: "Termin realizacji",
       other: "Inne",
     },

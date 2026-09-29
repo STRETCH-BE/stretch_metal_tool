@@ -39,6 +39,29 @@ export const OPERATION_LABELS = {
   featureSetup: "feature_setup",
   /** Market mode, quote level: top-up to a finish's minimum (per order or per colour). */
   finishMinimum: "finish_minimum",
+  /* ─── Assembly mode (docs/assembly-mode-design.md §3) ─── */
+  /** Quote-level packaging picked from packaging_rates (details.code = row code). */
+  packaging: "packaging",
+  /** Quote-level shipping line (manual or shipping_rates band). */
+  shipping: "shipping",
+  /** Assembly: member parts at cost (material + cutting of the cost version). */
+  assemblyParts: "assembly_parts",
+  assemblyFitup: "assembly_fitup",
+  assemblyTack: "assembly_tack",
+  assemblyWeld: "assembly_weld",
+  assemblyGasWire: "assembly_gas_wire",
+  assemblyDeburr: "assembly_deburr",
+  assemblyHandling: "assembly_handling",
+  /** Forming priced as press-brake hits (step bending) or rolling minutes. */
+  stepBend: "step_bend",
+  rollForming: "roll_forming",
+  /** Subcontracted forming: supplier cost × (1 + subcontract margin). */
+  subcontractForming: "subcontract_forming",
+  /** Job setups charged once per job and spread over the quantity. */
+  setupLaserNest: "setup_laser_nest",
+  setupPressBrake: "setup_press_brake",
+  setupRoll: "setup_roll",
+  setupWeldFitup: "setup_weld_fitup",
 } as const;
 
 export type OperationLabelKey = (typeof OPERATION_LABELS)[keyof typeof OPERATION_LABELS];
