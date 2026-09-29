@@ -26,7 +26,7 @@ import { Panel } from "@/components/ui/panel";
 import { StatusChip } from "@/components/ui/status-chip";
 import { CustomerForm } from "@/components/customers/customer-form";
 import { CustomerQuotesTable } from "@/components/customers/customer-quotes-table";
-import { classLabel, countryLabel } from "@/components/customers/customers-table";
+import { classLabel, countryLabel, customerTypeLabel, customerTypeSeverity } from "@/components/customers/customers-table";
 
 type Params = Promise<{ id: string }>;
 type SearchParams = Promise<{ created?: string | string[]; error?: string | string[] }>;
@@ -84,6 +84,7 @@ export default async function CustomerPage({
         subtitle={subtitle}
         actions={
           <>
+            <StatusChip severity={customerTypeSeverity(customer.customer_type)} label={customerTypeLabel(c, customer.customer_type)} />
             <Button href={routes.quoteNew} variant="ghost" size="sm" arrow>
               {c.common.nav.newQuote}
             </Button>

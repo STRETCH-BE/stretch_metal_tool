@@ -10,6 +10,13 @@
  * re-derived from the stored file (SHA-256 cache first). Access errors
  * map to 404 (not found / bad id) — the layout already redirected
  * signed-out users.
+ *
+ * Assembly membership (read-only, the page's RLS client): when the part's
+ * quote item carries assembly_id the assembly row and its seams are
+ * loaded so the workspace can offer "Add as assembly seam" per weld and
+ * mark the welds already stored. A database without the assembly tables
+ * (migration not applied) or any read error → no membership, the part
+ * page still works.
  */
 
 import type { Metadata } from "next";
@@ -17,6 +24,7 @@ import { notFound } from "next/navigation";
 import { getLocale } from "@/lib/i18n";
 import { getContent } from "@/content";
 import { env } from "@/lib/env";
+import type { AssemblySeamRow } from "@/lib/db/types";
 import type { PartGeometry } from "@/lib/geometry/types";
 import { PartAccessError } from "@/lib/parts/access";
 import { loadPartPage, type PartPageData } from "@/lib/parts/queries";
@@ -80,6 +88,25 @@ async function viewerGeometryFor(data: PartPageData): Promise<PartGeometry | nul
   }
 }
 
+type AssemblyMembership = { id: string; name: string; seams: AssemblySeamRow[] };
+
+async function loadAssemblyMembership(data: PartPageData): Promise<AssemblyMembership | null> {
+  const assemblyId = data.item?.assembly_id ?? null;
+  if (!assemblyId) return null;
+  try {
+    const supabase = data.reader.supabase;
+    const [assembly, seams] = await Promise.all([
+      supabase.from("assemblies").select("id, name").eq("id", assemblyId).maybeSingle(),
+      supabase.from("assembly_seams").select("*").eq("assembly_id", assemblyId).order("position", { ascending: true }),
+    ]);
+    if (assembly.error || !assembly.data) return null;
+    return { id: assembly.data.id, name: assembly.data.name, seams: (seams.data ?? []) as AssemblySeamRow[] };
+  } catch (error) {
+    console.warn("[parts] assembly membership unavailable", error);
+    return null;
+  }
+}
+
 function parseFinishCodes(extras: unknown): string[] {
   if (!Array.isArray(extras)) return [];
   return extras
@@ -90,7 +117,7 @@ function parseFinishCodes(extras: unknown): string[] {
 export default async function PartPage({ params }: { params: Params }) {
   const { id } = await params;
   const data = await loadOrNotFound(id);
-  const viewerGeometry = await viewerGeometryFor(data);
+  const [viewerGeometry, assembly] = await Promise.all([viewerGeometryFor(data), loadAssemblyMembership(data)]);
   const { part, quote, item } = data;
 
   return (
@@ -121,6 +148,7 @@ export default async function PartPage({ params }: { params: Params }) {
       rates={data.rates}
       canWrite={data.canWrite}
       aiAvailable={env.hasAi()}
+      assembly={assembly}
     />
   );
 }

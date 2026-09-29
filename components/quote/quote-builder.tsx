@@ -32,6 +32,17 @@
  * distinguishes mailed / mailer off / mail failed. The audit excerpt is
  * `null` when the viewer may not see it (not admin, not the owner) and
  * the panel is then not rendered at all.
+ *
+ * Assembly mode (docs/assembly-mode-design.md §5): the header gains the
+ * quote kind toggle (UI convenience — a quote with ≥ 1 assembly IS an
+ * assembly quote), the customer reference / contact person, the
+ * shipping editor and the price-scale editor (all saved with the
+ * header); the assembly panel (components/quote/assembly-editor.tsx)
+ * edits assemblies, members, seams and forming through server actions
+ * run by `act`; members are hidden from the loose parts table; the VAT
+ * summary sits under the totals and the PDF download is disabled by the
+ * export guards with the reasons listed. The page's JobRates feed the
+ * local preview so it prices assemblies exactly like the server.
  */
 
 import Link from "next/link";
@@ -48,12 +59,13 @@ import { StatusChip } from "@/components/ui/status-chip";
 import { Table, TableWrap, Td, Th } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { formatDate, formatDateTime, formatNumber, formatPercent, interpolate } from "@/lib/format";
-import type { ExtraOperation, Flag, MachinePark, OperationType, RateSnapshot } from "@/lib/pricing/types";
+import type { ExtraOperation, Flag, JobRates, MachinePark, OperationType, RateSnapshot } from "@/lib/pricing/types";
 import { marginToMarkup } from "@/lib/pricing/types";
 import { routes } from "@/lib/routes";
 import {
   addItem,
   confirmFlag,
+  createAssembly,
   duplicateAsNewVersion,
   removeItem,
   reorderItems,
@@ -67,16 +79,22 @@ import {
 } from "@/lib/quotes/actions";
 import type { CustomerOption } from "@/lib/quotes/queries";
 import { CURRENCIES, type ItemUpdateInput, type QuoteActionResult } from "@/lib/quotes/schema";
-import { canSend } from "@/lib/quotes/send-guard";
+import { canSend, exportBlockReasons } from "@/lib/quotes/send-guard";
 import { OPERATION_TYPE_ORDER, isPricingStale, isQuoteEditable, quoteNumberLabel, quotePdfFileName, validUntilDate } from "@/lib/quotes/shared";
-import type { QuoteAuditRow, QuoteBundle, SendCheck } from "@/lib/quotes/types";
-import { effectiveFxRate, headerFromBundle, headerFxInvalid, headerToInput, type HeaderState } from "./header-state";
+import type { QuoteAuditRow, QuoteBundle, SendBlockReason, SendCheck } from "@/lib/quotes/types";
+import type { ActionFailure, ActionLike, ActionRunner } from "./action-runner";
+import { AssemblyEditor } from "./assembly-editor";
+import { memberItemIds } from "./assembly-view";
+import { effectiveFxRate, effectivePriceScale, headerFromBundle, headerFxInvalid, headerToInput, shippingInvalid, shippingToInput, type HeaderState } from "./header-state";
 import { makeMoney } from "./money";
 import { computePreview, draftFromBundle, isDraftDirty, type QuoteDraft } from "./preview";
+import { PriceScaleEditor, PriceScaleTable, type PriceScaleSubject } from "./price-scale-editor";
 import { QuoteAudit } from "./quote-audit";
 import { QuoteFlagsPanel, QuoteOverridesList } from "./quote-flags-panel";
 import { QuotePartsTable } from "./quote-parts-table";
 import { QuoteStatusChip } from "./quote-status-chip";
+import { ShippingEditor } from "./shipping-editor";
+import { VatSummary } from "./vat-summary";
 import { WeldingSeamsEditor } from "./welding-seams-editor";
 
 export type QuoteBuilderProps = {
@@ -85,6 +103,8 @@ export type QuoteBuilderProps = {
   /** Market mode: the cost version's snapshot for the live margin preview (null in cost mode or when none exists). */
   costRates: RateSnapshot | null;
   machines: MachinePark;
+  /** Admin-edited job rates (assemblies, setups, packaging, shipping, VAT) for the live preview; null = not loaded (legacy preview). */
+  jobRates?: JobRates | null;
   customers: CustomerOption[];
   /** Audit excerpt, or null when this viewer may not see it (panel hidden). */
   audit: QuoteAuditRow[] | null;
@@ -92,11 +112,15 @@ export type QuoteBuilderProps = {
   isAdmin: boolean;
   mailConfigured: boolean;
   sendCheck: SendCheck;
+  /** Export guards of the PDF route (lib/quotes/send-guard.ts exportBlockReasons); computed here when omitted. */
+  exportBlock?: SendBlockReason[];
   /** Environment default EUR→PLN rate (defaultFxEurPln()), seeds the fx field on an EUR → PLN switch. */
   fxEurPln: number;
 };
 
-export function QuoteBuilder({ bundle, rates, costRates, machines, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck, fxEurPln }: QuoteBuilderProps) {
+type QuoteKind = "parts" | "assembly";
+
+export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = null, customers, audit, canEdit, isAdmin, mailConfigured, sendCheck, exportBlock, fxEurPln }: QuoteBuilderProps) {
   const c = useContent();
   const b = c.quote.builder;
   const { toast } = useToast();
@@ -104,26 +128,48 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
   const quote = bundle.quote;
   const editable = canEdit && isQuoteEditable(quote.status);
   const marketMode = rates?.general.pricingMode === "market";
-  const bundleKey = `${quote.updated_at}|${quote.priced_at ?? ""}|${bundle.items.map((i) => `${i.id}:${i.qty}:${i.position}`).join(",")}`;
+  const bundleKey = `${quote.updated_at}|${quote.priced_at ?? ""}|${bundle.items.map((i) => `${i.id}:${i.qty}:${i.position}:${i.assembly_id ?? ""}`).join(",")}|${bundle.assemblies.map((a) => a.id).join(",")}`;
 
   const [draft, setDraft] = useState<QuoteDraft>(() => draftFromBundle(bundle));
   const [header, setHeader] = useState<HeaderState>(() => headerFromBundle(bundle, fxEurPln));
   const [pdfOps, setPdfOps] = useState(quote.show_operations_on_pdf);
+  // "Parts of assembly" appendix of the PDF (members are never rows of the main table).
+  const [pdfParts, setPdfParts] = useState(false);
   const [sendLocale, setSendLocale] = useState<"pl" | "en">(bundle.customer?.preferred_locale ?? "pl");
+  // UI convenience: "Welded assembly" reveals the assembly panel; a quote with ≥ 1 assembly is an assembly quote.
+  const [kind, setKind] = useState<QuoteKind>(bundle.assemblies.length > 0 ? "assembly" : "parts");
 
   // Server truth arrived (after a save): drop local edits.
   useEffect(() => {
     setDraft(draftFromBundle(bundle));
     setHeader(headerFromBundle(bundle, fxEurPln));
     setPdfOps(bundle.quote.show_operations_on_pdf);
+    if (bundle.assemblies.length > 0) setKind("assembly");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundleKey]);
 
   const dirty = isDraftDirty(draft, bundle);
-  const preview = useMemo(() => computePreview(bundle, rates, machines, draft, costRates), [bundle, rates, machines, draft, costRates]);
+  const preview = useMemo(() => computePreview(bundle, rates, machines, draft, { costRates, jobRates }), [bundle, rates, machines, draft, costRates, jobRates]);
   const priced = dirty && preview.priced ? preview.priced : bundle.pricing;
   const showingPreview = dirty && preview.priced !== null;
   const money = useMemo(() => makeMoney(draft.currency, draft.fxRate, c.locale), [draft.currency, draft.fxRate, c.locale]);
+  const members = useMemo(() => memberItemIds(bundle.items, bundle.assemblies), [bundle.items, bundle.assemblies]);
+  const selectedCustomer = customers.find((customer) => customer.id === header.customerId) ?? null;
+  const computedGrossKg = useMemo(() => {
+    const fromShipping = priced?.shipping?.details.grossKg;
+    if (typeof fromShipping === "number" && priced?.shipping?.details.massSource === "computed") return fromShipping;
+    const packaging = priced?.quoteLines.find((line) => line.type === "packaging");
+    const fromPackaging = packaging?.details.grossKg;
+    return typeof fromPackaging === "number" ? fromPackaging : typeof fromShipping === "number" ? fromShipping : null;
+  }, [priced]);
+  const exportReasons = useMemo(() => exportBlock ?? exportBlockReasons(bundle), [exportBlock, bundle]);
+  const scaleSubjects = useMemo(() => {
+    const map = new Map<string, PriceScaleSubject>();
+    const partsById = new Map(bundle.parts.map((p) => [p.id, p]));
+    for (const item of bundle.items) map.set(item.id, { name: partsById.get(item.part_id)?.name ?? item.id, kind: "item" });
+    for (const assembly of bundle.assemblies) map.set(assembly.id, { name: assembly.name, kind: "assembly" });
+    return map;
+  }, [bundle.items, bundle.parts, bundle.assemblies]);
 
   const report = (result: QuoteActionResult, success: string) => {
     if (result.ok) toast(success, { tone: "success" });
@@ -133,6 +179,18 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
   const run = (fn: () => Promise<QuoteActionResult>, success: string) =>
     startTransition(async () => {
       report(await fn(), success);
+    });
+
+  /** Generic runner for the assembly / seam / forming actions (result-dependent success toast). */
+  const act: ActionRunner = <R extends ActionLike>(fn: () => Promise<R>, success: string | ((result: Exclude<R, ActionFailure>) => string)) =>
+    startTransition(async () => {
+      const result = await fn();
+      if (result.ok) {
+        toast(typeof success === "function" ? success(result as Exclude<R, ActionFailure>) : success, { tone: "success" });
+      } else {
+        const failure = result as ActionFailure;
+        toast(interpolate(b.errors[failure.error], { message: failure.message ?? "" }), { tone: "error", durationMs: 8000 });
+      }
     });
 
   // Stored prices that no longer match the quote (a draft re-pinned after a
@@ -157,16 +215,39 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
   /* ─── Header ─────────────────────────────────────────────── */
   const patchHeader = (patch: Partial<HeaderState>) => {
     const next = { ...header, ...patch };
+    // A customer change defaults the contact person from the customer record (only when the field is empty / was the old default).
+    if (patch.customerId !== undefined && patch.customerId !== header.customerId) {
+      const previous = customers.find((customer) => customer.id === header.customerId)?.contact_person ?? "";
+      const chosen = customers.find((customer) => customer.id === patch.customerId)?.contact_person ?? "";
+      if (header.contactPerson.trim() === "" || header.contactPerson === previous) next.contactPerson = chosen;
+    }
     setHeader(next);
-    setDraft((d) => ({ ...d, marginPct: next.marginPct, leadTimeDays: next.leadTimeDays, currency: next.currency, fxRate: effectiveFxRate(next) }));
+    setDraft((d) => ({
+      ...d,
+      marginPct: next.marginPct,
+      leadTimeDays: next.leadTimeDays,
+      currency: next.currency,
+      fxRate: effectiveFxRate(next),
+      shipping: shippingInvalid(next.shipping) ? d.shipping : shippingToInput(next.shipping),
+      priceScale: effectivePriceScale(next),
+    }));
   };
   const fxInvalid = headerFxInvalid(header);
+  const shippingBad = shippingInvalid(header.shipping);
   const saveHeader = () => {
     if (fxInvalid) {
       toast(b.errors.invalidFx, { tone: "error" });
       return;
     }
+    if (shippingBad) {
+      toast(b.errors.invalidNumber, { tone: "error" });
+      return;
+    }
     run(() => updateQuoteHeader(quote.id, headerToInput(header)), b.header.saved);
+  };
+  const onAddAssembly = () => {
+    const name = interpolate(b.assembly.defaultName, { n: bundle.assemblies.length + 1 });
+    act(() => createAssembly(quote.id, { name, qty: 1, materialCode: null, thicknessMm: null }), b.assembly.created);
   };
 
   /* ─── Items ──────────────────────────────────────────────── */
@@ -269,7 +350,23 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
           }
         >
           <fieldset disabled={!editable || pending} className="grid gap-4 md:grid-cols-3">
-            <Field label={b.header.customer} htmlFor="q-customer">
+            <div className="md:col-span-3">
+              <span className="field-label">{b.header.kind}</span>
+              <div className="toolbar inline-flex" role="group" aria-label={b.header.kind}>
+                <button type="button" className="tool-btn" aria-pressed={kind === "parts"} disabled={bundle.assemblies.length > 0} onClick={() => setKind("parts")}>
+                  {b.header.kindParts}
+                </button>
+                <button type="button" className="tool-btn" aria-pressed={kind === "assembly"} onClick={() => setKind("assembly")}>
+                  {b.header.kindAssembly}
+                </button>
+              </div>
+              <p className="field-help">{b.header.kindHelp}</p>
+            </div>
+            <Field
+              label={b.header.customer}
+              htmlFor="q-customer"
+              help={selectedCustomer ? interpolate(b.header.customerTypeHint, { type: c.quote.customers.types[selectedCustomer.customer_type] }) : undefined}
+            >
               <Select id="q-customer" dense value={header.customerId} onChange={(e) => patchHeader({ customerId: e.target.value })}>
                 <option value="">{b.header.noCustomer}</option>
                 {customers.map((customer) => (
@@ -278,6 +375,12 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
                   </option>
                 ))}
               </Select>
+            </Field>
+            <Field label={b.header.customerReference} htmlFor="q-ref" help={b.header.customerReferenceHelp}>
+              <Input id="q-ref" dense className="mono" value={header.customerReference} maxLength={120} onChange={(e) => patchHeader({ customerReference: e.target.value })} />
+            </Field>
+            <Field label={b.header.contactPerson} htmlFor="q-contact" help={b.header.contactPersonHelp}>
+              <Input id="q-contact" dense value={header.contactPerson} maxLength={200} onChange={(e) => patchHeader({ contactPerson: e.target.value })} />
             </Field>
             <Field label={b.header.currency} htmlFor="q-currency">
               <Select
@@ -356,6 +459,27 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
             <Field label={b.header.notes} htmlFor="q-notes">
               <Textarea id="q-notes" dense rows={2} value={header.notes} maxLength={4000} onChange={(e) => patchHeader({ notes: e.target.value })} />
             </Field>
+            <div className="border-t border-border pt-4 md:col-span-3">
+              <div className="panel-title mb-3">{b.shipping.title}</div>
+              <ShippingEditor
+                value={header.shipping}
+                onChange={(shipping) => patchHeader({ shipping })}
+                disabled={!editable || pending}
+                customerCountry={selectedCustomer?.country ?? bundle.customer?.country ?? null}
+                jobRates={jobRates}
+                computedGrossKg={computedGrossKg}
+                money={money}
+              />
+            </div>
+            <div className="border-t border-border pt-4 md:col-span-3">
+              <div className="panel-title mb-3">{b.priceScale.title}</div>
+              <PriceScaleEditor
+                enabled={header.priceScaleEnabled}
+                values={header.priceScale}
+                onChange={(next) => patchHeader({ priceScaleEnabled: next.enabled, priceScale: next.values })}
+                disabled={!editable || pending}
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-5 md:col-span-3">
               <label className="flex items-center gap-2 text-[13px]">
                 <input
@@ -376,7 +500,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
                 {b.header.weldingSeparate}
               </label>
               {editable && (
-                <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={saveHeader} disabled={pending || fxInvalid}>
+                <button type="button" className="btn btn-primary btn-sm ml-auto" onClick={saveHeader} disabled={pending || fxInvalid || shippingBad}>
                   {b.header.save}
                   <span aria-hidden="true" className="btn-arrow">
                     →
@@ -386,6 +510,23 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
             </div>
           </fieldset>
         </Panel>
+
+        {/* Welded assemblies */}
+        {(kind === "assembly" || bundle.assemblies.length > 0) && (
+          <Panel
+            flush
+            title={b.assembly.title}
+            actions={
+              editable ? (
+                <button type="button" className="btn btn-ghost btn-sm" disabled={pending} onClick={onAddAssembly}>
+                  {b.assembly.add}
+                </button>
+              ) : undefined
+            }
+          >
+            <AssemblyEditor bundle={bundle} priced={priced} rates={rates} editable={editable} pending={pending} isAdmin={isAdmin} money={money} act={act} />
+          </Panel>
+        )}
 
         {/* Parts */}
         <Panel
@@ -423,6 +564,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
             editable={editable}
             pending={pending}
             money={money}
+            hiddenItemIds={members}
             onQtyChange={onQtyChange}
             onExtrasChange={onExtrasChange}
             onSaveItem={onSaveItem}
@@ -431,6 +573,13 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
             onAddItem={onAddItem}
           />
         </Panel>
+
+        {/* Price scale */}
+        {priced && priced.priceScale.length > 0 && (
+          <Panel flush title={b.priceScale.tableTitle}>
+            <PriceScaleTable scale={priced.priceScale} subjects={scaleSubjects} money={money} />
+          </Panel>
+        )}
 
         {/* Welding block */}
         {(quote.type === "welding_only" || priced?.welding) && (
@@ -573,6 +722,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
               {quote.priced_at && !showingPreview && (
                 <p className="mt-2 text-[11.5px] text-text-faint">{interpolate(b.totals.pricedAt, { date: formatDateTime(quote.priced_at, c.locale) })}</p>
               )}
+              <VatSummary pricing={priced} money={money} />
             </>
           )}
         </Panel>
@@ -617,24 +767,51 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
               <input type="checkbox" className="checkbox" checked={pdfOps} onChange={(e) => setPdfOps(e.target.checked)} />
               {b.actions.withOperations}
             </label>
-            <div className="flex flex-wrap gap-2">
-              <a
-                href={routes.quotePdfExport(quote.id, "pl", pdfOps)}
-                className="btn btn-ghost btn-sm"
-                download={quotePdfFileName(quote, "pl")}
-                onClick={(event) => void downloadPdf(event, "pl")}
-              >
-                {b.actions.exportPdfPl}
-              </a>
-              <a
-                href={routes.quotePdfExport(quote.id, "en", pdfOps)}
-                className="btn btn-ghost btn-sm"
-                download={quotePdfFileName(quote, "en")}
-                onClick={(event) => void downloadPdf(event, "en")}
-              >
-                {b.actions.exportPdfEn}
-              </a>
-            </div>
+            {bundle.assemblies.length > 0 && (
+              <label className="flex items-center gap-2 text-[13px]">
+                <input type="checkbox" className="checkbox" checked={pdfParts} onChange={(e) => setPdfParts(e.target.checked)} />
+                {b.actions.withAssemblyParts}
+              </label>
+            )}
+            {exportReasons.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-ghost btn-sm" disabled aria-disabled="true">
+                    {b.actions.exportPdfPl}
+                  </button>
+                  <button type="button" className="btn btn-ghost btn-sm" disabled aria-disabled="true">
+                    {b.actions.exportPdfEn}
+                  </button>
+                </div>
+                <div className="text-[12px] text-text-muted">
+                  <span className="font-bold">{b.actions.exportBlocked}</span>
+                  <ul className="mt-1 list-disc pl-4">
+                    {exportReasons.map((reason) => (
+                      <li key={reason}>{b.send.reasons[reason]}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={routes.quotePdfExport(quote.id, "pl", pdfOps, pdfParts)}
+                  className="btn btn-ghost btn-sm"
+                  download={quotePdfFileName(quote, "pl")}
+                  onClick={(event) => void downloadPdf(event, "pl")}
+                >
+                  {b.actions.exportPdfPl}
+                </a>
+                <a
+                  href={routes.quotePdfExport(quote.id, "en", pdfOps, pdfParts)}
+                  className="btn btn-ghost btn-sm"
+                  download={quotePdfFileName(quote, "en")}
+                  onClick={(event) => void downloadPdf(event, "en")}
+                >
+                  {b.actions.exportPdfEn}
+                </a>
+              </div>
+            )}
 
             {canEdit && editable && (
               <>

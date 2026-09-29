@@ -1,23 +1,33 @@
 /**
  * Live pricing preview — the client-side mirror of lib/quotes/reprice.ts.
  * Runs the same pure priceQuote() on the bundle rows with the user's
- * unsaved edits (quantities, extras, scrap, margin, currency/fx, seams)
- * so the builder can show numbers instantly; the server result replaces
- * it after every save (never persisted from here — Step 12).
+ * unsaved edits (quantities, extras, scrap, margin, currency/fx, seams,
+ * shipping, price scale) so the builder can show numbers instantly; the
+ * server result replaces it after every save (never persisted from here
+ * — Step 12).
  * File path: /components/quote/preview.ts
  *
  * `QuoteDraft` is the minimal editable state; `draftFromBundle` derives
  * it from the server bundle and `isDraftDirty` tells the UI to label the
  * numbers as "preview". Pricing errors (PricingError from bad input) are
  * returned, not thrown, so a half-typed number never crashes the page.
+ *
+ * Assembly mode: the bundle's assemblies + seams and the customer's type /
+ * country / VAT id go into the input as on the server; the page's
+ * JobRates (loadJobRates) are passed through PriceQuoteOptions so the
+ * preview prices assemblies, packaging, shipping and VAT exactly like
+ * the server. Without job rates the engine takes its legacy path — the
+ * preview then shows loose-part prices only (bundle.pricing stays the
+ * truth). Assembly / seam / forming edits are server actions (no local
+ * draft), so the preview reads them from the refreshed bundle.
  */
 
 import type { QuoteItemRow } from "@/lib/db/types";
 import { isPricingError } from "@/lib/pricing/errors";
 import { priceQuote } from "@/lib/pricing/price-quote";
-import type { ExtraOperation, MachinePark, PricedQuote, RateSnapshot } from "@/lib/pricing/types";
+import type { ExtraOperation, JobRates, MachinePark, PricedQuote, RateSnapshot, ShippingInput } from "@/lib/pricing/types";
 import { buildQuoteInput, hasPriceableContent, toJson } from "@/lib/quotes/mapper";
-import { parseExtras } from "@/lib/quotes/schema";
+import { normalisePriceScale, parseExtras, parseShipping } from "@/lib/quotes/schema";
 import type { QuoteBundle, WeldingOnlyBlock } from "@/lib/quotes/types";
 
 export type QuoteDraft = {
@@ -30,6 +40,9 @@ export type QuoteDraft = {
   extrasById: Record<string, ExtraOperation[]>;
   scrapById: Record<string, number | null>;
   welding: WeldingOnlyBlock | null;
+  /** Assembly mode header fields that change the price (null = no shipping line). */
+  shipping: ShippingInput | null;
+  priceScale: number[];
 };
 
 export function draftFromBundle(bundle: QuoteBundle): QuoteDraft {
@@ -50,6 +63,8 @@ export function draftFromBundle(bundle: QuoteBundle): QuoteDraft {
     extrasById,
     scrapById,
     welding: bundle.weldingOnly ? structuredClone(bundle.weldingOnly) : null,
+    shipping: parseShipping(bundle.quote.shipping ?? null),
+    priceScale: normalisePriceScale(bundle.quote.price_scale ?? []),
   };
 }
 
@@ -59,15 +74,22 @@ export function isDraftDirty(draft: QuoteDraft, bundle: QuoteBundle): boolean {
 
 export type PreviewResult = { priced: PricedQuote | null; error: string | null };
 
+export type PreviewOptions = {
+  costRates?: RateSnapshot | null;
+  jobRates?: JobRates | null;
+};
+
 /** Apply the draft to the bundle rows and price them with the same engine the server uses. */
 export function computePreview(
   bundle: QuoteBundle,
   rates: RateSnapshot | null,
   machines: MachinePark,
   draft: QuoteDraft,
-  costRates: RateSnapshot | null = null
+  options: PreviewOptions | RateSnapshot | null = null
 ): PreviewResult {
   if (!rates) return { priced: null, error: null };
+  // Backwards compatible 5th argument: the cost snapshot alone (older callers / tests).
+  const opts: PreviewOptions = options && "versionId" in options ? { costRates: options } : (options ?? {});
   const items: QuoteItemRow[] = bundle.items.map((item) => ({
     ...item,
     qty: draft.qtyById[item.id] ?? Number(item.qty),
@@ -79,11 +101,21 @@ export function computePreview(
     margin_pct: draft.marginPct,
     lead_time_days: draft.leadTimeDays,
     welding_only: draft.welding ? toJson(draft.welding) : null,
+    shipping: draft.shipping ? toJson(draft.shipping) : null,
+    price_scale: draft.priceScale,
   };
   try {
-    const input = buildQuoteInput({ quote, customer: bundle.customer, items, parts: bundle.parts, rates });
+    const input = buildQuoteInput({
+      quote,
+      customer: bundle.customer,
+      items,
+      parts: bundle.parts,
+      rates,
+      assemblies: bundle.assemblies,
+      seams: bundle.seams,
+    });
     if (!hasPriceableContent(input)) return { priced: null, error: null };
-    return { priced: priceQuote(input, rates, machines, { costRates }), error: null };
+    return { priced: priceQuote(input, rates, machines, { costRates: opts.costRates ?? null, jobRates: opts.jobRates ?? null }), error: null };
   } catch (error) {
     if (isPricingError(error)) return { priced: null, error: error.message };
     return { priced: null, error: error instanceof Error ? error.message : String(error) };

@@ -15,6 +15,11 @@
  * (server). Thumbnails use parts.thumbnail_svg and fall back to an SVG
  * built from the stored geometry (geometryToSvg) when the intake did not
  * store one.
+ *
+ * Assembly mode: members of a welded assembly (`hiddenItemIds`) are not
+ * listed here — they live in the assembly editor — but they still count
+ * as attached, so their parts never show up under "parts outside the
+ * quote".
  */
 
 import Link from "next/link";
@@ -48,6 +53,8 @@ export type QuotePartsTableProps = {
   editable: boolean;
   pending: boolean;
   money: MoneyFormatter;
+  /** Items shown elsewhere (assembly members) — hidden from this table, still "attached". */
+  hiddenItemIds?: ReadonlySet<string>;
   onQtyChange: (itemId: string, qty: number | null) => void;
   onExtrasChange: (itemId: string, extras: ExtraOperation[]) => void;
   onSaveItem: (itemId: string, input: ItemUpdateInput) => void;
@@ -71,6 +78,7 @@ export function QuotePartsTable({
   editable,
   pending,
   money,
+  hiddenItemIds,
   onQtyChange,
   onExtrasChange,
   onSaveItem,
@@ -89,6 +97,7 @@ export function QuotePartsTable({
   const thumbnails = useMemo(() => new Map(bundle.parts.map((p) => [p.id, thumbnailFor(p)])), [bundle.parts]);
   const attached = new Set(bundle.items.map((i) => i.part_id));
   const unattached = bundle.parts.filter((p) => !attached.has(p.id));
+  const visibleItems = hiddenItemIds ? bundle.items.filter((i) => !hiddenItemIds.has(i.id)) : bundle.items;
   const orderedIds = bundle.items.map((i) => i.id);
 
   const move = (index: number, delta: number) => {
@@ -121,14 +130,15 @@ export function QuotePartsTable({
             </tr>
           </thead>
           <tbody>
-            {bundle.items.length === 0 && (
+            {visibleItems.length === 0 && (
               <tr className="row-muted">
                 <Td colSpan={9} className="py-8 text-center">
                   {t.empty}
                 </Td>
               </tr>
             )}
-            {bundle.items.map((item, index) => {
+            {visibleItems.map((item) => {
+              const index = orderedIds.indexOf(item.id);
               const part = partsById.get(item.part_id);
               const line = pricedById.get(item.id) ?? null;
               const qty = draft.qtyById[item.id] ?? Number(item.qty);

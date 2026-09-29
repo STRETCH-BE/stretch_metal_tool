@@ -1,6 +1,6 @@
 /**
- * CustomersTable — dense list: name (link), country, class chip, VAT id,
- * e-mail, number of quotes, last quote date.
+ * CustomersTable — dense list: name (link), country, class chip, type
+ * chip (B2B / B2C), VAT id, e-mail, number of quotes, last quote date.
  * File path: /components/customers/customers-table.tsx
  *
  * Server component: receives rows + the resolved content and locale, so
@@ -36,6 +36,17 @@ export function classLabel(content: Content, code: string): string {
   return classes[code] ?? code;
 }
 
+/** "B2B — company" / "B2C — private person" (the code when unknown). */
+export function customerTypeLabel(content: Content, type: string | null | undefined): string {
+  const types = content.quote.customers.types as Record<string, string>;
+  return type ? (types[type] ?? type) : "—";
+}
+
+/** Chip severity of the customer type: B2C (gross prices, prepayment) is the one to notice. */
+export function customerTypeSeverity(type: string | null | undefined): "neutral" | "dark" {
+  return type === "b2c" ? "dark" : "neutral";
+}
+
 const CLASS_SEVERITY: Record<CustomerClassCode, "neutral" | "green" | "amber" | "dark"> = {
   standard: "neutral",
   key: "green",
@@ -53,6 +64,7 @@ export function CustomersTable({ rows, content, locale, emptyMessage }: Customer
             <Th>{cols.name}</Th>
             <Th>{cols.country}</Th>
             <Th>{cols.customerClass}</Th>
+            <Th>{cols.customerType}</Th>
             <Th>{cols.vatId}</Th>
             <Th>{cols.email}</Th>
             <Th align="num">{cols.quotes}</Th>
@@ -62,7 +74,7 @@ export function CustomersTable({ rows, content, locale, emptyMessage }: Customer
         <tbody>
           {rows.length === 0 ? (
             <tr className="row-muted">
-              <Td colSpan={7} className="py-8 text-center">
+              <Td colSpan={8} className="py-8 text-center">
                 {emptyMessage}
               </Td>
             </tr>
@@ -83,6 +95,9 @@ export function CustomersTable({ rows, content, locale, emptyMessage }: Customer
                     severity={CLASS_SEVERITY[row.customer_class as CustomerClassCode] ?? "neutral"}
                     label={classLabel(content, row.customer_class)}
                   />
+                </Td>
+                <Td>
+                  <StatusChip severity={customerTypeSeverity(row.customer_type)} plain label={customerTypeLabel(content, row.customer_type)} />
                 </Td>
                 <Td className="mono" muted={!row.vat_id}>
                   {row.vat_id ?? "—"}

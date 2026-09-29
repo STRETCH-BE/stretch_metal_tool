@@ -15,6 +15,15 @@
  * unless the annotations scale / mirror / delete). Export DXF navigates
  * to the route (attachment download). splitParts requests from the
  * viewer are not supported server-side in this phase and are ignored.
+ *
+ * Seam hand-off (assembly mode): when the part's quote item is a member
+ * of a welded assembly (`assembly` prop, read-only from the page) the
+ * welds table offers "Add as assembly seam" per weld → addSeamFromPart
+ * (lib/quotes/actions.ts, matchSeam applied server-side). The state per
+ * weld (idle / pending / added / paired / already) is derived by
+ * components/quote/seam-handoff.ts from the assembly's stored seams and
+ * the outcomes of this session; router.refresh() then brings the new
+ * seam rows so a second click reads "already added".
  */
 
 import { useRouter } from "next/navigation";
@@ -27,8 +36,11 @@ import { TriagePanel } from "@/components/triage/triage-panel";
 import { SheetReportPanel } from "@/components/triage/sheet-report";
 import { QuickPartModal } from "@/components/intake/quick-part-modal";
 import { routes } from "@/lib/routes";
-import type { PartSourceDb } from "@/lib/db/types";
-import type { PartAnnotations, PartGeometry, Triage } from "@/lib/geometry/types";
+import type { AssemblySeamRow, PartSourceDb } from "@/lib/db/types";
+import type { PartAnnotations, PartGeometry, Triage, WeldAnnotation } from "@/lib/geometry/types";
+import { addSeamFromPart } from "@/lib/quotes/actions";
+import { handoffOutcome, seamStateForWeld, weldToSeamInput, type SeamHandoffState } from "@/components/quote/seam-handoff";
+import { interpolate } from "@/lib/format";
 import type { Flag } from "@/lib/pricing/types";
 import type { Suggestions } from "@/lib/ai/types";
 import type { CurrentPartValues, SuggestionField } from "@/lib/ai/apply";
@@ -88,6 +100,8 @@ export type PartWorkspaceProps = {
   rates: RatesInfo;
   canWrite: boolean;
   aiAvailable: boolean;
+  /** The welded assembly this part's item belongs to (with the assembly's seams), or null for a loose part. */
+  assembly?: { id: string; name: string; seams: AssemblySeamRow[] } | null;
 };
 
 const SAVE_DEBOUNCE_MS = 800;
@@ -241,6 +255,40 @@ export function PartWorkspace(props: PartWorkspaceProps) {
 
   const priced = props.quote.priced && props.item !== null;
 
+  /* ─── Seam hand-off (assembly member) ───────────────────── */
+  const assembly = props.assembly ?? null;
+  const [pendingWeldId, setPendingWeldId] = useState<string | null>(null);
+  const [handoffOutcomes, setHandoffOutcomes] = useState<Record<string, SeamHandoffState>>({});
+  const handoffStates = useMemo(() => {
+    if (!assembly) return {};
+    const states: Record<string, SeamHandoffState> = {};
+    for (const weld of annotations.welds) states[weld.id] = seamStateForWeld(weld, props.partId, assembly.seams, pendingWeldId, handoffOutcomes);
+    return states;
+  }, [assembly, annotations.welds, props.partId, pendingWeldId, handoffOutcomes]);
+  const onAddSeam = (weld: WeldAnnotation) => {
+    if (!assembly || pendingWeldId) return;
+    const h = c.quote.builder.assembly.handoff;
+    const existing = new Set(assembly.seams.map((s) => s.id));
+    setPendingWeldId(weld.id);
+    startTransition(async () => {
+      try {
+        const result = await addSeamFromPart(props.partId, weldToSeamInput(weld, props.partId, props.thicknessMm));
+        const outcome = handoffOutcome(result, existing);
+        if (!result.ok) {
+          toast(interpolate(c.quote.builder.errors[result.error], { message: result.message ?? "" }), { tone: "error" });
+        } else if (outcome) {
+          setHandoffOutcomes((o) => ({ ...o, [weld.id]: outcome }));
+          toast(outcome === "paired" ? c.quote.builder.assembly.seams.addedPaired : outcome === "already" ? h.alreadyAdded : c.quote.builder.assembly.seams.added, { tone: "success", durationMs: 3000 });
+          router.refresh();
+        }
+      } catch {
+        toast(h.failed, { tone: "error" });
+      } finally {
+        setPendingWeldId(null);
+      }
+    });
+  };
+
   return (
     <>
       <PartHeader
@@ -248,7 +296,7 @@ export function PartWorkspace(props: PartWorkspaceProps) {
         source={props.source}
         triageState={props.triage?.state ?? null}
         quoteId={props.quoteId}
-        quoteNumber={props.quoteNumber}
+        quoteNumber={assembly ? `${props.quoteNumber} · ${assembly.name}` : props.quoteNumber}
         fileId={props.fileId}
         pdfFileId={props.pdfFileId}
         disabled={disabled}
@@ -305,7 +353,10 @@ export function PartWorkspace(props: PartWorkspaceProps) {
               onSave={(bendId, params: BendParams) => act(() => setBendParams(props.partId, bendId, params), c.common.actions.saved)}
             />
           )}
-          <WeldsTable welds={annotations.welds} />
+          <WeldsTable
+            welds={annotations.welds}
+            handoff={assembly ? { assemblyName: assembly.name, states: handoffStates, disabled: disabled || busy || pendingWeldId !== null, onAdd: onAddSeam } : null}
+          />
           <RollSummary roll={annotations.roll} />
         </div>
 

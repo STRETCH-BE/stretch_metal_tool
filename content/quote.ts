@@ -58,6 +58,7 @@ export type CustomersContent = {
       name: string;
       country: string;
       customerClass: string;
+      customerType: string;
       vatId: string;
       email: string;
       quotes: string;
@@ -74,6 +75,13 @@ export type CustomersContent = {
     name: string;
     vatId: string;
     vatIdHelp: string;
+    /** Assembly mode: B2B / B2C radio (required), contact person, the customer's requested payment terms. */
+    customerType: string;
+    customerTypeHelp: string;
+    contactPerson: string;
+    contactPersonHelp: string;
+    requestedTerms: string;
+    requestedTermsHelp: string;
     country: string;
     countryGroupPreferred: string;
     countryGroupOther: string;
@@ -96,6 +104,7 @@ export type CustomersContent = {
     backToList: string;
   };
   classes: Record<CustomerClassCode, string>;
+  types: Record<CustomerTypeCode, string>;
   countries: Record<CustomerCountryCode, string>;
   history: {
     title: string;
@@ -204,6 +213,13 @@ export type OperationLabelCode =
   | "cert31";
 export type DriverUnitCode = "m" | "mm" | "pierce" | "kg" | "bend" | "min" | "m2" | "each" | "part" | "lot";
 export type WeldProcessCode = "mig_mag" | "tig" | "laser" | "mma";
+/* Assembly mode codes (lib/pricing/types.ts VatMode / SeamType / FormingOperation / FormingResolution, lib/pricing/forming.ts reasons). */
+export type VatModeCode = "none" | "pl_domestic" | "b2c_domestic" | "b2c_oss" | "reverse_charge" | "export";
+export type SeamTypeCode = "continuous" | "stitch" | "tack";
+export type FormingKindCode = "roll" | "bend";
+export type FormingResolutionCode = "in_house" | "step_bend" | "subcontract" | "none_needed";
+export type FormingReasonCode = "min_radius" | "max_thickness" | "max_width" | "bend_length" | "force" | "no_machine" | "step_bend_hits";
+export type CustomerTypeCode = "b2b" | "b2c";
 export type SendReasonCode =
   | "red_flags"
   | "pending_override"
@@ -325,6 +341,17 @@ export type QuoteBuilderContent = {
     readOnly: string;
     locked: string;
     staleRates: string;
+    /** Assembly mode: quote kind toggle (UI convenience) and the inquiry / contact fields. */
+    kind: string;
+    kindParts: string;
+    kindAssembly: string;
+    kindHelp: string;
+    customerReference: string;
+    customerReferenceHelp: string;
+    contactPerson: string;
+    contactPersonHelp: string;
+    /** `{type}` = the customer type label of the selected customer. */
+    customerTypeHint: string;
   };
   /** Parts / items table. */
   parts: {
@@ -440,6 +467,7 @@ export type QuoteBuilderContent = {
     exportPdfPl: string;
     exportPdfEn: string;
     withOperations: string;
+    withAssemblyParts: string;
     send: string;
     sendConfirm: string;
     sendBlocked: string;
@@ -455,6 +483,8 @@ export type QuoteBuilderContent = {
     decisionSaved: string;
     recalculate: string;
     recalculated: string;
+    /** PDF download disabled by the export guards (lib/quotes/send-guard.ts exportBlockReasons). */
+    exportBlocked: string;
   };
   send: {
     reasons: Record<SendReasonCode, string>;
@@ -491,6 +521,252 @@ export type QuoteBuilderContent = {
     blockTitle: string;
     minOrderApplied: string;
     seamDefaultLabel: string;
+  };
+  /** Assembly mode — shipping editor in the quote header (docs/assembly-mode-design.md §5). */
+  shipping: {
+    title: string;
+    enable: string;
+    disable: string;
+    none: string;
+    country: string;
+    grossKg: string;
+    grossKgManual: string;
+    grossKgComputed: string;
+    /** `{kg}` = the mass computed from the parts + packaging allowance. */
+    grossKgComputedValue: string;
+    grossKgUnknown: string;
+    costSource: string;
+    sourceManual: string;
+    sourceTable: string;
+    costEur: string;
+    /** `{carrier}`, `{maxKg}`, `{price}` of the resolved shipping band. */
+    band: string;
+    noBand: string;
+    noRates: string;
+    carrier: string;
+    carrierFromBand: string;
+    extraLeadDays: string;
+    extraLeadDaysHelp: string;
+  };
+  /** Assembly mode — price scale editor + table. */
+  priceScale: {
+    title: string;
+    enable: string;
+    quantities: string;
+    quantitiesHelp: string;
+    useDefaults: string;
+    /** `{values}` = the tokens that are not positive whole numbers. */
+    invalid: string;
+    /** `{max}` = the maximum number of quantities. */
+    tooMany: string;
+    tableTitle: string;
+    columns: { subject: string; qty: string; unitPrice: string; total: string };
+    kinds: { item: string; assembly: string };
+    empty: string;
+    noPrice: string;
+  };
+  /** Assembly mode — net / VAT / gross summary under the totals (§3.4). */
+  vat: {
+    title: string;
+    net: string;
+    shipping: string;
+    /** `{rate}` = the VAT rate. */
+    rate: string;
+    amount: string;
+    gross: string;
+    /** `{country}` = the country the rate belongs to. */
+    countryNote: string;
+    modes: Record<VatModeCode, string>;
+    unknown: string;
+  };
+  /** Assembly mode — welded assemblies editor. */
+  assembly: {
+    title: string;
+    add: string;
+    /** `{n}` = next assembly number. */
+    defaultName: string;
+    empty: string;
+    emptyBody: string;
+    fields: {
+      name: string;
+      drawingRef: string;
+      qty: string;
+      material: string;
+      materialNone: string;
+      thickness: string;
+      notes: string;
+    };
+    save: string;
+    saved: string;
+    created: string;
+    remove: string;
+    removeConfirm: string;
+    removed: string;
+    members: {
+      title: string;
+      columns: {
+        part: string;
+        qtyPerAssembly: string;
+        orderQty: string;
+        material: string;
+        thickness: string;
+        forming: string;
+      };
+      empty: string;
+      add: string;
+      addPicker: string;
+      addNone: string;
+      addQty: string;
+      remove: string;
+      removeConfirm: string;
+      moved: string;
+      inherited: string;
+      differs: string;
+    };
+    material: {
+      override: string;
+      overrideHelp: string;
+      note: string;
+      noteHelp: string;
+      noteRequired: string;
+      save: string;
+      saved: string;
+    };
+    seams: {
+      title: string;
+      add: string;
+      edit: string;
+      remove: string;
+      save: string;
+      cancel: string;
+      unpair: string;
+      added: string;
+      addedPaired: string;
+      saved: string;
+      removed: string;
+      unpaired: string;
+      empty: string;
+      byHand: string;
+      columns: {
+        label: string;
+        part: string;
+        length: string;
+        process: string;
+        thickness: string;
+        type: string;
+        pattern: string;
+        sides: string;
+        counted: string;
+      };
+      types: Record<SeamTypeCode, string>;
+      /** `{name}` = the part whose edge this seam duplicates. */
+      paired: string;
+      pairedUnknown: string;
+      notCounted: string;
+      countedYes: string;
+      thicknessInherited: string;
+      /** `{bead}`, `{pitch}` mm. */
+      stitchInfo: string;
+      /** `{count}` tacks. */
+      tackInfo: string;
+      beadMm: string;
+      pitchMm: string;
+      tackCount: string;
+      totals: {
+        title: string;
+        counted: string;
+        paired: string;
+        tacks: string;
+        length: string;
+        effective: string;
+        byProcess: string;
+        /** `{process}` `{thickness}` — group heading. */
+        group: string;
+        groupNoThickness: string;
+      };
+      /** `{n}` = next seam number. */
+      defaultLabel: string;
+    };
+    /** Part workspace: the weld → assembly seam hand-off. */
+    handoff: {
+      add: string;
+      pending: string;
+      added: string;
+      paired: string;
+      alreadyAdded: string;
+      /** `{name}` = assembly name. */
+      partOf: string;
+      failed: string;
+    };
+    /** Admin-only cost / margin / price panel. */
+    cost: {
+      title: string;
+      adminOnly: string;
+      columns: { line: string; minutes: string; amount: string };
+      partsAtCost: string;
+      labour: string;
+      labourKinds: { fitup: string; tack: string; weld: string; gasWire: string; deburr: string; handling: string; forming: string };
+      totalMinutes: string;
+      arcMinutes: string;
+      setups: string;
+      /** `{qty}` = assembly quantity the setups are spread over. */
+      setupsHelp: string;
+      subcontract: string;
+      unitCost: string;
+      margin: string;
+      unitPrice: string;
+      total: string;
+      seamLength: string;
+      notPriced: string;
+      unpriceable: string;
+    };
+    price: {
+      unitPrice: string;
+      total: string;
+      /** `{qty}` assemblies. */
+      qty: string;
+    };
+  };
+  /** Assembly mode — forming operations of a member (roll / bend) and their resolution. */
+  forming: {
+    title: string;
+    kinds: Record<FormingKindCode, string>;
+    fields: {
+      insideRadiusMm: string;
+      angleDeg: string;
+      widthMm: string;
+      bends: string;
+      lengthMm: string;
+    };
+    addRoll: string;
+    addBend: string;
+    remove: string;
+    save: string;
+    saved: string;
+    empty: string;
+    resolution: Record<FormingResolutionCode, string>;
+    unresolved: string;
+    /** `{reason}` translated from `reasons`, `{value}` and `{limit}` numbers. */
+    notFeasible: string;
+    reasons: Record<FormingReasonCode, string>;
+    stepBend: string;
+    hits: string;
+    hitsHelp: string;
+    applyStepBend: string;
+    subcontract: string;
+    supplier: string;
+    costEur: string;
+    extraLeadDays: string;
+    applySubcontract: string;
+    resolved: string;
+    suspected: string;
+    addForming: string;
+    confirmNone: string;
+    confirmedNone: string;
+    noneNeeded: string;
+    /** Summary chip: `{summary}` e.g. "R90 × 180° × 247". */
+    rollSummary: string;
+    bendSummary: string;
   };
   /** Extras editor (modal per item). */
   extras: {
@@ -623,6 +899,15 @@ const builderPl: QuoteBuilderContent = {
     readOnly: "Tylko podgląd — ta wycena należy do innego użytkownika.",
     locked: "Wycena została wysłana — nagłówek i części są zablokowane. Utwórz nową wersję, aby zmienić.",
     staleRates: "Zapisane ceny policzono z innymi danymi niż te zapisane w wycenie (wersja stawek, marża, termin lub waluta) — przeliczanie na serwerze…",
+    kind: "Rodzaj wyceny",
+    kindParts: "Lista części",
+    kindAssembly: "Zespół spawany",
+    kindHelp: "Zespół spawany: części są liczone po koszcie wewnątrz zespołu, spoiny raz na złączu, przezbrojenia raz na zlecenie. Wycena z co najmniej jednym zespołem jest wyceną zespołu.",
+    customerReference: "Nr zapytania klienta",
+    customerReferenceHelp: "Numer zapytania / referencja klienta — drukowana na ofercie.",
+    contactPerson: "Osoba kontaktowa",
+    contactPersonHelp: "Domyślnie z karty klienta; można zmienić dla tej oferty.",
+    customerTypeHint: "Typ klienta: {type}",
   },
   parts: {
     title: "Części",
@@ -829,6 +1114,7 @@ const builderPl: QuoteBuilderContent = {
     exportPdfPl: "PDF (PL)",
     exportPdfEn: "PDF (EN)",
     withOperations: "z operacjami",
+    withAssemblyParts: "z listą części zespołów",
     send: "Wyślij ofertę",
     sendConfirm: "Wysłać ofertę do klienta? Status zmieni się na „wysłana”.",
     sendBlocked: "Nie można wysłać:",
@@ -842,6 +1128,7 @@ const builderPl: QuoteBuilderContent = {
     decisionSaved: "Status zapisany.",
     recalculate: "Przelicz ceny",
     recalculated: "Ceny przeliczone na serwerze.",
+    exportBlocked: "Nie można pobrać PDF:",
   },
   send: {
     reasons: {
@@ -891,6 +1178,256 @@ const builderPl: QuoteBuilderContent = {
     minOrderApplied: "Zastosowano minimum zamówienia.",
     seamDefaultLabel: "Spoina {n}",
   },
+  shipping: {
+    title: "Wysyłka",
+    enable: "Dodaj wysyłkę",
+    disable: "Usuń wysyłkę",
+    none: "Bez wysyłki (odbiór własny) — dodaj, gdy oferta ma zawierać transport.",
+    country: "Kraj dostawy",
+    grossKg: "Masa brutto [kg]",
+    grossKgManual: "wpisz ręcznie",
+    grossKgComputed: "z części i opakowania",
+    grossKgComputedValue: "obliczona: {kg} kg (części + 5 % opakowania)",
+    grossKgUnknown: "obliczona po wycenie",
+    costSource: "Koszt transportu",
+    sourceManual: "ręcznie",
+    sourceTable: "z tabeli przewoźnika",
+    costEur: "Koszt [EUR]",
+    band: "Przedział: {carrier} · do {maxKg} kg · {price}",
+    noBand: "Brak przedziału w tabeli dla tego kraju i masy — wpisz koszt ręcznie.",
+    noRates: "Tabela stawek wysyłki nie została wczytana — wpisz koszt ręcznie.",
+    carrier: "Przewoźnik",
+    carrierFromBand: "z tabeli",
+    extraLeadDays: "Dodatkowe dni transportu",
+    extraLeadDaysHelp: "Dni doliczane do terminu realizacji na ofercie.",
+  },
+  priceScale: {
+    title: "Skala cenowa",
+    enable: "Wyceń dodatkowe ilości",
+    quantities: "Ilości",
+    quantitiesHelp: "Liczby całkowite oddzielone przecinkami, np. 20, 50, 100, 200, 500, 1000. Każda pozycja i zespół zostaną wycenione w tych ilościach.",
+    useDefaults: "Domyślny zestaw",
+    invalid: "Nieprawidłowe ilości: {values}",
+    tooMany: "Maksymalnie {max} ilości.",
+    tableTitle: "Ceny wg ilości",
+    columns: { subject: "Pozycja", qty: "Ilość", unitPrice: "Cena / szt.", total: "Wartość" },
+    kinds: { item: "część", assembly: "zespół" },
+    empty: "Zapisz nagłówek, aby policzyć skalę cenową.",
+    noPrice: "—",
+  },
+  vat: {
+    title: "Netto / VAT / brutto",
+    net: "Netto",
+    shipping: "w tym transport",
+    rate: "VAT {rate}",
+    amount: "Kwota VAT",
+    gross: "Brutto",
+    countryNote: "stawka kraju {country}",
+    modes: {
+      none: "Brak klienta lub kraju — VAT nieustalony; oferta netto.",
+      pl_domestic: "Klient w Polsce — VAT 23 %.",
+      b2c_domestic: "Klient bez numeru VAT — naliczono polską stawkę 23 %.",
+      b2c_oss: "Klient prywatny w innym kraju UE (OSS) — VAT wg kraju dostawy.",
+      reverse_charge: "0 % VAT — wewnątrzwspólnotowa dostawa towarów, odwrotne obciążenie (WDT, art. 138 dyrektywy 2006/112/WE).",
+      export: "0 % VAT — eksport poza UE.",
+    },
+    unknown: "VAT zostanie ustalony po wybraniu klienta z typem B2B / B2C.",
+  },
+  assembly: {
+    title: "Zespoły spawane",
+    add: "Dodaj zespół",
+    defaultName: "Zespół {n}",
+    empty: "Brak zespołów",
+    emptyBody: "Dodaj zespół, a potem przenieś do niego części z listy luźnych pozycji.",
+    fields: {
+      name: "Nazwa zespołu",
+      drawingRef: "Nr rysunku",
+      qty: "Ilość zespołów",
+      material: "Materiał zespołu",
+      materialNone: "— wg części —",
+      thickness: "Grubość [mm]",
+      notes: "Uwagi",
+    },
+    save: "Zapisz zespół",
+    saved: "Zespół zapisany, ceny przeliczone.",
+    created: "Zespół dodany.",
+    remove: "Usuń zespół",
+    removeConfirm: "Usunąć zespół? Części wrócą na listę luźnych pozycji, spoiny zostaną usunięte.",
+    removed: "Zespół usunięty.",
+    members: {
+      title: "Części zespołu",
+      columns: {
+        part: "Część",
+        qtyPerAssembly: "Szt. / zespół",
+        orderQty: "Ilość zlecenia",
+        material: "Materiał",
+        thickness: "Grubość",
+        forming: "Formowanie",
+      },
+      empty: "Zespół nie ma jeszcze części — dodaj je z listy poniżej.",
+      add: "Dodaj części",
+      addPicker: "Luźna pozycja",
+      addNone: "Brak luźnych pozycji — wgraj części do wyceny.",
+      addQty: "Szt. / zespół",
+      remove: "Usuń z zespołu",
+      removeConfirm: "Usunąć część z zespołu? Wróci na listę luźnych pozycji.",
+      moved: "Część przeniesiona.",
+      inherited: "wg zespołu",
+      differs: "inny niż zespół",
+    },
+    material: {
+      override: "Materiał inny niż zespołu (świadomie)",
+      overrideHelp: "Bez zaznaczenia część dziedziczy materiał i grubość zespołu.",
+      note: "Uwaga o materiale (drukowana na ofercie)",
+      noteHelp: "Wymagana, gdy zamiast S235 oferujemy DC01.",
+      noteRequired: "Podaj uwagę o materiale — DC01 zastępuje S235.",
+      save: "Zapisz materiał",
+      saved: "Materiał pozycji zapisany.",
+    },
+    seams: {
+      title: "Spoiny zespołu",
+      add: "Dodaj spoinę",
+      edit: "Edytuj",
+      remove: "Usuń",
+      save: "Zapisz spoinę",
+      cancel: "Anuluj",
+      unpair: "Licz osobno",
+      added: "Spoina dodana.",
+      addedPaired: "Spoina dodana jako druga krawędź złącza — nie jest liczona.",
+      saved: "Spoina zapisana.",
+      removed: "Spoina usunięta.",
+      unpaired: "Spoina liczona osobno.",
+      empty: "Brak spoin — dodaj tutaj albo zaznacz krawędzie w podglądzie części („Dodaj jako spoinę zespołu”).",
+      byHand: "ręcznie",
+      columns: {
+        label: "Spoina",
+        part: "Część",
+        length: "Długość [mm]",
+        process: "Metoda",
+        thickness: "Grubość [mm]",
+        type: "Rodzaj",
+        pattern: "Parametry",
+        sides: "Strony",
+        counted: "Liczona",
+      },
+      types: { continuous: "ciągła", stitch: "przerywana", tack: "sczepna" },
+      paired: "= krawędź {name}",
+      pairedUnknown: "= krawędź sąsiada",
+      notCounted: "nie liczona",
+      countedYes: "tak",
+      thicknessInherited: "wg zespołu",
+      stitchInfo: "{bead} / {pitch} mm",
+      tackInfo: "{count} sczepień",
+      beadMm: "Odcinek [mm]",
+      pitchMm: "Podziałka [mm]",
+      tackCount: "Liczba sczepień",
+      totals: {
+        title: "Razem",
+        counted: "Spoiny liczone",
+        paired: "pominięte (druga krawędź)",
+        tacks: "Sczepienia",
+        length: "Długość liczona",
+        effective: "Długość efektywna",
+        byProcess: "Wg metody",
+        group: "{process} · {thickness} mm",
+        groupNoThickness: "{process} · grubość zespołu",
+      },
+      defaultLabel: "Spoina {n}",
+    },
+    handoff: {
+      add: "Dodaj jako spoinę zespołu",
+      pending: "Dodawanie…",
+      added: "dodana",
+      paired: "sparowana z krawędzią sąsiada (nie liczona)",
+      alreadyAdded: "już dodana",
+      partOf: "Część zespołu: {name}",
+      failed: "Nie udało się dodać spoiny.",
+    },
+    cost: {
+      title: "Koszt i marża zespołu",
+      adminOnly: "Widoczne tylko dla administratora — nigdy na PDF.",
+      columns: { line: "Pozycja", minutes: "Minuty", amount: "Kwota / zespół" },
+      partsAtCost: "Części po koszcie (materiał + cięcie)",
+      labour: "Robocizna",
+      labourKinds: {
+        fitup: "Składanie (fit-up)",
+        tack: "Sczepianie",
+        weld: "Spawanie",
+        gasWire: "Gaz i drut",
+        deburr: "Gratowanie",
+        handling: "Manipulacja",
+        forming: "Formowanie",
+      },
+      totalMinutes: "Razem minut (po współczynniku odkształceń)",
+      arcMinutes: "Czas jarzenia łuku",
+      setups: "Przezbrojenia (raz na zlecenie)",
+      setupsHelp: "rozłożone na {qty} szt. zespołu",
+      subcontract: "Kooperacja",
+      unitCost: "Koszt / zespół",
+      margin: "Marża zastosowana",
+      unitPrice: "Cena / zespół",
+      total: "Wartość",
+      seamLength: "Długość spoin liczonych",
+      notPriced: "Zespół nie został jeszcze wyceniony.",
+      unpriceable: "Zespołu nie można wycenić — rozwiąż czerwone flagi (formowanie, brak stawki).",
+    },
+    price: {
+      unitPrice: "Cena / zespół",
+      total: "Wartość",
+      qty: "{qty} szt.",
+    },
+  },
+  forming: {
+    title: "Formowanie",
+    kinds: { roll: "Zwijanie", bend: "Gięcie" },
+    fields: {
+      insideRadiusMm: "R wewn. [mm]",
+      angleDeg: "Kąt [°]",
+      widthMm: "Szerokość [mm]",
+      bends: "Liczba gięć",
+      lengthMm: "Długość gięcia [mm]",
+    },
+    addRoll: "Dodaj zwijanie",
+    addBend: "Dodaj gięcie",
+    remove: "Usuń",
+    save: "Zapisz formowanie",
+    saved: "Formowanie zapisane, ceny przeliczone.",
+    empty: "Brak operacji formowania.",
+    resolution: {
+      in_house: "u nas",
+      step_bend: "gięcie krokowe",
+      subcontract: "kooperacja",
+      none_needed: "formowanie niepotrzebne",
+    },
+    unresolved: "do rozstrzygnięcia",
+    notFeasible: "Niewykonalne u nas — {reason}: {value} wobec limitu {limit}.",
+    reasons: {
+      min_radius: "promień poniżej minimum walcarki",
+      max_thickness: "grubość ponad limit walcarki",
+      max_width: "szerokość ponad walcarkę",
+      bend_length: "długość gięcia ponad prasę",
+      force: "siła gięcia [kN] ponad prasę",
+      no_machine: "brak maszyny w parku",
+      step_bend_hits: "liczba uderzeń musi być większa od zera",
+    },
+    stepBend: "Gięcie krokowe",
+    hits: "Uderzenia prasy",
+    hitsHelp: "Sugestia: długość łuku ÷ 15 mm (R90 × 180° → 19).",
+    applyStepBend: "Zastosuj gięcie krokowe",
+    subcontract: "Kooperacja",
+    supplier: "Dostawca",
+    costEur: "Koszt [EUR / szt.]",
+    extraLeadDays: "Dodatkowe dni",
+    applySubcontract: "Zleć w kooperacji",
+    resolved: "Rozstrzygnięcie zapisane, ceny przeliczone.",
+    suspected: "Rysunek sugeruje formowanie, ale część nie ma operacji formowania.",
+    addForming: "Dodaj formowanie",
+    confirmNone: "Potwierdź: formowanie niepotrzebne",
+    confirmedNone: "Potwierdzono brak formowania.",
+    noneNeeded: "bez formowania (potwierdzone)",
+    rollSummary: "zwijanie {summary}",
+    bendSummary: "gięcie {summary}",
+  },
   extras: {
     title: "Dodatki — {name}",
     machining: "Obróbka skrawaniem",
@@ -939,6 +1476,18 @@ const builderPl: QuoteBuilderContent = {
       "override.confirm": "potwierdzenie flagi",
       "override.approve": "zatwierdzenie odstępstwa",
       "override.reject": "odrzucenie odstępstwa",
+      "assembly.create": "dodanie zespołu",
+      "assembly.update": "zmiana zespołu",
+      "assembly.remove": "usunięcie zespołu",
+      "quote.item.assembly": "przeniesienie części do / z zespołu",
+      "quote.item.material_override": "zmiana materiału pozycji",
+      "quote.item.forming": "zmiana formowania",
+      "forming.resolve": "rozstrzygnięcie formowania",
+      "forming.confirm_none": "potwierdzenie braku formowania",
+      "seam.add": "dodanie spoiny",
+      "seam.update": "zmiana spoiny",
+      "seam.remove": "usunięcie spoiny",
+      "seam.unpair": "rozdzielenie spoin",
     },
   },
   defaults: {
@@ -989,6 +1538,7 @@ export const quote: QuoteContent = {
         name: "Nazwa",
         country: "Kraj",
         customerClass: "Klasa",
+        customerType: "Typ",
         vatId: "NIP / VAT",
         email: "E-mail",
         quotes: "Wyceny",
@@ -1004,7 +1554,13 @@ export const quote: QuoteContent = {
       sectionPreferences: "Preferencje",
       name: "Nazwa",
       vatId: "NIP / numer VAT",
-      vatIdHelp: "Z prefiksem kraju dla firm z UE, np. DE123456789.",
+      vatIdHelp: "Z prefiksem kraju dla firm z UE, np. DE123456789. Klient spoza Polski: 0 % VAT tylko z numerem VAT (odwrotne obciążenie / eksport); Polska: zawsze 23 %.",
+      customerType: "Typ klienta",
+      customerTypeHelp: "B2B — firma (numer VAT, odwrotne obciążenie za granicą, warunki płatności do edycji). B2C — osoba prywatna (ceny brutto na ofercie, 100 % przedpłaty na podstawie pro formy).",
+      contactPerson: "Osoba kontaktowa",
+      contactPersonHelp: "Domyślna osoba kontaktowa na ofertach tego klienta.",
+      requestedTerms: "Warunki płatności życzone przez klienta",
+      requestedTermsHelp: "Zapisywane i drukowane na ofertach B2B, np. „30 dni netto, 2 % skonta w 14 dni”.",
       country: "Kraj",
       countryGroupPreferred: "Najczęstsze kraje",
       countryGroupOther: "Pozostałe kraje",
@@ -1031,6 +1587,10 @@ export const quote: QuoteContent = {
       key: "Kluczowy",
       new: "Nowy",
       distributor: "Dystrybutor",
+    },
+    types: {
+      b2b: "B2B — firma",
+      b2c: "B2C — osoba prywatna",
     },
     countries: {
       PL: "Polska",

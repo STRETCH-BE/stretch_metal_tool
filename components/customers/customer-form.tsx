@@ -2,8 +2,15 @@
 
 /**
  * CustomerForm — create / edit form for a customer (name, VAT id, country,
- * address, e-mail, phone, class, preferred locale, notes).
+ * address, customer type B2B / B2C, contact person, requested payment
+ * terms, e-mail, phone, class, preferred locale, notes).
  * File path: /components/customers/customer-form.tsx
+ *
+ * Assembly mode (docs/assembly-mode-design.md §2, §3.4): the customer
+ * type is a REQUIRED radio with no default — the server reports
+ * `required` when neither option is picked; the VAT id help states the
+ * owner's rule (outside Poland 0 % only with a VAT id, Poland always
+ * 23 %); the requested terms are recorded and printed on B2B quotes.
  *
  * Driven by useActionState over a server action reducer
  * (createCustomer or updateCustomer.bind(null, id)); field errors come
@@ -44,6 +51,7 @@ import {
 import {
   PREFERRED_COUNTRY_CODES,
   CUSTOMER_CLASSES,
+  CUSTOMER_TYPES,
   DEFAULT_COUNTRY,
   DEFAULT_CUSTOMER_CLASS,
   INITIAL_CUSTOMER_FORM_STATE,
@@ -102,6 +110,9 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
   const errorId = (field: CustomerField) => describedBy(`customer-${field}`, {
     error: Boolean(fieldError(field)),
   });
+  // No default: a new customer has to be classified deliberately (the server enforces it too).
+  const initialType = typed?.customer_type ?? current?.customer_type ?? "";
+  const typeError = fieldError("customer_type");
 
   return (
     <form action={formAction} className="flex flex-col gap-8" noValidate>
@@ -201,10 +212,86 @@ export function CustomerForm({ mode, action, customer, readOnly = false }: Custo
             aria-describedby={errorId("address")}
           />
         </Field>
+
+        <fieldset
+          className="md:col-span-2"
+          aria-describedby={describedBy("customer-customer_type", { help: true, error: Boolean(typeError) })}
+          aria-invalid={typeError ? true : undefined}
+        >
+          <legend className="field-label">
+            {t.form.customerType}
+            <span className="ml-2 normal-case tracking-normal text-red">{c.common.ui.required}</span>
+          </legend>
+          <div className="flex flex-wrap gap-5">
+            {CUSTOMER_TYPES.map((type) => (
+              <label key={type} className="flex items-center gap-2 text-[13.5px]">
+                <input
+                  type="radio"
+                  className="checkbox"
+                  name="customer_type"
+                  value={type}
+                  defaultChecked={initialType === type}
+                  required
+                />
+                {t.types[type]}
+              </label>
+            ))}
+          </div>
+          <p id="customer-customer_type-help" className="field-help">
+            {t.form.customerTypeHelp}
+          </p>
+          {typeError && (
+            <p id="customer-customer_type-error" className="field-error" role="alert">
+              {typeError}
+            </p>
+          )}
+        </fieldset>
+
+        <Field
+          label={t.form.requestedTerms}
+          htmlFor="customer-requested_terms"
+          error={fieldError("requested_terms")}
+          help={t.form.requestedTermsHelp}
+          className="md:col-span-2"
+        >
+          <Textarea
+            id="customer-requested_terms"
+            name="requested_terms"
+            rows={2}
+            defaultValue={initial("requested_terms", current?.requested_terms)}
+            maxLength={500}
+            invalid={Boolean(fieldError("requested_terms"))}
+            aria-describedby={describedBy("customer-requested_terms", {
+              help: true,
+              error: Boolean(fieldError("requested_terms")),
+            })}
+          />
+        </Field>
       </fieldset>
 
       <fieldset className="grid gap-5 md:grid-cols-2" disabled={disabled}>
         <legend className="panel-title mb-4">{t.form.sectionContact}</legend>
+
+        <Field
+          label={t.form.contactPerson}
+          htmlFor="customer-contact_person"
+          error={fieldError("contact_person")}
+          help={t.form.contactPersonHelp}
+          className="md:col-span-2"
+        >
+          <Input
+            id="customer-contact_person"
+            name="contact_person"
+            defaultValue={initial("contact_person", current?.contact_person)}
+            maxLength={200}
+            autoComplete="name"
+            invalid={Boolean(fieldError("contact_person"))}
+            aria-describedby={describedBy("customer-contact_person", {
+              help: true,
+              error: Boolean(fieldError("contact_person")),
+            })}
+          />
+        </Field>
 
         <Field label={t.form.email} htmlFor="customer-email" error={fieldError("email")}>
           <Input
