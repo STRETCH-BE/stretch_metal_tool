@@ -9,20 +9,24 @@
  *   repriceQuote(quoteId, opts?) → PricedQuote | null
  *
  * Clients and trust:
- *   - Reads use the RLS client AS THE USER (a quote the user cannot see is
- *     `null`, never priced), and the user must pass isQuoteEditor (admin,
- *     or a sales owner) — the same rule as can_edit_quote() in SQL.
- *   - Persistence writes use the ADMIN client. Reason: the writes touch
- *     quotes.pricing/flags/subtotals/rate_version_id, quote_items and the
- *     operations rows in one deterministic sweep, and the pin of
- *     rate_version_id must succeed even for a quote created before a
- *     version was activated; keeping that on one client avoids partial
- *     writes when RLS would reject a single statement. It is therefore
- *     ONLY called after the access check above, or with `opts.admin =
- *     true` from a trusted server action that already ran
- *     requireQuoteEditor / requireRole (the admin override queue, the
- *     price route after assertRole). With `opts.admin` the reads use the
- *     admin client too (no request session needed).
+ *   - With a request session (the default) EVERYTHING runs through the RLS
+ *     client AS THE USER: a quote the user cannot see is `null`, never
+ *     priced; the user must pass isQuoteEditor (admin, or a sales owner),
+ *     the rule can_edit_quote() enforces in SQL; and the persistence
+ *     writes (quotes.pricing/flags/subtotals/rate_version_id, quote_items,
+ *     the operations rows) are exactly what the quotes_update,
+ *     quote_items_write and operations_write policies grant that editor.
+ *     Pricing therefore never depends on the service-role key: a
+ *     deployment without SUPABASE_SERVICE_ROLE_KEY (Vercel Preview) prices
+ *     and saves like production. It used to write with the admin client,
+ *     which turned a missing key into "values saved, price not computed"
+ *     and left quotes with a header the stored prices did not match.
+ *   - `opts.admin = true` (no request session: the relief fix running
+ *     after a role-checked action) reads AND writes with the admin client.
+ *     Only trusted callers that already ran requireQuoteEditor /
+ *     requireRole may pass it.
+ *   - Both paths run the same access and lock checks; the fake-client
+ *     tests assert that the session path never creates the admin client.
  *
  * Locked quotes (status sent / won / lost) are NEVER re-priced, in either
  * mode: QuoteAccessError("locked"). The pinned rate version keeps the
@@ -85,12 +89,14 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   }
   if (!isQuoteEditable(bundle.quote.status)) throw new QuoteAccessError("locked");
 
-  const admin = createAdminClient();
+  // The same client persists: the editor's own rights (RLS) in session mode,
+  // the admin client only for a trusted caller (see the header).
+  const writer = reader;
 
   let versionId = bundle.quote.rate_version_id;
   if (!versionId) {
     versionId = await loadActiveRateVersionId(reader);
-    const { error } = await admin.from("quotes").update({ rate_version_id: versionId }).eq("id", quoteId);
+    const { error } = await writer.from("quotes").update({ rate_version_id: versionId }).eq("id", quoteId);
     if (error) throw new Error(`repriceQuote/pin: ${error.message}`);
   }
 
@@ -104,7 +110,7 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
     const costId = await loadCostRateVersionId(reader, bundle.quote.cost_rate_version_id);
     if (costId) {
       if (costId !== bundle.quote.cost_rate_version_id) {
-        const { error } = await admin.from("quotes").update({ cost_rate_version_id: costId }).eq("id", quoteId);
+        const { error } = await writer.from("quotes").update({ cost_rate_version_id: costId }).eq("id", quoteId);
         if (error) throw new Error(`repriceQuote/pin-cost: ${error.message}`);
       }
       costRates = await loadRateSnapshot(reader, costId);
@@ -122,10 +128,10 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   if (!hasPriceableContent(input)) {
     const itemIds = bundle.items.map((i) => i.id);
     if (itemIds.length) {
-      const { error } = await admin.from("operations").delete().in("quote_item_id", itemIds);
+      const { error } = await writer.from("operations").delete().in("quote_item_id", itemIds);
       if (error) throw new Error(`repriceQuote/clear-operations: ${error.message}`);
     }
-    const { error } = await admin.from("quotes").update({ ...emptyPersistence(), priced_at: pricedAt }).eq("id", quoteId);
+    const { error } = await writer.from("quotes").update({ ...emptyPersistence(), priced_at: pricedAt }).eq("id", quoteId);
     if (error) throw new Error(`repriceQuote/clear: ${error.message}`);
     return null;
   }
@@ -134,7 +140,7 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
   const persistence = pricedToPersistence(priced, bundle.quote);
 
   for (const item of persistence.items) {
-    const { error } = await admin
+    const { error } = await writer
       .from("quote_items")
       .update({ unit_cost: item.unit_cost, unit_price: item.unit_price, flags: item.flags })
       .eq("id", item.id);
@@ -143,15 +149,15 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
 
   const itemIds = bundle.items.map((i) => i.id);
   if (itemIds.length) {
-    const { error } = await admin.from("operations").delete().in("quote_item_id", itemIds);
+    const { error } = await writer.from("operations").delete().in("quote_item_id", itemIds);
     if (error) throw new Error(`repriceQuote/delete-operations: ${error.message}`);
   }
   if (persistence.operations.length) {
-    const { error } = await admin.from("operations").insert(persistence.operations);
+    const { error } = await writer.from("operations").insert(persistence.operations);
     if (error) throw new Error(`repriceQuote/insert-operations: ${error.message}`);
   }
 
-  const { error } = await admin
+  const { error } = await writer
     .from("quotes")
     .update({ ...persistence.quote, priced_at: pricedAt })
     .eq("id", quoteId);

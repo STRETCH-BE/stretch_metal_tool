@@ -50,7 +50,7 @@ Required for a working app: the Supabase URL, a public key and the server key. E
 | `NEXT_PUBLIC_SITE_URL` | Absolute links in e-mails and the PDF footer | `https://quote.stretchmetal.pl` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL | Supabase → Project Settings → API |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` **or** `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public client key (legacy `anon` JWT or the newer `sb_publishable_…`) — either name works | Supabase → Project Settings → API keys |
-| `SUPABASE_SERVICE_ROLE_KEY` **or** `SUPABASE_SECRET_KEY` | Server-only key (legacy `service_role` JWT or `sb_secret_…`): storage signed URLs, audit log, server-side re-pricing, user invites. Never expose with a `NEXT_PUBLIC_` prefix | Supabase → Project Settings → API keys |
+| `SUPABASE_SERVICE_ROLE_KEY` **or** `SUPABASE_SECRET_KEY` | Server-only key (legacy `service_role` JWT or `sb_secret_…`): storage signed URLs, audit log, sending, user invites, admin actions. Pricing itself runs as the signed-in user and works without it. Set it for the Preview environment too, or uploads and sending fail there. Never expose with a `NEXT_PUBLIC_` prefix | Supabase → Project Settings → API keys |
 | `EXCHANGE_RATE_EUR_PLN_DEFAULT` | Default EUR→PLN rate offered on new PLN quotes; the rate used is stored on every quote | `4.30` `[CONFIRM]` |
 | `ANTHROPIC_API_KEY` | Optional — AI pre-fill of thickness, material, bends, threads, finish and quantity from the PDF drawing. Without it the tool shows the extracted PDF text and title-block heuristics only | console.anthropic.com |
 | `ANTHROPIC_MODEL` | Optional model override for the pre-fill | see `lib/ai/prefill.ts` |

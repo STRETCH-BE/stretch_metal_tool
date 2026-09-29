@@ -6,7 +6,8 @@
  * Per item: unitCost = Σ operations.unitCost, unitPrice = unitCost /
  * (1 − margin), batch = unit × qty. Margin is on PRICE (input.marginPct,
  * resolved by the caller with resolveMarginPct); markupPct is the
- * equivalent markup on cost for the UI.
+ * equivalent markup on cost for the UI, inputMarginPct records the margin
+ * the run used (the same number here; market mode keeps them apart).
  *
  * Welding-only block (input.weldingOnly, priced whenever present): each
  * seam = effective length × qty × €/mm, one setup per process used,
@@ -182,6 +183,7 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
     subtotalPrice,
     marginPct,
     markupPct: marginToMarkup(marginPct),
+    inputMarginPct: marginPct,
     flags,
     usesPlaceholderRates,
     rateVersionId: rates.versionId,

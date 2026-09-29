@@ -6,9 +6,10 @@
  *
  * The RLS client (as the user) reads the quote: a viewer/sales user who
  * cannot see it gets notFound rather than a distinguishable 403. Editing
- * requires a write role AND (admin or ownership); the same rule gates the
- * admin-client persistence writes in lib/quotes/reprice.ts, which is why
- * every caller of the admin client goes through here first.
+ * requires a write role AND (admin or ownership) — the rule can_edit_quote()
+ * enforces in SQL, so a caller that passes here can also persist prices
+ * through its own RLS client (lib/quotes/reprice.ts); the few actions that
+ * do use the admin client (confirmFlag, sending) go through here first.
  */
 
 import { getCurrentUser, type Session } from "@/lib/auth";

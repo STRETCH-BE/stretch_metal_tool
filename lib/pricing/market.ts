@@ -70,7 +70,10 @@
  *   slow_contour_factor is not applied on top.
  * - No margin on market prices; the margin shown is 1 − cost ÷ price with
  *   the cost version (options.costRates, machine-hour model). Below the
- *   version's default_margin_pct → red market.margin_below_default.
+ *   version's default_margin_pct → red market.margin_below_default. The
+ *   quote's own margin (input.marginPct) only prices the cost-plus lines
+ *   and is recorded as inputMarginPct so a stored snapshot can be told
+ *   apart from a header edited since.
  * - Finish minimums are compared with what the lines of that finish (and
  *   colour) charge after the lead-time multiplier; the difference is one
  *   quote line. A finish with price 0 and a minimum (hot-dip) is therefore a
@@ -1159,6 +1162,7 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
     subtotalPrice,
     marginPct,
     markupPct,
+    inputMarginPct: input.marginPct,
     flags,
     usesPlaceholderRates,
     rateVersionId: rates.versionId,

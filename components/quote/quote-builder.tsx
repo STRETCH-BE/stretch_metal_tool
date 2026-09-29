@@ -135,11 +135,14 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, customers, au
       report(await fn(), success);
     });
 
-  // Stored prices from a rate version the quote is no longer pinned to (a
-  // draft re-pinned after a version switch) or from an older pricing engine
-  // (a deploy that changed a formula or a flag rule): re-price once on
-  // open, so the screen never shows numbers the engine would not produce
-  // now. Keyed by quote + version so a failed run is not retried in a loop.
+  // Stored prices that no longer match the quote (a draft re-pinned after a
+  // version switch; a header save whose server re-price failed and left
+  // another margin / lead time / currency than the snapshot was computed
+  // with; or a deploy that changed a formula or a flag rule, i.e. an older
+  // pricing-engine version): re-price once on open, so the screen never
+  // shows numbers the header or the engine would contradict. Keyed by quote
+  // + version so a failed run is not retried in a loop; the next save
+  // re-prices anyway.
   const staleRates = editable && isPricingStale(quote, bundle.pricing);
   const staleRepriced = useRef<string | null>(null);
   useEffect(() => {

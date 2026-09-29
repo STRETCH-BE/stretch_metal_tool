@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { defaultCurrencyForCountry } from "@/lib/customers/currency";
 import { parseNewQuoteForm } from "@/lib/quotes/schema";
 import {
+  OPERATION_TYPE_ORDER,
   isQuoteEditable,
   isQuoteEditor,
   nextVersionNumber,
@@ -148,5 +149,55 @@ describe("summariseOperations", () => {
       { type: "bend", count: 2, unitCost: 4 },
       { type: "setup", count: 1, unitCost: 0.5 },
     ]);
+  });
+
+  it("leaves the market price components (order charge, packaging, lead time) out of the PDF operation list", () => {
+    const line = (type: OperationLine["type"], unitCost: number): OperationLine => ({
+      id: `${type}-${unitCost}`,
+      type,
+      label: type,
+      driverQty: 1,
+      driverUnit: "lot",
+      rateRef: { table: "rate_general", key: "x", values: {} },
+      unitCost,
+      setupShare: 0,
+      auto: true,
+      notes: null,
+      details: {},
+    });
+    const summary = summariseOperations([line("order", 0.85), line("laser_cut", 2), line("leadtime", 1.2), line("packaging", 36.78)]);
+    expect(summary).toEqual([{ type: "laser_cut", count: 1, unitCost: 2 }]);
+  });
+});
+
+describe("OPERATION_TYPE_ORDER", () => {
+  it("lists every operation type once, so no bucket of the totals table can go missing", () => {
+    // Every member of OperationType — a new type must be added here AND to the order.
+    const all: Record<OperationLine["type"], true> = {
+      laser_cut: true,
+      subcontract_cutting: true,
+      tube_cut: true,
+      material: true,
+      bend: true,
+      roll: true,
+      weld: true,
+      thread: true,
+      feature: true,
+      machining: true,
+      finish_powder: true,
+      finish_zinc: true,
+      finish_deburr: true,
+      finish_other: true,
+      engrave: true,
+      handling: true,
+      setup: true,
+      order: true,
+      packaging: true,
+      leadtime: true,
+      other: true,
+    };
+    expect([...OPERATION_TYPE_ORDER].sort()).toEqual(Object.keys(all).sort());
+    expect(new Set(OPERATION_TYPE_ORDER).size).toBe(OPERATION_TYPE_ORDER.length);
+    expect(OPERATION_TYPE_ORDER.at(-1)).toBe("other");
   });
 });

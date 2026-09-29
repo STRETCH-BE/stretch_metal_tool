@@ -601,7 +601,7 @@ const builderPl: QuoteBuilderContent = {
     saved: "Nagłówek zapisany, ceny przeliczone.",
     readOnly: "Tylko podgląd — ta wycena należy do innego użytkownika.",
     locked: "Wycena została wysłana — nagłówek i części są zablokowane. Utwórz nową wersję, aby zmienić.",
-    staleRates: "Zapisane ceny pochodzą z innej wersji stawek niż ta, do której przypięta jest wycena — przeliczanie na serwerze…",
+    staleRates: "Zapisane ceny policzono z innymi danymi niż te zapisane w wycenie (wersja stawek, marża, termin lub waluta) — przeliczanie na serwerze…",
   },
   parts: {
     title: "Części",

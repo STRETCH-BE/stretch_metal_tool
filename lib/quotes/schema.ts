@@ -277,17 +277,22 @@ export function parsePricing(json: Json | null | undefined): PricedQuote | null 
   if (!json || typeof json !== "object" || Array.isArray(json)) return null;
   const result = pricingGuard.safeParse(json);
   if (!result.success) return null;
+  const stored = result.data as unknown as PricedQuote;
   // Snapshots stored before market mode existed carry none of these fields;
-  // engineVersion 0 marks a pricing older than the versioned engine (stale).
-  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines" | "engineVersion"> = {
+  // older ones also lack inputMarginPct, which then defaults to marginPct
+  // (exact for a cost snapshot; a legacy market snapshot reads as stale once
+  // and is re-priced on open, which writes the field). engineVersion 0 marks
+  // a pricing older than the versioned engine: stale for the same reason.
+  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines" | "inputMarginPct" | "engineVersion"> = {
     engineVersion: 0,
     pricingMode: "cost",
     costRateVersionId: null,
     leadTimeDays: null,
     leadTimeMultiplier: 1,
     quoteLines: [],
+    inputMarginPct: stored.marginPct,
   };
-  return { ...defaults, ...(result.data as unknown as PricedQuote) };
+  return { ...defaults, ...stored };
 }
 
 const flagGuard = z.looseObject({

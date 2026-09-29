@@ -105,6 +105,9 @@ describe("market mode — per-piece rules", () => {
     expect(priced.leadTimeDays).toBe(11);
     expect(priced.leadTimeMultiplier).toBe(1);
     expect(priced.items.every((i) => i.unitPrice !== null)).toBe(true);
+    // the quote's own margin is kept apart from the realised one
+    expect(priced.inputMarginPct).toBe(threeLines().marginPct);
+    expect(priced.marginPct).not.toBe(priced.inputMarginPct);
   });
 
   it("material = net mass × €/kg of the band at exactly t (no blank, no scrap); laser = cut length × €/m + pierces × €/pierce", () => {

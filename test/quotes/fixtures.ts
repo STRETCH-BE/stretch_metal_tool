@@ -8,6 +8,7 @@
 import type { CustomerRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow } from "@/lib/db/types";
 import { priceQuote } from "@/lib/pricing/price-quote";
 import type { Flag, PricedQuote } from "@/lib/pricing/types";
+import { toQuoteCurrency } from "@/lib/format";
 import { toJson } from "@/lib/quotes/mapper";
 import type { QuoteBundle } from "@/lib/quotes/types";
 import { makeAnnotations } from "@/test/helpers/geometry";
@@ -184,7 +185,14 @@ export type BundleOptions = {
 export function makeBundle(options: BundleOptions = {}): QuoteBundle {
   const priced = options.priced === undefined ? priceFixture() : options.priced;
   const flags = options.flags ?? priced?.flags ?? [];
-  const quote = makeQuoteRow({ pricing: priced ? toJson(priced) : null, flags: toJson(flags), ...options.quote });
+  // quotes.subtotal_* as the persistence step writes them (quote currency at
+  // the stored fx rate), so a bundle is consistent unless a test says otherwise.
+  const base = makeQuoteRow(options.quote);
+  const fx = Number(base.fx_rate) || 1;
+  const subtotals = priced
+    ? { subtotal_cost: toQuoteCurrency(priced.subtotalCost, base.currency, fx), subtotal_price: toQuoteCurrency(priced.subtotalPrice, base.currency, fx) }
+    : {};
+  const quote = makeQuoteRow({ pricing: priced ? toJson(priced) : null, flags: toJson(flags), ...subtotals, ...options.quote });
   const customer = options.customer === null ? null : makeCustomer(options.customer ?? {});
   return {
     quote,

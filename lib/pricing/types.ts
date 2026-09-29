@@ -590,6 +590,14 @@ export type PricedQuote = {
   marginPct: number;
   /** Equivalent markup on cost, percent. */
   markupPct: number;
+  /**
+   * The margin the quote was priced WITH (QuoteInput.marginPct): in cost
+   * mode the margin on price of every line (= marginPct); in market mode
+   * the cost-plus margin of the operations the version does not benchmark
+   * (marginPct is then the realised margin against the cost version). Lets
+   * a stored snapshot be compared with the header it was computed from.
+   */
+  inputMarginPct: number;
   flags: Flag[];
   /** True when any rate used is still a placeholder ([CONFIRM]). */
   usesPlaceholderRates: boolean;

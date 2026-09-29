@@ -89,6 +89,7 @@ describe("Step 14 (3): 200164-like × 50 with 4 bends and a stitch weld", () => 
 
   it("carries margin, markup, flags, placeholder state and the rate version", () => {
     expect(priced.marginPct).toBe(30);
+    expect(priced.inputMarginPct).toBe(30);
     expect(priced.markupPct).toBeCloseTo(42.857142857, 8);
     expect(priced.rateVersionId).toBe(RATE_VERSION_ID);
     expect(priced.usesPlaceholderRates).toBe(true);
