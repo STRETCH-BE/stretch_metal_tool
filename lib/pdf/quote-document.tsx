@@ -69,8 +69,10 @@ const s = StyleSheet.create({
     marginBottom: 4,
   },
   eyebrowRule: { width: 22, height: 2, backgroundColor: RED, marginBottom: 6 },
-  title: { fontFamily: PDF_FONT_DISPLAY, fontWeight: 900, fontSize: 22, textTransform: "uppercase", letterSpacing: -0.4, marginBottom: 2 },
-  number: { fontFamily: PDF_FONT_BODY, fontWeight: 700, fontSize: 12, marginBottom: 14 },
+  // Explicit line heights on the display sizes: the page's 1.4 body line
+  // height applied to 22 pt let the number below sit inside the title's box.
+  title: { fontFamily: PDF_FONT_DISPLAY, fontWeight: 900, fontSize: 22, lineHeight: 1.1, textTransform: "uppercase", letterSpacing: -0.4, marginBottom: 6 },
+  number: { fontFamily: PDF_FONT_BODY, fontWeight: 700, fontSize: 12, lineHeight: 1.2, marginBottom: 16 },
   metaGrid: { flexDirection: "row", gap: 24, marginBottom: 18 },
   metaCol: { flexGrow: 1, flexBasis: 0 },
   metaLabel: { fontSize: 7, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: MUTED, marginBottom: 2 },
@@ -86,14 +88,17 @@ const s = StyleSheet.create({
   cellPos: { width: 22 },
   cellThumb: { width: 54, paddingRight: 6 },
   cellName: { flexGrow: 1, flexBasis: 0, paddingRight: 6 },
-  cellMaterial: { width: 80, paddingRight: 6 },
-  cellThickness: { width: 52, paddingRight: 6 },
-  cellQty: { width: 42 },
-  cellPrice: { width: 78 },
-  cellTotal: { width: 84 },
+  // Fixed columns kept narrow so the part column (name + operation line) gets the width.
+  cellMaterial: { width: 62, paddingRight: 6 },
+  cellThickness: { width: 50, paddingRight: 6 },
+  cellQty: { width: 34 },
+  cellPrice: { width: 72 },
+  cellTotal: { width: 78 },
   thumbBox: { width: 48, height: 32, backgroundColor: SURFACE, alignItems: "center", justifyContent: "center" },
-  opsRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 3 },
-  opChip: { fontSize: 7, color: MUTED, borderWidth: 0.5, borderColor: LINE, paddingHorizontal: 4, paddingVertical: 1 },
+  // One muted line per part ("Laser cutting × 1 · Welding × 1"): boxed chips
+  // in a wrapping row each took a full line and made every row three times
+  // as tall, pushing a quote of eight parts onto three pages.
+  opsLine: { fontSize: 7.5, color: MUTED, marginTop: 2, lineHeight: 1.3 },
   weldCellSeam: { flexGrow: 1, flexBasis: 0, paddingRight: 6 },
   weldCellProcess: { width: 70 },
   weldCellLength: { width: 90 },
@@ -156,13 +161,7 @@ function PartRow({ row, showOperations }: { row: PdfPartRow; showOperations: boo
       <View style={s.cellName}>
         <Text style={s.tdBold}>{row.name}</Text>
         {showOperations && row.operations.length > 0 && (
-          <View style={s.opsRow}>
-            {row.operations.map((op, i) => (
-              <Text key={i} style={s.opChip}>
-                {op.label} × {op.count}
-              </Text>
-            ))}
-          </View>
+          <Text style={s.opsLine}>{row.operations.map((op) => `${op.label}\u00a0×\u00a0${op.count}`).join(" · ")}</Text>
         )}
       </View>
       <Text style={[s.td, s.cellMaterial]}>{row.material}</Text>
@@ -204,7 +203,6 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
           </View>
         </View>
 
-        <Text style={s.eyebrow}>{t.title}</Text>
         <View style={s.eyebrowRule} />
         <Text style={s.title}>{t.title}</Text>
         <Text style={s.number}>{model.numberLabel}</Text>
@@ -231,8 +229,6 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
             )}
           </View>
           <View style={s.metaCol}>
-            <Text style={s.metaLabel}>{t.meta.number}</Text>
-            <Text style={s.metaValue}>{model.numberLabel}</Text>
             <Text style={s.metaLabel}>{t.meta.version}</Text>
             <Text style={s.metaValue}>{model.version}</Text>
             <Text style={s.metaLabel}>{t.meta.currency}</Text>
@@ -332,7 +328,7 @@ export function QuoteDocument({ model, content: t }: QuoteDocumentProps) {
           <Text style={s.netNotice}>{model.totals.netNotice}</Text>
         </View>
 
-        <View style={s.terms} wrap={false}>
+        <View style={s.terms}>
           <Text style={s.eyebrow}>{t.terms.heading}</Text>
           <Text style={s.termsLine}>{model.terms.validity}</Text>
           {model.terms.leadTime && <Text style={s.termsLine}>{model.terms.leadTime}</Text>}
