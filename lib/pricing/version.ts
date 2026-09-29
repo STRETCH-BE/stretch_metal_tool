@@ -13,7 +13,14 @@
  *       (market.bend_rate_from_steel); welding priced cost-plus from the
  *       cost version when the market version has no weld rows
  *       (market.cost_plus)
+ *   3 — assembly mode (30 Sep 2026, docs/assembly-mode-design.md): welded
+ *       assemblies priced as one line (parts at cost + labour + job
+ *       set-ups once per job), forming operations with feasibility /
+ *       step-bend / subcontract, packaging from packaging_rates, the
+ *       shipping line, VAT on the net total, the price scale, and the new
+ *       flags (forming.*, assembly.*, material.substituted,
+ *       customer.vat_id_missing, shipping.missing)
  * A stored pricing without the field predates 2: it parses as 0 and is stale.
  */
 
-export const PRICING_ENGINE_VERSION = 2;
+export const PRICING_ENGINE_VERSION = 3;

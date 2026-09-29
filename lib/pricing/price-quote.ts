@@ -32,18 +32,62 @@
  * is delegated to lib/pricing/market.ts, which reuses this cost pricer on
  * options.costRates to compute the margin. The welding-only block lives in
  * welding-block.ts, shared by both.
+ *
+ * Assembly mode (options.jobRates given — docs/assembly-mode-design.md;
+ * without job rates every result is byte-for-byte the pre-assembly one):
+ * - Members of assemblies (items with assemblyId) are taken OUT of the
+ *   loose-line pricing; the loose lines are priced by the mode's pricer as
+ *   before (market: order charge and laser set-ups split over the loose
+ *   pieces only), then lib/pricing/assembly.ts prices each assembly as one
+ *   line (parts at cost from options.costRates — cost mode: the same
+ *   snapshot — labour, job set-ups, forming, ÷ (1 − max(margin, assembly
+ *   margin))). A member's PricedItem has operations [], unitCost = its
+ *   parts-at-cost per piece, unitPrice null, qty = assembly.qty ×
+ *   qtyPerAssembly; the assembly's batchCost already holds the parts, so
+ *   members are NOT added to the subtotals.
+ * - Laser-nest set-ups are charged once per (material, thickness) nest of
+ *   the whole quote: the loose lines keep their per-nest laser_setup lines
+ *   (market mode) and an assembly does not charge a nest a loose line
+ *   already charged (their laser_setup rateRef.key IS the nest key); a
+ *   nest shared by two assemblies is charged by the first. In cost mode
+ *   loose lines carry no laser set-up, so an assembly nest is always
+ *   charged there.
+ * - Loose items whose drawing hints at forming that nothing prices
+ *   (forming.ts formingHint, not a roll annotation — the loose model
+ *   prices / refuses those itself) get red forming.suspected until a
+ *   forming operation or a none_needed confirmation is set.
+ * - Packaging comes from packaging_rates (packaging.ts; the market box /
+ *   pallet rule is switched off), shipping from ShippingInput /
+ *   shipping_rates (shipping.ts), VAT from vat.ts on the net total
+ *   INCLUDING shipping, and the price scale (scale.ts) re-prices the quote
+ *   at each extra quantity. Packaging and shipping are pass-throughs (cost
+ *   = price) counted in subtotalCost and subtotalPrice.
+ * - subtotalPrice = loose lines + assemblies + quote lines + shipping (+
+ *   the welding-only block). Cost mode keeps marginPct = the header margin
+ *   (the rule the lines were priced with; assemblies carry their own
+ *   PricedAssembly.marginPct); market mode reports the realised margin
+ *   over everything. usesPlaceholderRates is also true when
+ *   JobRates.placeholder.
  */
 
+import { accumulateAssemblyCosts, partitionItems, priceAssemblies } from "./assembly";
 import { PricingError } from "./errors";
 import { evaluateQuoteFlags } from "./feasibility";
+import { formingHint, formingSuspected } from "./forming";
+import { OPERATION_LABELS } from "./labels";
 import { priceMarketQuote } from "./market";
 import { buildItemOperations } from "./operations";
+import { packagingForParts, packedPart, type PackedPart } from "./packaging";
+import { priceScale as computePriceScale } from "./scale";
+import { shippingLine } from "./shipping";
+import { computeVat } from "./vat";
 import { priceWeldingOnly } from "./welding-block";
 import { PRICING_ENGINE_VERSION } from "./version";
 import {
   marginToMarkup,
   priceFromCost,
   type Flag,
+  type JobRates,
   type MachinePark,
   type OperationLine,
   type OperationType,
@@ -99,7 +143,8 @@ function accumulate(totals: TotalsByType, operations: OperationLine[], qty: numb
 
 /**
  * Price a whole quote from its parts, items, rate snapshot and machine
- * park. Cost mode unless the version says "market" (see file header).
+ * park. Cost mode unless the version says "market" (see file header);
+ * assembly mode on top when job rates are given.
  */
 export function priceQuote(
   input: QuoteInput,
@@ -107,6 +152,8 @@ export function priceQuote(
   machines: MachinePark,
   options: PriceQuoteOptions = {}
 ): PricedQuote {
+  const jobRates = options.jobRates ?? null;
+  if (jobRates) return priceJobQuote(input, rates, machines, { costRates: options.costRates ?? null, jobRates });
   if (rates.general.pricingMode === "market") {
     return priceMarketQuote(input, rates, machines, { costRates: options.costRates ?? null, priceCost: priceCostQuote });
   }
@@ -198,4 +245,160 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
     vat: null,
     priceScale: [],
   };
+}
+
+/* ─── Assembly mode ───────────────────────────────────────── */
+
+type JobQuoteOptions = { costRates: RateSnapshot | null; jobRates: JobRates };
+
+/** Nest keys the loose lines already charge a laser set-up for (market mode: laser_setup lines, rateRef.key = "<material>/<t>"). */
+function looseChargedNests(items: readonly PricedItem[]): Set<string> {
+  const keys = new Set<string>();
+  for (const item of items) for (const op of item.operations) if (op.label === OPERATION_LABELS.laserSetup) keys.add(op.rateRef.key);
+  return keys;
+}
+
+/** Loose parts: a forming hint the loose model does not price (a roll annotation is priced / refused by the roll rules). */
+function looseFormingSuspected(part: Parameters<typeof formingSuspected>[0], forming: Parameters<typeof formingSuspected>[1]): boolean {
+  return formingSuspected(part, forming) && formingHint(part) !== "roll_annotation";
+}
+
+function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: MachinePark, options: JobQuoteOptions): PricedQuote {
+  const { jobRates } = options;
+  const market = rates.general.pricingMode === "market";
+  const partsById = new Map(input.parts.map((p) => [p.id, p] as const));
+  const { loose, assemblies } = partitionItems(input);
+
+  // 1. Loose lines by the mode's own pricer (members excluded, no scale, no legacy packaging).
+  const looseInput: QuoteInput = { ...input, items: loose, assemblies: [], priceScale: [] };
+  const base = market
+    ? priceMarketQuote(looseInput, rates, machines, { costRates: options.costRates, priceCost: priceCostQuote, skipPackaging: true })
+    : priceCostQuote(looseInput, rates, machines);
+
+  const looseItems: PricedItem[] = base.items.map((item) => {
+    const source = loose.find((i) => i.id === item.itemId);
+    const part = partsById.get(item.partId);
+    if (!source || !part || !looseFormingSuspected(part, source.forming)) return item;
+    const flag: Flag = { code: "forming.suspected", severity: "red", partId: part.id, itemId: item.itemId, params: { hint: formingHint(part) ?? "" }, overridable: false };
+    return { ...item, flags: [...item.flags, flag] };
+  });
+
+  // 2. Assemblies (nests already charged by the loose lines are not charged again).
+  const costRates = options.costRates ?? (market ? null : rates);
+  const assembled = priceAssemblies(input, { rates, costRates, machines, jobRates, chargedNests: looseChargedNests(looseItems) });
+  const memberById = new Map(assembled.items.map((i) => [i.itemId, i] as const));
+  const looseById = new Map(looseItems.map((i) => [i.itemId, i] as const));
+  const items: PricedItem[] = input.items.map((item) => looseById.get(item.id) ?? memberById.get(item.id)).filter((i): i is PricedItem => i !== undefined);
+
+  // 3. Packaging over every priced part (loose lines with a price + members), shipping, VAT.
+  const packed: PackedPart[] = [];
+  for (const item of looseItems) {
+    if (item.unitPrice === null) continue;
+    const part = partsById.get(item.partId);
+    if (part) packed.push(packedPart(part, item, rates));
+  }
+  for (const item of assembled.items) {
+    const part = partsById.get(item.partId);
+    if (part) packed.push(packedPart(part, item, rates));
+  }
+  const packaging = packagingForParts(packed, jobRates.packaging, jobRates.placeholder);
+  const quoteLines: OperationLine[] = [...base.quoteLines.filter((l) => l.type !== "packaging"), ...(packaging.line ? [packaging.line] : [])];
+  const shipping = shippingLine(input.shipping ?? null, jobRates.shipping, packaging.envelope.grossKg, {
+    customerCountry: input.customerCountry ?? null,
+    homeCountry: jobRates.homeCountry,
+    placeholder: jobRates.placeholder,
+  });
+
+  // 4. Totals.
+  const welding = base.welding;
+  const marginPct = market ? 0 : input.marginPct;
+  const totalsByType: TotalsByType = {};
+  if (market) {
+    for (const [type, bucket] of Object.entries(base.totalsByType) as [OperationType, { cost: number; price: number }][]) totalsByType[type] = { ...bucket };
+  } else {
+    for (const item of looseItems) accumulate(totalsByType, item.operations, item.qty, marginPct);
+    if (welding) accumulate(totalsByType, welding.operations, 1, marginPct);
+  }
+  for (const assembly of assembled.assemblies) {
+    const costs: Partial<Record<OperationType, number>> = {};
+    accumulateAssemblyCosts(costs, assembly);
+    const ratio = assembly.unitPrice !== null && assembly.unitCost > 0 ? assembly.unitPrice / assembly.unitCost : 0;
+    for (const [type, cost] of Object.entries(costs) as [OperationType, number][]) {
+      const bucket = totalsByType[type] ?? { cost: 0, price: 0 };
+      bucket.cost += cost;
+      bucket.price += cost * ratio;
+      totalsByType[type] = bucket;
+    }
+  }
+  const passThrough: OperationLine[] = [...quoteLines, ...(shipping.line ? [shipping.line] : [])];
+  for (const l of passThrough) {
+    const bucket = totalsByType[l.type] ?? { cost: 0, price: 0 };
+    bucket.cost += l.unitCost;
+    bucket.price += l.unitCost;
+    totalsByType[l.type] = bucket;
+  }
+
+  const looseCost = market ? base.subtotalCost : looseItems.reduce((s, i) => s + i.batchCost, 0) + (welding?.cost ?? 0);
+  const loosePrice = looseItems.reduce((s, i) => s + (i.batchPrice ?? 0), 0) + (welding?.price ?? 0);
+  const assemblyCost = assembled.assemblies.reduce((s, a) => s + a.batchCost, 0);
+  const assemblyPrice = assembled.assemblies.reduce((s, a) => s + (a.batchPrice ?? 0), 0);
+  const passThroughEur = passThrough.reduce((s, l) => s + l.unitCost, 0);
+  const subtotalCost = looseCost + assemblyCost + passThroughEur;
+  const subtotalPrice = loosePrice + assemblyPrice + passThroughEur;
+
+  const realisedMarginPct = subtotalPrice > 0 ? (1 - subtotalCost / subtotalPrice) * 100 : 0;
+  const reportedMarginPct = market ? (options.costRates ? realisedMarginPct : 0) : input.marginPct;
+  const markupPct = market ? (options.costRates && subtotalCost > 0 ? marginToMarkup(reportedMarginPct) : 0) : marginToMarkup(input.marginPct);
+
+  // 5. Flags: the base flags minus its rates.placeholder (recounted over everything), members, assemblies, shipping, VAT.
+  const allLines: OperationLine[] = [
+    ...items.flatMap((i) => i.operations),
+    ...assembled.assemblies.flatMap((a) => a.operations),
+    ...passThrough,
+    ...(welding?.operations ?? []),
+  ];
+  const placeholders = allLines.filter((op) => op.rateRef.values.placeholder === true).length;
+  const flags: Flag[] = [
+    ...looseItems.flatMap((i) => i.flags),
+    ...base.flags.filter((f) => f.partId === null && f.itemId === null && f.code !== "rates.placeholder"),
+    ...assembled.flags,
+    ...shipping.flags,
+  ];
+  if (placeholders > 0) flags.push({ code: "rates.placeholder", severity: "green", partId: null, itemId: null, params: { count: placeholders }, overridable: false });
+
+  const vatResult = computeVat(
+    { customerType: input.customerType ?? null, customerCountry: input.customerCountry ?? null, customerVatId: input.customerVatId ?? null, netTotalEur: subtotalPrice },
+    jobRates
+  );
+  if (vatResult) flags.push(...vatResult.flags);
+
+  const priced: PricedQuote = {
+    items,
+    welding,
+    totalsByType,
+    subtotalCost,
+    subtotalPrice,
+    marginPct: reportedMarginPct,
+    markupPct,
+    inputMarginPct: input.marginPct,
+    flags,
+    usesPlaceholderRates: placeholders > 0 || jobRates.placeholder,
+    rateVersionId: rates.versionId,
+    engineVersion: PRICING_ENGINE_VERSION,
+    pricingMode: market ? "market" : "cost",
+    costRateVersionId: market ? (options.costRates?.versionId ?? null) : null,
+    leadTimeDays: base.leadTimeDays,
+    leadTimeMultiplier: base.leadTimeMultiplier,
+    quoteLines,
+    assemblies: assembled.assemblies,
+    shipping: shipping.line,
+    vat: vatResult?.vat ?? null,
+    priceScale: [],
+  };
+
+  // 6. Price scale (the scaled inputs carry priceScale [] — no recursion).
+  if ((input.priceScale?.length ?? 0) > 0 && (loose.length > 0 || assemblies.length > 0)) {
+    priced.priceScale = computePriceScale(input, (scaled) => priceQuote(scaled, rates, machines, { costRates: options.costRates, jobRates }));
+  }
+  return priced;
 }

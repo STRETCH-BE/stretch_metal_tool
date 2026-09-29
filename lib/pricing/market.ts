@@ -132,6 +132,8 @@ export type MarketPricingOptions = {
   costRates: RateSnapshot | null;
   /** The cost-mode pricer (price-quote.ts priceCostQuote), used on costRates. */
   priceCost: (input: QuoteInput, rates: RateSnapshot, machines: MachinePark) => PricedQuote;
+  /** Assembly mode (price-quote.ts with job rates): the packaging line comes from packaging_rates instead of rate_general's box / pallet. */
+  skipPackaging?: boolean;
 };
 
 const EPS = 1e-9;
@@ -1109,7 +1111,7 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
 
   const quoteLines: OperationLine[] = [];
   const pricedCtxs = ctxs.filter((_, i) => priceable[i]);
-  const packaging = packagingLine(pricedCtxs, rates);
+  const packaging = options.skipPackaging ? null : packagingLine(pricedCtxs, rates);
   if (packaging) quoteLines.push(packaging);
   quoteLines.push(...finishMinimumLines(finishUses, overLimit));
 

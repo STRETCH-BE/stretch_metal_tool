@@ -16,7 +16,10 @@
  * the total net mass stays within PACKAGING_BOX_MAX_MASS_KG (5 kg, the
  * benchmark's box limit), else a pallet. Both limits are engine constants
  * for now ([CONFIRM]; the owner asked for an editable rule in a later
- * admin iteration).
+ * admin iteration). Assembly mode (docs/assembly-mode-design.md §2) picks
+ * the packaging from the admin table instead (lib/pricing/packaging.ts);
+ * only the gross-mass allowance (PACKAGING_ALLOWANCE_PCT) and the
+ * step-bend pitch (STEP_BEND_PITCH_MM) stay here as rules.
  *
  * Minimum part size (rate_finish.min_part_mm, free text kept editable by
  * the admin), e.g. "steel 250x60 or 600x50; aluminium/stainless 50x50":
@@ -68,6 +71,19 @@ export const PACKAGING_BOX_MAX_SIDE_MM = 600;
 export const PACKAGING_BOX_MAX_MASS_KG = 5; // [CONFIRM] 247 ships up to 5 kg in a box
 
 export type PackagingKind = "box" | "pallet";
+
+/** [CONFIRM] Assembly mode: gross mass = net mass of every part × (1 + this %) — the carton / foam / pallet itself. */
+export const PACKAGING_ALLOWANCE_PCT = 5;
+
+/** Gross (packed) mass from the net mass of the parts: net × (1 + PACKAGING_ALLOWANCE_PCT / 100). */
+export function grossMassKg(netMassKg: number): number {
+  return netMassKg * (1 + PACKAGING_ALLOWANCE_PCT / 100);
+}
+
+/* ─── Step bending ────────────────────────────────────────── */
+
+/** [CONFIRM] Step bending on the press brake: one hit per this much arc length (R90 over 180° → 19 hits). */
+export const STEP_BEND_PITCH_MM = 15;
 
 export type PackagingPart = { maxSideMm: number; massKg: number | null; qty: number };
 

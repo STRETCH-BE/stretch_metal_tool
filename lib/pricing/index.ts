@@ -52,6 +52,46 @@ export {
   type PackagingKind,
 } from "./market-rules";
 export { lotLine, priceWeldingOnly, type WeldingBlock } from "./welding-block";
+/* ─── Assembly mode (docs/assembly-mode-design.md) ─── */
+export {
+  PARTS_AT_COST_EXCLUDED_TYPES,
+  accumulateAssemblyCosts,
+  effectiveMemberPart,
+  memberQty,
+  nestKey,
+  partitionItems,
+  priceAssemblies,
+  type AssemblyPricingContext,
+  type AssemblyPricingResult,
+  type ItemPartition,
+} from "./assembly";
+export {
+  assessForming,
+  formingFeasibility,
+  formingHint,
+  formingSuspected,
+  rollArcLengthMm,
+  suggestedStepBendHits,
+  type FormingAssessment,
+  type FormingCharge,
+  type FormingContext,
+  type FormingFeasibility,
+  type FormingHint,
+} from "./forming";
+export { JOB_RATE_DEFAULTS, rowsToJobRates, weldSpeedFor, type JobRateRows } from "./job-rates";
+export { PACKAGING_ALLOWANCE_PCT, STEP_BEND_PITCH_MM, grossMassKg } from "./market-rules";
+export {
+  packagingEnvelope,
+  packagingForParts,
+  packagingLine,
+  packedPart,
+  pickPackaging,
+  type PackagingEnvelope,
+  type PackedPart,
+} from "./packaging";
+export { priceScale, scaleQuantities, scaledInput } from "./scale";
+export { pickShippingBand, shippingLine, type ShippingContext, type ShippingResult } from "./shipping";
+export { EU_COUNTRY_CODES, computeVat, hasVatId, isEuCountry, normaliseCountry, type VatComputation, type VatInput } from "./vat";
 export {
   flatLaserLimitsSchema,
   machineFromRow,

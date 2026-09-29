@@ -9,23 +9,35 @@ version the quote is pinned to). Money is EUR, unrounded; the UI/PDF
 converts and rounds.
 
 ```
-priceQuote(input, rates, machines)          → PricedQuote
+priceQuote(input, rates, machines, { costRates?, jobRates? }) → PricedQuote
 buildItemOperations(part, item, rates, m)   → { operations, flags }
 evaluatePartFlags(part, item, rates, m)     → Flag[]
 evaluateQuoteFlags(priced)                  → Flag[]      (quote-level)
 resolveMarginPct(rates, customerClass, ovr) → number
 rowsToRateSnapshot(rows) / rowsToMachinePark(rows)         (DB rows → engine input)
+rowsToJobRates(rows) / weldSpeedFor(rates, process, t)     (settings tables → JobRates)
+priceAssemblies(input, { rates, costRates, machines, jobRates, chargedNests? })
+                                            → { assemblies, items, flags, nests, usesPressBrake, usesRoll }
+assessForming(ops, ctx) / suggestedStepBendHits(roll) / formingSuspected(part, forming)
+pickPackaging(rates, sideMm, grossKg) / packagingForParts(parts, rates, placeholder)
+shippingLine(input, rates, computedGrossKg, { customerCountry, homeCountry })
+computeVat({ customerType, customerCountry, customerVatId, netTotalEur }, jobRates)
+priceScale(input, priceFn)                  → PriceScale[]
 ```
 
 Files: `types.ts` (contract), `formulas.ts`, `lookup.ts`, `context.ts`
 (per-part resolution shared by rules and lines), `validate.ts` (user
 numbers), `bend-checks.ts` (vector math), `finish.ts`, `feasibility.ts`,
 `operations.ts`, `price-quote.ts`, `snapshot.ts` (zod), `labels.ts`,
-`errors.ts`, `index.ts`. Test fixtures for everyone: `test/helpers/rates.ts`
-(`RATE_SNAPSHOT_V1`, `MACHINE_PARK`, `rateSnapshotToRows`,
-`machineParkToRows`), `test/helpers/geometry.ts`
+`errors.ts`, `index.ts`; assembly mode: `assembly.ts`, `forming.ts`,
+`packaging.ts`, `shipping.ts`, `vat.ts`, `scale.ts`, `job-rates.ts`,
+`version.ts` (`PRICING_ENGINE_VERSION`). Test fixtures for everyone:
+`test/helpers/rates.ts` (`RATE_SNAPSHOT_V1`, `MACHINE_PARK`, `JOB_RATES`,
+`rateSnapshotToRows`, `machineParkToRows`), `test/helpers/geometry.ts`
 (`makeRectPartGeometry`, `makeAnnotations`), `test/helpers/parts.ts`
-(`make200164Like`, `make200005Like`), `test/helpers/quote.ts`.
+(`make200164Like`, `make200005Like`), `test/helpers/quote.ts`
+(`makeQuoteInput`, `makeItem`, `makePricingPart`, `makeAssembly`,
+`makeSeam`, `makeForming`).
 
 ## Formulas (units in brackets)
 
@@ -130,7 +142,7 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `roll.axis_too_long` | red | `axisLength > maxWidthMm` | `axisLengthMm`, `maxWidthMm` |
 | `roll.thickness_over_limit` | red | `t > maxThicknessMm` ("cannot roll in-house — subcontract") | `thicknessMm`, `maxThicknessMm` |
 | `roll.no_rate_row` | red | no roll row — line omitted, so it must block sending | `thicknessMm`, `radiusMm` |
-| `weld.no_rate_row` | red | no weld row for the process (part seams: `weldId`; welding-only seams: `seamId`) | `weldId`/`seamId`, `process`, `beadMm` |
+| `weld.no_rate_row` | red | no weld row for the process (part seams: `weldId`; welding-only seams: `seamId`); assembly mode: an assembly seam whose process has no `weld_speeds` row (`seamId`, `thicknessMm`, quote-level with `assemblyId`) | `weldId`/`seamId`, `process`, `beadMm`, `thicknessMm`, `assemblyId` |
 | `weld.min_order_applied` | green | welding-only total topped up to the minimum order | `minOrder`, `shortfall`, `totalBefore` |
 | `tube.over_limit` | red | tube extra beyond the tube laser: `what` = `length`, `wall` (lower of the two manufacturer values), `envelope`, `circumscribed`, `kg_per_m`, `raw_weight` (the last four only when the optional fields are given) | `index`, `profileFamily`, `what`, `value`, `limit`, `family` |
 | `tube.no_rate_row` | red | no tube row for `(family, wall)` | `index`, `profileFamily`, `wallMm` |
@@ -149,19 +161,19 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `market.extrapolated_rate` | amber | market mode: bends longer than the row's `benchmarked_max_length_mm` are priced with the `price_per_bend_per_m` extension — check before sending | `operation`, `count`, `longestMm`, `benchmarkedMaxMm`, `pricePerM` |
 | `market.bend_rate_from_steel` | amber | market mode: no `rate_bend` row lists the part's material at its thickness, so the bends are priced from the same-thickness row that lists a mild-steel material, × the family factor (`family_multipliers[family]` of that row, else of any other row of the version, else 1; `BEND_FALLBACK_APPLY_FAMILY_FACTOR = false` → 1) on `setup_per_bend_line_eur`, `price_per_bend` and `price_per_bend_per_m` — never on `setup_per_part_type`; not benchmarked, check before sending | `thicknessMm`, `factor`, `family`, `materialCode`, `count` |
 | `market.cost_plus` | amber | market mode: an operation the version has no rows for (welding, part seams or the welding-only block) priced from the COST version's lines × 1 ÷ (1 − the quote's margin) instead of being refused; the lines carry `source = cost_plus`, the cost version, the margin and `costEur` — check before sending | `operation`, `marginPct`, `count` |
-| `forming.not_feasible` | red | a rolling / bending operation on the item exceeds the machine park (roll: min radius, max thickness, max width; press brake: bend length, force) and no resolution was picked — the item / assembly is unpriceable until step-bending or subcontracting is chosen | `operation`, `materialCode`, `thicknessMm`, `reason`, `value`, `limit` |
-| `forming.suspected` | red | the drawing or annotations say forming (roll annotation, forming rolled / bent, bend lines, ROLL / BEND layer) but the item has no forming operation and no "none needed" confirmation — never priced flat silently | `hint` |
-| `forming.step_bend` | amber | an infeasible roll resolved as step-bending on the press brake: `hits` = ceil(arc length ÷ 15 mm), priced as press-brake time | `radiusMm`, `angleDeg`, `hits` |
-| `forming.subcontract` | amber | an infeasible operation resolved as a manual subcontract line × (1 + subcontract margin), extra lead days | `operation`, `supplier`, `costEur`, `marginPct`, `extraLeadDays` |
-| `assembly.mixed_materials` | amber | members of one assembly carry different material grades | `materials` |
-| `assembly.no_seams` | amber | a welded assembly without seams: no welding labour priced | — |
-| `material.substituted` | amber | DC01 quoted where S235 was requested (assembly material or drawing); `material_note` must be set and is printed on the quote | `materialCode`, `requested`, `note` |
-| `customer.vat_id_missing` | amber | business customer outside Poland without a VAT number: 23 % charged instead of 0 % reverse charge | — |
-| `shipping.missing` | amber | no carrier band for the destination / gross mass and no manual shipping cost | `countryCode`, `grossKg` |
+| `forming.not_feasible` | red | a rolling / bending operation on the item exceeds the machine park (roll: `min_radius`, `max_thickness`, `max_width`, `no_machine`; press brake: `bend_length`, `force` — the 3 200 kN rule with V = dieFactor × t; `step_bend_hits` when a step-bend resolution has 0 hits) and no resolution was picked (`{ in_house }` on an infeasible operation is the same red) — the item / assembly is unpriceable until step-bending or subcontracting is chosen | `operation`, `kind`, `materialCode`, `thicknessMm`, `reason`, `value`, `limit` (+ `radiusMm`, `angleDeg`, `widthMm` / `bends`, `lengthMm`) |
+| `forming.suspected` | red | the drawing or annotations say forming — `hint` = `roll_annotation`, `forming_rolled`, `layer_roll`, `forming_bent`, `layer_bend` — but the item has no forming operation and no `{ none_needed }` confirmation. Members: every hint (a member's roll annotation is not priced by the roll table — forming is an operation there). Loose lines: every hint except `roll_annotation` (the roll rules price / refuse it). Recognised bend LINES are never a hint: the bend model prices them | `hint` |
+| `forming.step_bend` | amber | an infeasible roll resolved as step-bending on the press brake: `hits` (suggested = ceil(arc ÷ `STEP_BEND_PITCH_MM` 15 mm), R90 × 180° → 19) × `step_bend_seconds_per_hit` of press-brake labour; one press-brake set-up per job | `radiusMm`, `angleDeg`, `hits`, `minutes`, `operation`, `materialCode`, `thicknessMm` |
+| `forming.subcontract` | amber | an infeasible operation resolved as a manual subcontract line: `costEur` × (1 + `subcontract_margin_pct`/100) per part piece, extra lead days | `operation`, `supplier`, `costEur`, `marginPct`, `extraLeadDays` |
+| `assembly.mixed_materials` | amber | members of one assembly carry different material grades from the assembly's without `materialOverride` (the DC01-for-S235 case is `material.substituted` instead); quote-level flag with `assemblyId` | `assemblyId`, `materials` |
+| `assembly.no_seams` | amber | a welded assembly without a counted seam or tack: no welding labour priced; quote-level flag with `assemblyId` | `assemblyId` |
+| `material.substituted` | amber | DC01 quoted where the assembly says S235; `material_note` must be set and is printed on the quote (`note` = the item's note, "" when missing) | `materialCode`, `requested`, `note` |
+| `customer.vat_id_missing` | amber | business customer outside Poland without a VAT number: the home rate (23 %) charged instead of 0 % reverse charge / export | `countryCode`, `ratePct` |
+| `shipping.missing` | amber | no carrier band for the destination / gross mass, a manual shipping input without a cost, or no shipping input at all for a customer abroad | `countryCode`, `grossKg` |
 | `market.finish_implied` | green | market mode: a coating that includes edge breaking (powder, zinc) dropped a deburring option on the same line — nothing charged for it | `code`, `by`, `index` |
 | `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` (0 in the benchmark versions → only a negative margin) | `marginPct`, `minPct`, `price`, `cost` |
 | `market.no_cost_version` | amber | market mode priced without a cost version — no margin could be computed | — |
-| `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder | `count` |
+| `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder (assembly mode: the job-rate lines carry `JobRates.placeholder`, so unconfirmed settings tables count too) | `count` |
 
 ## Market mode (`market.ts`, `market-rules.ts`, `eligibility.ts`)
 
@@ -215,6 +227,33 @@ Acceptance: `test/pricing/market-v2.test.ts` (E1–E8 on the v2 fixture),
 `test/pricing/market-v3.test.ts` (F/B/C/P/Z/K/D on the v3 fixture, one check per rule 14–24)
 and `test/rates/market-247.test.ts` (E9: the 38 SMT parts of SM-2026-0004 on v2 and v3).
 
+## Assembly mode (`assembly.ts`, `forming.ts`, `packaging.ts`, `shipping.ts`, `vat.ts`, `scale.ts`, `job-rates.ts`)
+
+Design: `docs/assembly-mode-design.md`. Active when `priceQuote` receives `options.jobRates`
+(`loadJobRates` → `rowsToJobRates`, the seven admin settings tables; empty tables fall back to
+`JOB_RATE_DEFAULTS`, the seeded calibration placeholders, and mark the rates `placeholder`).
+Without job rates every result is byte-for-byte the pre-assembly one.
+
+| Step | Rule |
+|---|---|
+| members | items with `assemblyId` are taken out of the loose-line pricing (the mode's own pricer runs on the loose items only — market: order charge and laser set-ups split over the LOOSE pieces). A member's `PricedItem` has `operations []`, `unitCost` = its parts-at-cost per piece, `unitPrice null`, `qty` = `assembly.qty × qtyPerAssembly` (recomputed, the stored qty is ignored), flags from the cost snapshot (minus `weld.*` / `roll.*`) + forming + material. Members are NOT added to the subtotals (the assembly line holds them) |
+| parts at cost | per member: `buildContextOperations` on `options.costRates` (cost mode: the quote's own snapshot; market mode without a cost version: the market snapshot stands in — `market.no_cost_version` already warns) with `setup` lines dropped, folded set-ups subtracted (`setupShare → 0`), `weld` lines dropped (seams are assembly-level) and `roll` lines dropped (rolling is a forming operation); per-bend prices, threads, extras and engraving stay. One `assembly_parts` line per member (type `material`, `driverQty` = qtyPerAssembly, `details` split material / cutting / other). A member with no material / thickness inherits the assembly's; a red part flag (no material, no laser row, no band …) refuses the assembly (`unitPrice null`) |
+| labour | `assembly_rates`: fit-up `fitup_min_per_part × Σ qtyPerAssembly`; tacks `tack_seconds × Σ tack_count / 60`; welding Σ over COUNTED seams (`pairedSeamId null`, type continuous / stitch) of `length × (bead ÷ pitch, capped 1) × sides ÷ weldSpeedFor(process, t)`, t = `seam.thicknessMm ?? assembly.thicknessMm ?? the marked member's ?? the thickest member` (no thickness → the slowest speed of the process; no speed row → red `weld.no_rate_row`, unpriceable); deburr `deburr_min_per_part × parts`; handling once; forming (below). `totalMin = (fit-up + tacks + welding) × distortion_factor + deburr + handling + forming` → × `labour_rate_eur_h`; `arcMin = welding + tacks` (undistorted) × `gas_wire_eur_h` (`assembly_gas_wire`). `seamLengthMm` = Σ geometric length of the counted continuous / stitch seams |
+| forming | `FormingOperation[]` on the item, `assessForming`: feasibility against `RollLimits` / `PressBrakeLimits` (+ the force rule); resolution null or `in_house` on a feasible op → rolling `roll_min_per_m × width` (`roll_forming`, one roll set-up per job), a plain bend op costs nothing (its bend lines are in the parts at cost) but uses the press brake; `step_bend` → hits × `step_bend_seconds_per_hit` (`step_bend`), uses the press brake; `subcontract` → `costEur × (1 + subcontract_margin_pct/100) × qtyPerAssembly` (`subcontract_forming`); infeasible + null / `in_house` → red `forming.not_feasible`, `unitPrice null`; `none_needed` → ignored |
+| job set-ups | `job_setup_rates`, once per JOB, spread over `assembly.qty`: `setup_laser_nest` per distinct `<material>/<t>` nest of the members — not charged when a loose line already charges that nest (its `laser_setup` `rateRef.key` is the nest key; cost mode has none, so an assembly nest is always charged there) or an earlier assembly did; `setup_press_brake` once per job when any member has bend lines or a bend / step-bend op; `setup_roll` once per job when any member is rolled in house; `setup_weld_fitup` once per assembly. Line ids `${assemblyId}:setup-…` |
+| price | `unitPrice = unitCost ÷ (1 − max(input.marginPct, assembly_margin_pct)/100)`; `PricedAssembly.marginPct` records it; `batch = unit × qty`. Cost mode keeps `PricedQuote.marginPct` = the header margin; market mode reports the realised margin over everything (0 without a cost version) |
+| material | member ≠ assembly material without `materialOverride` → amber `assembly.mixed_materials` (once per assembly); DC01 where the assembly says S235 → amber `material.substituted` on the member; no counted seam and no tack → amber `assembly.no_seams` |
+| packaging | `packaging_rates` (`pickPackaging`): first row in position order whose `max_side_mm ≥ largest part side` and `max_mass_kg ≥ gross kg` hold, else the last row; gross = Σ net mass of every priced part × qty × (1 + `PACKAGING_ALLOWANCE_PCT` 5 %) [CONFIRM]; one quote line `packaging` (`quoteLines`, cost = price); the market box / pallet rule is switched off (`skipPackaging`) |
+| shipping | `ShippingInput`: `manual` → `costEur` as typed; `table` → the first `shipping_rates` band of the destination (case-insensitive) with `max_kg ≥` the typed gross kg, else the computed one; no band / no cost → amber `shipping.missing`, no line; no input for a customer abroad (≠ `homeCountry`) → amber. `PricedQuote.shipping` (type `shipping`, driver kg), cost = price, counted in both subtotals, outside every margin |
+| VAT | `computeVat` on `subtotalPrice` INCLUDING shipping — the owner's rule (§3.4): PL → `pl_domestic` 23; abroad + VAT id → 0 (`reverse_charge` in the EU, `export` outside); abroad without → `b2c_domestic` at the PL rate, except b2c + EU + `oss_active` → `b2c_oss` at the destination's row (unknown row → PL rate, no flag); B2B abroad without id → amber `customer.vat_id_missing`; no country → `none` 0 %; no customer at all → `vat null` |
+| price scale | `QuoteInput.priceScale` → `priceScale()` re-prices a copy with every loose item and assembly at each quantity (members at q × qtyPerAssembly; the copy has `priceScale []`, so no recursion); subjects: loose items then assemblies; refused → `unitPrice null` |
+| subtotals | `subtotalPrice` = loose lines + assemblies + quote lines + shipping (+ welding-only block); `subtotalCost` likewise with the pass-throughs at cost = price; `totalsByType` adds the assembly lines by type (set-up shares → `setup`, price = cost × the assembly's price ÷ cost) and the pass-throughs; `usesPlaceholderRates` also when `JobRates.placeholder`; `rates.placeholder` recounted over every line |
+
+Regression: `test/pricing/assembly-regression.test.ts` (the heat store box of the design §6:
+€305.96 net for the assembly at the seeded placeholders, 3.65 h of welding + fit-up, one nest
+per thickness, one press brake, one weld fit-up), `test/pricing/assembly.test.ts`,
+`test/pricing/price-scale.test.ts`, `lib/pricing/{vat,forming,packaging,shipping}.test.ts`.
+
 ## Operation lines
 
 `OperationLine.id` is `${itemId}:${kind}` (`:laser`, `:subcontract`,
@@ -223,7 +262,16 @@ and `test/rates/market-247.test.ts` (E9: the 38 SMT parts of SM-2026-0004 on v2 
 `:machining:${i}`, `:finish:${i}`, `:tube:${i}`, `:tube-material:${i}`,
 `:other:${i}`, `:handling:${i}`, `:engrave`; welding-only:
 `welding:${seamId}`, `welding-setup:${process}`, `welding-handling`,
-`welding-min-order`). `label` is a key from `OPERATION_LABELS` for
+`welding-min-order`; quote level: `quote:packaging`, `quote:shipping`,
+`quote:finish-minimum:${key}`; assemblies: `${assemblyId}:parts:${itemId}`,
+`:fitup`, `:tack`, `:weld`, `:gas-wire`, `:deburr`, `:handling`,
+`:step-bend:${itemId}:${opId}`, `:roll-forming:${itemId}:${opId}`,
+`:subcontract:${itemId}:${opId}`, `:setup-laser-nest:${key}`,
+`:setup-press-brake`, `:setup-roll`, `:setup-weld-fitup`). Assembly and
+quote-level lines from the settings tables use `rateRef.table = "manual"`
+with the table and row in `key` (`assembly_rates/…`, `job_setup_rates/…`,
+`packaging_rates/<code>`, `shipping_rates/<CC>/<maxKg>`, `parts_at_cost/<versionId>`)
+because `RateRef.table` is a closed union of the versioned rate tables. `label` is a key from `OPERATION_LABELS` for
 generated lines, or free text (rate row name, thread size, the user's own
 "other" label). `driverQty`/`driverUnit`: laser time → `min`, per-metre →
 `m`, material → `kg`, bend → `bend`, roll/tube/deburr/engrave → `m`, weld →
