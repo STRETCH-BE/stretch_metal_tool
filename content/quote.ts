@@ -195,7 +195,11 @@ export type SendReasonCode =
   | "no_customer_email"
   | "no_items"
   | "not_priced"
-  | "status";
+  | "status"
+  | "customer_missing"
+  | "customer_type_missing"
+  | "company_placeholders"
+  | "forming_unresolved";
 export type QuoteErrorKey =
   | "required"
   | "invalid"
@@ -815,6 +819,10 @@ const builderPl: QuoteBuilderContent = {
       no_items: "brak części ani spoin",
       not_priced: "wycena nie została jeszcze policzona",
       status: "wycena została już wysłana lub rozstrzygnięta",
+      customer_missing: "brak nazwy lub adresu klienta",
+      customer_type_missing: "nie wybrano typu klienta (B2B / B2C)",
+      company_placeholders: "dane firmy w ustawieniach zawierają wartości zastępcze",
+      forming_unresolved: "gięcie lub walcowanie poza możliwościami parku maszyn — wybierz gięcie krokowe albo kooperację",
     },
     localePl: "polski",
     localeEn: "angielski",

@@ -93,7 +93,12 @@ export type SendBlockReason =
   | "no_customer_email"
   | "no_items"
   | "not_priced"
-  | "status";
+  | "status"
+  /** Export guards (docs/assembly-mode-design.md §5): customer name/address, customer type, company placeholders, unresolved forming. */
+  | "customer_missing"
+  | "customer_type_missing"
+  | "company_placeholders"
+  | "forming_unresolved";
 
 export type SendCheck = {
   ok: boolean;
