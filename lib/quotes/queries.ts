@@ -197,6 +197,9 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
     pricing: parsePricing(quote.pricing),
     flags: parseFlags(quote.flags),
     weldingOnly: parseWeldingOnly(quote.welding_only),
+    assemblies: [],
+    seams: [],
+    company: null,
   };
 }
 

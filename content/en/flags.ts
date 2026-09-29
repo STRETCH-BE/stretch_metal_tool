@@ -378,6 +378,44 @@ export const flags: FlagsContent = {
       message:
         "{operation}: no benchmarked rate in the market version — priced from the cost rates plus this quote's {marginPct} % margin; check before sending.",
     },
+    "forming.not_feasible": {
+      label: "Forming not feasible in-house",
+      message:
+        "{operation} on {materialCode} {thicknessMm} mm is not feasible in-house ({reason}: {value} vs limit {limit}) — pick step-bending on the press brake or subcontracting before the quote can complete.",
+    },
+    "forming.suspected": {
+      label: "Forming suspected",
+      message:
+        "The drawing suggests forming ({hint}) but the part has no forming operation — add rolling or bending, or confirm that no forming is needed.",
+    },
+    "forming.step_bend": {
+      label: "Step-bending",
+      message: "Rolling to R{radiusMm} over {angleDeg}° is done as step-bending on the press brake: {hits} hits, priced as press-brake time.",
+    },
+    "forming.subcontract": {
+      label: "Forming subcontracted",
+      message: "{operation} subcontracted to {supplier}: {costEur} € plus {marginPct} % margin and {extraLeadDays} extra lead days.",
+    },
+    "assembly.mixed_materials": {
+      label: "Mixed grades in the assembly",
+      message: "The assembly mixes material grades: {materials}. Check the drawing before sending.",
+    },
+    "assembly.no_seams": {
+      label: "Assembly without seams",
+      message: "The welded assembly has no seams — welding labour is not priced.",
+    },
+    "material.substituted": {
+      label: "Material substituted",
+      message: "{materialCode} quoted instead of the requested {requested}; the quote must carry a note: {note}",
+    },
+    "customer.vat_id_missing": {
+      label: "VAT number missing",
+      message: "Business customer outside Poland without a VAT number — 23 % VAT is charged; add the VAT ID for 0 % reverse charge.",
+    },
+    "shipping.missing": {
+      label: "No shipping rate",
+      message: "No shipping rate for {countryCode} at {grossKg} kg — enter the shipping cost by hand.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

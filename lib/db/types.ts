@@ -18,6 +18,9 @@ export type Json =
 export type UserRole = "admin" | "sales" | "viewer";
 export type UserLocale = "pl" | "en";
 export type QuoteTypeDb = "fabrication" | "welding_only";
+export type CustomerTypeDb = "b2b" | "b2c";
+export type SeamTypeDb = "continuous" | "stitch" | "tack";
+export type JobSetupCodeDb = "laser_nest" | "press_brake" | "roll" | "weld_fitup";
 export type QuoteStatus = "draft" | "pending_override" | "sent" | "won" | "lost";
 export type CurrencyCode = "PLN" | "EUR";
 export type PartSourceDb = "dxf" | "pdf" | "step" | "manual" | "welding_drawing";
@@ -60,6 +63,11 @@ export type CustomerRow = {
   customer_class: string;
   preferred_locale: UserLocale | null;
   notes: string | null;
+  /** B2B (EU VAT ID, reverse charge abroad) or B2C (private person: gross prices, prepayment). */
+  customer_type: CustomerTypeDb;
+  contact_person: string | null;
+  /** The customer's own payment wish, recorded and printed when set. */
+  requested_terms: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -355,6 +363,13 @@ export type QuoteRow = {
   show_operations_on_pdf: boolean;
   welding_separate: boolean;
   welding_only: Json | null;
+  /** The customer's inquiry / reference number, printed on the PDF. */
+  customer_reference: string | null;
+  contact_person: string | null;
+  /** ShippingInput JSON (lib/pricing/types.ts): destination, gross mass, cost, source. */
+  shipping: Json | null;
+  /** Extra quantities to price (price scale), e.g. {20,50,100,200,500,1000}. */
+  price_scale: number[];
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -401,7 +416,138 @@ export type QuoteItemRow = {
   scrap_pct: number | null;
   flags: Json;
   notes: string | null;
+  /** Member of a welded assembly (null = loose part). */
+  assembly_id: string | null;
+  /** Pieces per assembly; the order qty of a member is assembly.qty × this. */
+  qty_per_assembly: number;
+  /** The member deliberately differs from the assembly material. */
+  material_override: boolean;
+  /** Required when a substitute grade is quoted (e.g. DC01 for S235); printed on the PDF. */
+  material_note: string | null;
+  /** FormingOperation[] JSON (lib/pricing/types.ts). */
+  forming: Json;
   created_at: string;
+};
+
+export type AssemblyRow = {
+  id: string;
+  quote_id: string;
+  position: number;
+  name: string;
+  drawing_ref: string | null;
+  qty: number;
+  material_code: string | null;
+  thickness_mm: number | null;
+  notes: string | null;
+  created_at: string;
+};
+
+export type AssemblySeamRow = {
+  id: string;
+  assembly_id: string;
+  position: number;
+  label: string | null;
+  part_id: string | null;
+  entity_ids: string[];
+  /** Point[] JSON when the seam was drawn from two points. */
+  points: Json | null;
+  length_mm: number;
+  process: WeldProcessDb;
+  thickness_mm: number | null;
+  seam_type: SeamTypeDb;
+  stitch_bead_mm: number | null;
+  stitch_pitch_mm: number | null;
+  tack_count: number | null;
+  sides: number;
+  /** The seam this one duplicates (the neighbour's edge of the same joint): not counted. */
+  paired_seam_id: string | null;
+  created_at: string;
+};
+
+export type CompanySettingsRow = {
+  id: number;
+  brand: string;
+  legal_name: string;
+  street: string;
+  postal_code: string;
+  city: string;
+  country: string;
+  phone: string;
+  email: string;
+  website: string;
+  nip: string;
+  regon: string;
+  krs: string;
+  bank_name: string;
+  iban_pln: string;
+  iban_eur: string;
+  swift: string;
+  oss_active: boolean;
+  assembly_margin_pct: number;
+  subcontract_margin_pct: number;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type VatRateRow = { country: string; rate_pct: number; updated_by: string | null; updated_at: string };
+
+export type PackagingRateRow = {
+  code: string;
+  name: string;
+  max_side_mm: number;
+  max_mass_kg: number;
+  price_eur: number;
+  position: number;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type ShippingRateRow = {
+  id: string;
+  country: string;
+  max_kg: number;
+  price_eur: number;
+  carrier: string | null;
+  position: number;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type JobSetupRateRow = {
+  code: JobSetupCodeDb;
+  name: string;
+  cost_eur: number;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type AssemblyRatesRow = {
+  id: number;
+  labour_rate_eur_h: number;
+  gas_wire_eur_h: number;
+  tack_seconds: number;
+  fitup_min_per_part: number;
+  deburr_min_per_part: number;
+  handling_min_per_assembly: number;
+  distortion_factor: number;
+  step_bend_seconds_per_hit: number;
+  roll_min_per_m: number;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type WeldSpeedRow = {
+  id: string;
+  process: WeldProcessDb;
+  thickness_mm: number;
+  speed_mm_min: number;
+  placeholder: boolean;
+  updated_by: string | null;
+  updated_at: string;
 };
 
 export type OperationRow = {
@@ -527,6 +673,15 @@ export type Database = {
       >;
       press_brake_tools: Table<PressBrakeToolRow, Insertable<PressBrakeToolRow, "code" | "kind" | "name">, Partial<PressBrakeToolRow>>;
       hardware_names: Table<HardwareNameRow, Insertable<HardwareNameRow, "pattern" | "kind" | "size">, Partial<HardwareNameRow>>;
+      assemblies: Table<AssemblyRow, Insertable<AssemblyRow, "quote_id" | "name">, Partial<AssemblyRow>>;
+      assembly_seams: Table<AssemblySeamRow, Insertable<AssemblySeamRow, "assembly_id" | "length_mm">, Partial<AssemblySeamRow>>;
+      company_settings: Table<CompanySettingsRow, Insertable<CompanySettingsRow, never>, Partial<CompanySettingsRow>>;
+      vat_rates: Table<VatRateRow, Insertable<VatRateRow, "country" | "rate_pct">, Partial<VatRateRow>>;
+      packaging_rates: Table<PackagingRateRow, Insertable<PackagingRateRow, "code" | "name" | "max_side_mm" | "max_mass_kg" | "price_eur">, Partial<PackagingRateRow>>;
+      shipping_rates: Table<ShippingRateRow, Insertable<ShippingRateRow, "country" | "max_kg" | "price_eur">, Partial<ShippingRateRow>>;
+      job_setup_rates: Table<JobSetupRateRow, Insertable<JobSetupRateRow, "code" | "name" | "cost_eur">, Partial<JobSetupRateRow>>;
+      assembly_rates: Table<AssemblyRatesRow, Insertable<AssemblyRatesRow, never>, Partial<AssemblyRatesRow>>;
+      weld_speeds: Table<WeldSpeedRow, Insertable<WeldSpeedRow, "process" | "thickness_mm" | "speed_mm_min">, Partial<WeldSpeedRow>>;
       files: Table<
         FileRow,
         Insertable<FileRow, "storage_path" | "original_name" | "mime" | "size" | "sha256">,

@@ -35,6 +35,9 @@ export function makeCustomer(over: Partial<CustomerRow> = {}): CustomerRow {
     customer_class: "standard",
     preferred_locale: null,
     notes: null,
+    customer_type: "b2b",
+    contact_person: null,
+    requested_terms: null,
     created_by: USER_ID,
     created_at: "2026-09-20T08:00:00Z",
     updated_at: "2026-09-20T08:00:00Z",
@@ -75,6 +78,10 @@ export function makeQuoteRow(over: Partial<QuoteRow> = {}): QuoteRow {
     priced_at: null,
     sent_at: null,
     decided_at: null,
+    customer_reference: null,
+    contact_person: null,
+    shipping: null,
+    price_scale: [],
     ...over,
   };
 }
@@ -135,6 +142,11 @@ export function makeItemRow(over: Partial<QuoteItemRow> = {}): QuoteItemRow {
     scrap_pct: null,
     flags: [],
     notes: null,
+    assembly_id: null,
+    qty_per_assembly: 1,
+    material_override: false,
+    material_note: null,
+    forming: [],
     created_at: "2026-09-25T10:02:00Z",
     ...over,
   };
@@ -206,6 +218,9 @@ export function makeBundle(options: BundleOptions = {}): QuoteBundle {
     pricing: priced,
     flags,
     weldingOnly: null,
+    assemblies: [],
+    seams: [],
+    company: null,
   };
 }
 

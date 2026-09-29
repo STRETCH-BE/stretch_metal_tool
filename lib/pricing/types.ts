@@ -354,10 +354,174 @@ export type PricingPart = {
 export type PricingItem = {
   id: string;
   partId: string;
+  /** Order quantity in pieces. For an assembly member the server keeps it equal to assembly.qty × qtyPerAssembly. */
   qty: number;
   extras: ExtraOperation[];
   /** Scrap override for this item (percent), else material default. */
   scrapPct: number | null;
+  /** Member of a welded assembly (QuoteInput.assemblies) — priced inside it, never as a loose line. */
+  assemblyId?: string | null;
+  qtyPerAssembly?: number;
+  /** The member keeps its own material instead of the assembly's. */
+  materialOverride?: boolean;
+  /** Note printed on the quote when a substitute grade is quoted (material.substituted). */
+  materialNote?: string | null;
+  /** Explicit forming operations (rolling, bending) with their feasibility resolution. */
+  forming?: FormingOperation[];
+};
+
+/* ─── Assemblies, forming, job rates (docs/assembly-mode-design.md) ── */
+
+export type SeamType = "continuous" | "stitch" | "tack";
+
+/** A seam of a welded assembly (stored at assembly level, counted once). */
+export type AssemblySeam = {
+  id: string;
+  label: string | null;
+  /** Part whose edge was marked (null = typed by hand). */
+  partId: string | null;
+  lengthMm: number;
+  process: WeldProcess;
+  /** Material thickness at the joint (drives the weld speed); null = the assembly thickness. */
+  thicknessMm: number | null;
+  type: SeamType;
+  stitch: { beadLengthMm: number; pitchMm: number } | null;
+  tackCount: number | null;
+  sides: 1 | 2;
+  /** The seam this one duplicates (the neighbour's edge of the same joint): not counted. */
+  pairedSeamId: string | null;
+};
+
+export type FormingResolution =
+  | { kind: "in_house" }
+  | { kind: "step_bend"; hits: number }
+  | { kind: "subcontract"; supplier: string; costEur: number; extraLeadDays: number }
+  /** The user confirmed that no forming is needed although the drawing suggested it. */
+  | { kind: "none_needed" };
+
+export type FormingOperation =
+  | { id: string; kind: "roll"; insideRadiusMm: number; angleDeg: number; widthMm: number; resolution: FormingResolution | null }
+  | { id: string; kind: "bend"; bends: number; angleDeg: number; lengthMm: number; resolution: FormingResolution | null };
+
+export type PricingAssembly = {
+  id: string;
+  position: number;
+  name: string;
+  drawingRef: string | null;
+  /** Assemblies ordered. */
+  qty: number;
+  materialCode: string | null;
+  thicknessMm: number | null;
+  seams: AssemblySeam[];
+};
+
+export type CustomerType = "b2b" | "b2c";
+
+export type ShippingInput = {
+  /** ISO-2 destination. */
+  countryCode: string;
+  /** Gross mass typed by the user, else computed from the parts + packaging. */
+  grossKg: number | null;
+  /** Cost typed by the user (source manual) or taken from shipping_rates (source table). */
+  costEur: number | null;
+  source: "manual" | "table";
+  carrier: string | null;
+  extraLeadDays: number;
+};
+
+export type JobSetupCode = "laser_nest" | "press_brake" | "roll" | "weld_fitup";
+
+export type WeldSpeed = { process: WeldProcess; thicknessMm: number; speedMmMin: number };
+export type PackagingRate = { code: string; name: string; maxSideMm: number; maxMassKg: number; priceEur: number; position: number };
+export type ShippingRate = { countryCode: string; maxKg: number; priceEur: number; carrier: string | null };
+
+/** Admin-edited job rates (settings tables), loaded by lib/rates/load.ts loadJobRates and mapped by lib/pricing/job-rates.ts. */
+export type JobRates = {
+  /** EUR once per job per setup kind. */
+  setups: Record<JobSetupCode, number>;
+  assembly: {
+    labourRateEurH: number;
+    gasWireEurH: number;
+    tackSeconds: number;
+    fitupMinPerPart: number;
+    deburrMinPerPart: number;
+    handlingMinPerAssembly: number;
+    distortionFactor: number;
+    stepBendSecondsPerHit: number;
+    rollMinPerM: number;
+  };
+  weldSpeeds: WeldSpeed[];
+  packaging: PackagingRate[];
+  shipping: ShippingRate[];
+  /** ISO-2 country → VAT %. */
+  vatRates: Record<string, number>;
+  ossActive: boolean;
+  /** Minimum margin on revenue for assemblies, percent. */
+  assemblyMarginPct: number;
+  subcontractMarginPct: number;
+  /** ISO-2 of the company (PL). */
+  homeCountry: string;
+  /** Any used row is still a placeholder. */
+  placeholder: boolean;
+};
+
+/**
+ * Owner's rule (29 Sep 2026): a customer in Poland pays 23 % with or without
+ * a VAT number; a customer outside Poland pays 0 % when a VAT number is given
+ * (reverse charge / WDT inside the EU, export outside) and 23 % without one —
+ * unless OSS is active and the customer is a private person in another EU
+ * country, who then pays that country's rate.
+ */
+export type VatMode = "none" | "pl_domestic" | "b2c_domestic" | "b2c_oss" | "reverse_charge" | "export";
+
+export type VatResult = {
+  mode: VatMode;
+  ratePct: number;
+  /** Country the rate belongs to (null for none / reverse charge). */
+  countryCode: string | null;
+  /** EUR, engine truth. */
+  netTotal: number;
+  vatAmount: number;
+  grossTotal: number;
+};
+
+export type PriceScaleEntry = { qty: number; unitPrice: number | null; total: number | null };
+export type PriceScale = { subjectId: string; kind: "item" | "assembly"; entries: PriceScaleEntry[] };
+
+export type AssemblyLabour = {
+  fitupMin: number;
+  tackMin: number;
+  weldMin: number;
+  deburrMin: number;
+  handlingMin: number;
+  formingMin: number;
+  /** After the distortion / handling factor. */
+  totalMin: number;
+  /** Arc time (gas + wire). */
+  arcMin: number;
+};
+
+export type PricedAssembly = {
+  assemblyId: string;
+  name: string;
+  drawingRef: string | null;
+  materialCode: string | null;
+  thicknessMm: number | null;
+  qty: number;
+  memberItemIds: string[];
+  /** Cost breakdown per assembly (EUR): parts at cost, labour, setups, forming, subcontract. */
+  operations: OperationLine[];
+  unitCost: number;
+  /** null = unpriceable (an unresolved forming operation, a refused member). */
+  unitPrice: number | null;
+  batchCost: number;
+  batchPrice: number | null;
+  /** Margin on revenue actually applied, percent. */
+  marginPct: number;
+  labour: AssemblyLabour;
+  /** Counted seam length (paired seams excluded), mm. */
+  seamLengthMm: number;
+  flags: Flag[];
 };
 
 /** Welding-only quotes: seams listed manually or marked on a drawing. */
@@ -386,6 +550,15 @@ export type QuoteInput = {
   } | null;
   /** Promised lead time in working days (market mode: drives the rate_leadtime multiplier). */
   leadTimeDays?: number | null;
+  /** Welded assemblies; their member items carry assemblyId. */
+  assemblies?: PricingAssembly[];
+  customerType?: CustomerType | null;
+  /** ISO-2 of the customer (VAT, shipping). */
+  customerCountry?: string | null;
+  customerVatId?: string | null;
+  shipping?: ShippingInput | null;
+  /** Extra quantities to price for every item / assembly (price scale). */
+  priceScale?: number[];
 };
 
 /** Optional inputs of priceQuote. */
@@ -395,6 +568,8 @@ export type PriceQuoteOptions = {
    * priced with to compute the margin. Ignored in cost mode.
    */
   costRates?: RateSnapshot | null;
+  /** Admin-edited job rates (assemblies, setups, packaging, shipping, VAT); null = none loaded. */
+  jobRates?: JobRates | null;
 };
 
 /* ─── Output ──────────────────────────────────────────────── */
@@ -543,6 +718,15 @@ export type FlagCode =
   | "market.extrapolated_rate"
   | "market.bend_rate_from_steel"
   | "market.cost_plus"
+  | "forming.not_feasible"
+  | "forming.suspected"
+  | "forming.step_bend"
+  | "forming.subcontract"
+  | "assembly.mixed_materials"
+  | "assembly.no_seams"
+  | "material.substituted"
+  | "customer.vat_id_missing"
+  | "shipping.missing"
   | "rates.placeholder";
 
 export type Flag = {
@@ -612,6 +796,14 @@ export type PricedQuote = {
   leadTimeMultiplier: number;
   /** Quote-level lot lines (market packaging); included in subtotalPrice. */
   quoteLines: OperationLine[];
+  /** Welded assemblies priced as one line each (docs/assembly-mode-design.md). */
+  assemblies: PricedAssembly[];
+  /** Shipping line (its own line on the PDF, outside the assembly margin); included in subtotalPrice. */
+  shipping: OperationLine | null;
+  /** VAT on the net total for the PDF; null when no customer type is known. */
+  vat: VatResult | null;
+  /** Unit prices at the extra quantities of QuoteInput.priceScale. */
+  priceScale: PriceScale[];
 };
 
 /* ─── Helpers shared by engine + UI ───────────────────────── */

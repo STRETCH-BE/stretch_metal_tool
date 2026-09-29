@@ -283,8 +283,12 @@ export function parsePricing(json: Json | null | undefined): PricedQuote | null 
   // (exact for a cost snapshot; a legacy market snapshot reads as stale once
   // and is re-priced on open, which writes the field). engineVersion 0 marks
   // a pricing older than the versioned engine: stale for the same reason.
-  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines" | "inputMarginPct" | "engineVersion"> = {
+  const defaults: Pick<PricedQuote, "pricingMode" | "costRateVersionId" | "leadTimeDays" | "leadTimeMultiplier" | "quoteLines" | "inputMarginPct" | "engineVersion" | "assemblies" | "shipping" | "vat" | "priceScale"> = {
     engineVersion: 0,
+    assemblies: [],
+    shipping: null,
+    vat: null,
+    priceScale: [],
     pricingMode: "cost",
     costRateVersionId: null,
     leadTimeDays: null,

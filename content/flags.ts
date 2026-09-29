@@ -435,6 +435,44 @@ export const flags: FlagsContent = {
       message:
         "{operation}: brak stawki w cenniku rynkowym — wyceniono ze stawek kosztowych plus marża {marginPct} % z tej oferty; sprawdź przed wysłaniem.",
     },
+    "forming.not_feasible": {
+      label: "Formowanie niewykonalne u nas",
+      message:
+        "{operation} na {materialCode} {thicknessMm} mm nie jest wykonalne u nas ({reason}: {value} wobec limitu {limit}) — wybierz gięcie krokowe na prasie albo kooperację, zanim oferta będzie kompletna.",
+    },
+    "forming.suspected": {
+      label: "Prawdopodobne formowanie",
+      message:
+        "Rysunek sugeruje formowanie ({hint}), ale część nie ma operacji formowania — dodaj zwijanie lub gięcie albo potwierdź, że formowanie nie jest potrzebne.",
+    },
+    "forming.step_bend": {
+      label: "Gięcie krokowe",
+      message: "Zwijanie do R{radiusMm} na {angleDeg}° wykonane jako gięcie krokowe na prasie: {hits} uderzeń, wycenione jako czas prasy.",
+    },
+    "forming.subcontract": {
+      label: "Formowanie w kooperacji",
+      message: "{operation} w kooperacji ({supplier}): {costEur} € plus marża {marginPct} % i {extraLeadDays} dni więcej.",
+    },
+    "assembly.mixed_materials": {
+      label: "Różne gatunki w zespole",
+      message: "Zespół łączy różne gatunki materiału: {materials}. Sprawdź rysunek przed wysłaniem.",
+    },
+    "assembly.no_seams": {
+      label: "Zespół bez spoin",
+      message: "Zespół spawany nie ma spoin — praca spawalnicza nie została wyceniona.",
+    },
+    "material.substituted": {
+      label: "Zamiennik materiału",
+      message: "Wyceniono {materialCode} zamiast żądanego {requested}; oferta musi zawierać notatkę: {note}",
+    },
+    "customer.vat_id_missing": {
+      label: "Brak numeru VAT",
+      message: "Klient firmowy spoza Polski bez numeru VAT — naliczono 23 % VAT; dodaj numer VAT dla 0 % (odwrotne obciążenie).",
+    },
+    "shipping.missing": {
+      label: "Brak stawki wysyłki",
+      message: "Brak stawki wysyłki dla {countryCode} przy {grossKg} kg — wpisz koszt wysyłki ręcznie.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

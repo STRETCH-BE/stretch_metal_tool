@@ -193,5 +193,9 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
     leadTimeDays: input.leadTimeDays ?? null,
     leadTimeMultiplier: 1,
     quoteLines: [],
+    assemblies: [],
+    shipping: null,
+    vat: null,
+    priceScale: [],
   };
 }

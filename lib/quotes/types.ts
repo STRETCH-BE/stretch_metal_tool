@@ -12,17 +12,7 @@
  * display them with `quote.currency`.
  */
 
-import type {
-  CurrencyCode,
-  CustomerRow,
-  OperationRow,
-  OverrideRow,
-  PartRow,
-  QuoteItemRow,
-  QuoteRow,
-  QuoteStatus,
-  QuoteTypeDb,
-} from "@/lib/db/types";
+import type { AssemblyRow, AssemblySeamRow, CompanySettingsRow, CurrencyCode, CustomerRow, OperationRow, OverrideRow, PartRow, QuoteItemRow, QuoteRow, QuoteStatus, QuoteTypeDb } from "@/lib/db/types";
 import type { Flag, FlagSeverity, PricedQuote, WeldingOnlySeam } from "@/lib/pricing/types";
 
 /** Welding-only block as stored in quotes.welding_only. */
@@ -50,6 +40,12 @@ export type QuoteBundle = {
   flags: Flag[];
   /** quotes.welding_only parsed. */
   weldingOnly: WeldingOnlyBlock | null;
+  /** Welded assemblies of the quote in position order (docs/assembly-mode-design.md). */
+  assemblies: AssemblyRow[];
+  /** Seams of every assembly of the quote, in position order. */
+  seams: AssemblySeamRow[];
+  /** company_settings row (PDF company block, VAT / margin settings); null when the table is empty. */
+  company: CompanySettingsRow | null;
 };
 
 export type QuoteListRow = {

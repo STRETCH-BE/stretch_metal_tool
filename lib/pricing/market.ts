@@ -1172,5 +1172,9 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
     leadTimeDays,
     leadTimeMultiplier: lead.multiplier,
     quoteLines,
+    assemblies: [],
+    shipping: null,
+    vat: null,
+    priceScale: [],
   };
 }
