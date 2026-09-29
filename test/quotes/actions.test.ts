@@ -39,6 +39,8 @@ vi.mock("@/lib/rates/load", () => ({
 }));
 
 import { confirmFlag, duplicateAsNewVersion, repriceQuoteAction, requestOverride, setQuoteStatus, updateItem, updateQuoteHeader } from "@/lib/quotes/actions";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { EnvError } from "@/lib/env";
 import type { QuoteHeaderInput } from "@/lib/quotes/schema";
 
 function seed(options: { quote?: Partial<ReturnType<typeof makeQuoteRow>>; extraQuotes?: ReturnType<typeof makeQuoteRow>[] } = {}) {
@@ -240,6 +242,19 @@ describe("repriceQuoteAction", () => {
     expect(await repriceQuoteAction(QUOTE_ID)).toEqual({ ok: true });
     expect(typeof db.tables.quotes[0].priced_at).toBe("string");
     expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "quote.reprice", entity: "quotes", entityId: QUOTE_ID, actor: USER_ID }));
+  });
+
+  it("names a missing server variable (the service-role key on a deployment without it) as a configuration error, not a generic failure", async () => {
+    const db = seed();
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(createAdminClient).mockImplementationOnce(() => {
+      throw new EnvError("Missing environment variable SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) — see env.example.");
+    });
+    const result = await repriceQuoteAction(QUOTE_ID);
+    expect(result).toEqual({ ok: false, error: "config", message: expect.stringContaining("SUPABASE_SERVICE_ROLE_KEY") });
+    expect(db.tables.quotes[0].priced_at ?? null).toBeNull();
+    expect(state.logAudit).not.toHaveBeenCalled();
+    quiet.mockRestore();
   });
 
   it("refuses locked quotes without touching them or logging", async () => {

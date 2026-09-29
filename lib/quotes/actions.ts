@@ -41,6 +41,7 @@ import { getCurrentUser, hasRole, WRITE_ROLES } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { logAudit } from "@/lib/audit";
+import { EnvError } from "@/lib/env";
 import { routes } from "@/lib/routes";
 import { isPricingError } from "@/lib/pricing/errors";
 import { loadActiveRateVersionId } from "@/lib/rates/load";
@@ -100,6 +101,9 @@ async function repriceAndRevalidate(quoteId: string): Promise<QuoteActionResult>
     const access = accessFailure(error);
     if (access) return access;
     console.error("[quotes] reprice failed", error);
+    // A missing server variable (the service-role key on a deployment that
+    // lacks it) is a configuration problem, not a bug: name it.
+    if (error instanceof EnvError) return fail("config", error.message);
     return fail("generic");
   }
   revalidateQuote(quoteId);
@@ -647,7 +651,7 @@ export async function setQuoteStatus(quoteId: string, status: "won" | "lost"): P
 export type SendActionResult =
   | { ok: true; sent: true; mailed: boolean; mail: MailOutcome; pdfPath: string }
   | { ok: true; sent: false; reasons: SendBlockReason[] }
-  | { ok: false; error: "notFound" | "forbidden" | "locked" | "noRates" | "sendFailed" | "pricing" | "generic"; message?: string };
+  | { ok: false; error: "notFound" | "forbidden" | "locked" | "noRates" | "sendFailed" | "pricing" | "config" | "generic"; message?: string };
 
 export async function sendQuoteAction(quoteId: string, input: { locale?: "pl" | "en" | null } = {}): Promise<SendActionResult> {
   const locale = z.enum(["pl", "en"]).nullable().optional().safeParse(input.locale);

@@ -44,6 +44,7 @@ export type QuoteErrorCode =
   | "locked"
   | "noRates"
   | "pricing"
+  | "config"
   | "cannotSend"
   | "mail"
   | "generic";
