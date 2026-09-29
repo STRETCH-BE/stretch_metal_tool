@@ -19,11 +19,15 @@
  */
 
 import type {
+  AssemblyRatesRow,
   BendTableRowDb,
   BendTableVersionRow,
+  CompanySettingsRow,
   HardwareNameRow,
+  JobSetupRateRow,
   MachineRow,
   MaterialRow,
+  PackagingRateRow,
   PressBrakeToolRow,
   RateBendRow,
   RateFeatureRow,
@@ -36,10 +40,14 @@ import type {
   RateTubeLaserRow,
   RateVersionRow,
   RateWeldRow,
+  ShippingRateRow,
+  VatRateRow,
+  WeldSpeedRow,
 } from "@/lib/db/types";
 import { PricingError } from "@/lib/pricing/errors";
 import { rowsToMachinePark, rowsToRateSnapshot, type Loose, type RateRows } from "@/lib/pricing/snapshot";
-import type { MachinePark, PressBrakeTool, RateSnapshot } from "@/lib/pricing/types";
+import { rowsToJobRates, type JobRateRows } from "@/lib/pricing/job-rates";
+import type { JobRates, MachinePark, PressBrakeTool, RateSnapshot } from "@/lib/pricing/types";
 import type { BendTableLookup, BendTableRow, HardwareNameRule } from "@/lib/geometry/types";
 import type { AdminSupabase } from "@/lib/supabase/admin";
 import type { ServerSupabase } from "@/lib/supabase/server";
@@ -277,4 +285,52 @@ export function bendTableLookupFor(materialFamily: string | null, rowsOfVersion:
 export async function loadHardwareNames(supabase: RatesClient): Promise<HardwareNameRule[]> {
   const list = await rows<HardwareNameRow>(supabase.from("hardware_names").select("*").order("pattern"), "hardware_names");
   return list.map((r) => ({ pattern: r.pattern, kind: r.kind, size: r.size, featureCode: r.feature_code }));
+}
+
+/* ─── Job rates (assembly mode settings tables) ───────────── */
+
+/**
+ * A settings table that the deployed database does not have yet (the
+ * assembly-mode migration not applied) reads as empty: rowsToJobRates then
+ * falls back to the seeded defaults and marks the rates as placeholder.
+ */
+async function optionalRows<T>(query: PromiseLike<{ data: unknown; error: DbError }>, table: string): Promise<T[]> {
+  const { data, error } = await query;
+  if (error) {
+    if (error.code && MISSING_TABLE_CODES.has(error.code)) {
+      console.warn(`[rates] ${table} is missing (${error.code}) — apply supabase/migrations/20260930100000_assembly_mode.sql; seeded defaults used`);
+      return [];
+    }
+    throw new PricingError("db_error", `${table}: ${error.message}`, { table });
+  }
+  return (data ?? []) as T[];
+}
+
+/** The admin-edited job rates: setups, assembly labour, weld speeds, packaging, shipping, VAT, company margins. */
+export async function loadJobRates(supabase: RatesClient): Promise<JobRates> {
+  const [company, vat, packaging, shipping, setups, assembly, weldSpeeds] = await Promise.all([
+    optionalRows<Loose<CompanySettingsRow>>(supabase.from("company_settings").select("*").limit(1), "company_settings"),
+    optionalRows<Loose<VatRateRow>>(supabase.from("vat_rates").select("*").order("country"), "vat_rates"),
+    optionalRows<Loose<PackagingRateRow>>(supabase.from("packaging_rates").select("*").order("position"), "packaging_rates"),
+    optionalRows<Loose<ShippingRateRow>>(supabase.from("shipping_rates").select("*").order("country").order("max_kg"), "shipping_rates"),
+    optionalRows<Loose<JobSetupRateRow>>(supabase.from("job_setup_rates").select("*").order("code"), "job_setup_rates"),
+    optionalRows<Loose<AssemblyRatesRow>>(supabase.from("assembly_rates").select("*").limit(1), "assembly_rates"),
+    optionalRows<Loose<WeldSpeedRow>>(supabase.from("weld_speeds").select("*").order("process").order("thickness_mm"), "weld_speeds"),
+  ]);
+  const rows: JobRateRows = { company: company[0] ?? null, vat, packaging, shipping, setups, assembly: assembly[0] ?? null, weldSpeeds };
+  return rowsToJobRates(rows);
+}
+
+/** The company_settings row (PDF company block, OSS flag, margins), or null when the table is empty or missing. */
+export async function loadCompanySettings(supabase: RatesClient): Promise<CompanySettingsRow | null> {
+  const rows = await optionalRows<Loose<CompanySettingsRow>>(supabase.from("company_settings").select("*").limit(1), "company_settings");
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    ...r,
+    id: Number(r.id),
+    assembly_margin_pct: Number(r.assembly_margin_pct),
+    subcontract_margin_pct: Number(r.subcontract_margin_pct),
+    oss_active: r.oss_active === true || (r.oss_active as unknown) === "true",
+  } as CompanySettingsRow;
 }

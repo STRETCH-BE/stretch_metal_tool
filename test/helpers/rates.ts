@@ -11,7 +11,9 @@
  * Use `cloneSnapshot()` / `cloneMachinePark()` when a test needs to mutate.
  */
 
+import { JOB_RATE_DEFAULTS } from "@/lib/pricing/job-rates";
 import type {
+  JobRates,
   LaserRate,
   MachinePark,
   MaterialRate,
@@ -514,3 +516,6 @@ export function machineParkToRows(park: MachinePark): MachineRow[] {
     updated_at: "2026-09-25T00:00:00Z",
   }));
 }
+
+/** Job rates of the assembly-mode settings tables — the seeded calibration placeholders (docs/assembly-mode-design.md §2). */
+export const JOB_RATES: JobRates = structuredClone(JOB_RATE_DEFAULTS);
