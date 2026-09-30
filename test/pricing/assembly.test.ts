@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import { PricingError } from "@/lib/pricing/errors";
 import { priceAssemblies, partitionItems } from "@/lib/pricing/assembly";
 import { priceQuote } from "@/lib/pricing/price-quote";
+import { PRICING_ENGINE_VERSION } from "@/lib/pricing/version";
 import { rowsToMachinePark, rowsToRateSnapshot, type RateRows } from "@/lib/pricing/snapshot";
 import type { OperationLine, PricingAssembly, PricingItem, PricingPart, QuoteInput } from "@/lib/pricing/types";
 import { makeAnnotations, makeRectPartGeometry, type RectBendLine } from "@/test/helpers/geometry";
@@ -136,7 +137,7 @@ describe("cost mode: members, parts at cost, set-ups spread over the assembly qu
     expect(priced.flags.filter((f) => f.code === "rates.placeholder")).toHaveLength(1);
     expect(priced.shipping).toBeNull();
     expect(priced.vat).toBeNull();
-    expect(priced.engineVersion).toBe(3);
+    expect(priced.engineVersion).toBe(PRICING_ENGINE_VERSION);
   });
 });
 

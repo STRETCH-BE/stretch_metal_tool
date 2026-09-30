@@ -210,12 +210,25 @@ function hasPricedBends(part: PricingPart): boolean {
   return part.annotations.bends.length > 0 || part.geometry.measures.bendLines.some((b) => b.source !== "candidate");
 }
 
+/**
+ * Layers that carry geometry in this part: the entities kept plus lines
+ * dropped only because their layer is ignored. The header's layer TABLE is
+ * deliberately not used — a CAD template lists ROLL / BEND on every export,
+ * including flat parts, and would flag a whole quote red (SM-2026-0022).
+ */
+function layersWithGeometry(geometry: PricingPart["geometry"]): string[] {
+  const layers = new Set<string>();
+  for (const e of geometry.entities) layers.add(e.layer);
+  for (const d of geometry.dropped ?? []) if (d.reason === "ignored_layer") layers.add(d.layer);
+  return [...layers];
+}
+
 /** The strongest forming hint of a part that no line model prices (see the header), or null. */
 export function formingHint(part: PricingPart): FormingHint | null {
   const { annotations, geometry } = part;
   if (annotations.roll) return "roll_annotation";
   if (annotations.forming === "rolled") return "forming_rolled";
-  const layers = geometry.header.layers ?? [];
+  const layers = layersWithGeometry(geometry);
   if (layers.some((l) => ROLL_LAYER.test(l))) return "layer_roll";
   if (hasPricedBends(part)) return null;
   if (annotations.forming === "bent") return "forming_bent";

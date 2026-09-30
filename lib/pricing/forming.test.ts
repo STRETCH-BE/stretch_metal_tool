@@ -124,9 +124,20 @@ describe("formingSuspected", () => {
   it("a roll annotation or forming 'rolled' is a hint; a ROLL / WALC layer too", () => {
     expect(formingHint(flat({ annotations: makeAnnotations({ roll: { radiusMm: 90, axis: "x", arcAngleDeg: 180, axisLengthMm: 247, developedWidthMm: 283, cone: null } }) }))).toBe("roll_annotation");
     expect(formingHint(flat({ annotations: makeAnnotations({ forming: "rolled" }) }))).toBe("forming_rolled");
-    const geometry = makeRectPartGeometry({ lengthMm: 200, widthMm: 100, thicknessMm: 2, densityKgM3: 7850 });
-    geometry.header.layers = [...geometry.header.layers, "ROLL_AXIS"];
-    expect(formingHint(flat({ geometry }))).toBe("layer_roll");
+    // A ROLL layer counts only when geometry lies on it: the header's layer
+    // table alone is a CAD template (every flat part of SM-2026-0022 listed ROLL).
+    const tableOnly = makeRectPartGeometry({ lengthMm: 200, widthMm: 100, thicknessMm: 2, densityKgM3: 7850 });
+    tableOnly.header.layers = [...tableOnly.header.layers, "ROLL"];
+    expect(formingHint(flat({ geometry: tableOnly }))).toBeNull();
+    const withLine = makeRectPartGeometry({ lengthMm: 200, widthMm: 100, thicknessMm: 2, densityKgM3: 7850 });
+    withLine.entities = [...withLine.entities, { ...withLine.entities[0], id: "roll-axis", layer: "ROLL_AXIS" }];
+    expect(formingHint(flat({ geometry: withLine }))).toBe("layer_roll");
+    const dropped = makeRectPartGeometry({ lengthMm: 200, widthMm: 100, thicknessMm: 2, densityKgM3: 7850 });
+    dropped.dropped = [...dropped.dropped, { type: "LINE", layer: "WALCOWANIE", count: 1, reason: "ignored_layer" }];
+    expect(formingHint(flat({ geometry: dropped }))).toBe("layer_roll");
+    const textOnly = makeRectPartGeometry({ lengthMm: 200, widthMm: 100, thicknessMm: 2, densityKgM3: 7850 });
+    textOnly.dropped = [...textOnly.dropped, { type: "TEXT", layer: "ROLL", count: 1, reason: "not_geometry" }];
+    expect(formingHint(flat({ geometry: textOnly }))).toBeNull();
     expect(formingSuspected(flat({ annotations: makeAnnotations({ forming: "rolled" }) }))).toBe(true);
   });
 

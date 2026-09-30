@@ -21,6 +21,9 @@
  *       flags (forming.*, assembly.*, material.substituted,
  *       customer.vat_id_missing, shipping.missing)
  * A stored pricing without the field predates 2: it parses as 0 and is stale.
+ *   4 — forming guard (30 Sep 2026): a ROLL / BEND layer is a forming
+ *       hint only when geometry lies on it, not when the CAD template merely
+ *       lists the layer (every flat part of SM-2026-0022 was flagged red)
  */
 
-export const PRICING_ENGINE_VERSION = 3;
+export const PRICING_ENGINE_VERSION = 4;
