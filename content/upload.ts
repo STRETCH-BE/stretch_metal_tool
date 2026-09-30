@@ -168,6 +168,11 @@ export type UploadContent = {
       partsFailed: string;
       /** `{percent}` placeholder. */
       uploadProgress: string;
+      /** `{count}` placeholder — the one action for suspected CAD helper bodies. */
+      removeReferenceBodies: string;
+      /** `{count}` placeholder. */
+      referenceBodiesRemoved: string;
+      referenceBodyChip: string;
     };
     parts: {
       title: string;
@@ -182,6 +187,8 @@ export type UploadContent = {
       delete: string;
       deleteConfirm: string;
       deleted: string;
+      /** `{count}` placeholder — removes every part flagged as a suspected reference body. */
+      removeReferenceBodies: string;
       /** Bulk material / thickness dialog (upload page + quote page). */
       bulk: {
         open: string;
@@ -616,6 +623,9 @@ export const upload: UploadContent = {
       resumed: "Wznowiono — {skipped} części było już zapisanych.",
       partsFailed: "Nie udało się zapisać: {names}",
       uploadProgress: "{percent}%",
+      removeReferenceBodies: "Usuń podejrzane bryły pomocnicze ({count})",
+      referenceBodiesRemoved: "Usunięto {count} brył z wyceny.",
+      referenceBodyChip: "bryła pomocnicza?",
     },
     parts: {
       title: "Części w wycenie",
@@ -638,6 +648,7 @@ export const upload: UploadContent = {
       delete: "Usuń",
       deleteConfirm: "Usunąć część z wyceny?",
       deleted: "Część usunięta.",
+      removeReferenceBodies: "Usuń podejrzane bryły pomocnicze ({count})",
       bulk: {
         open: "Zmień materiał / grubość",
         title: "Zmiana materiału i grubości",

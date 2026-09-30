@@ -128,6 +128,8 @@ export type PartListRow = {
   thumbnailSvg: string | null;
   hasPdf: boolean;
   worstFlag: Flag["severity"] | null;
+  /** A red geometry.reference_body flag on the item: a suspected CAD helper body. */
+  referenceBody: boolean;
   createdAt: string;
 };
 
@@ -164,6 +166,7 @@ export async function listQuoteParts(supabase: ServerSupabase, quoteId: string):
       thumbnailSvg: p.thumbnail_svg,
       hasPdf: p.pdf_file_id !== null,
       worstFlag: worstSeverity(parseStoredFlags(item?.flags)),
+      referenceBody: parseStoredFlags(item?.flags).some((f) => f.code === "geometry.reference_body" && f.severity === "red"),
       createdAt: p.created_at,
     };
   });

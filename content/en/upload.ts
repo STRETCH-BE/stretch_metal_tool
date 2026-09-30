@@ -146,6 +146,9 @@ export const upload: UploadContent = {
       resumed: "Resumed — {skipped} parts were already stored.",
       partsFailed: "Could not store: {names}",
       uploadProgress: "{percent}%",
+      removeReferenceBodies: "Remove suspected reference bodies ({count})",
+      referenceBodiesRemoved: "Removed {count} bodies from the quote.",
+      referenceBodyChip: "reference body?",
     },
     parts: {
       title: "Parts in this quote",
@@ -168,6 +171,7 @@ export const upload: UploadContent = {
       delete: "Delete",
       deleteConfirm: "Remove this part from the quote?",
       deleted: "Part deleted.",
+      removeReferenceBodies: "Remove suspected reference bodies ({count})",
       bulk: {
         open: "Change material / thickness",
         title: "Bulk material and thickness",

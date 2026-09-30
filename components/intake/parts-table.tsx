@@ -23,15 +23,16 @@ import { PartThumbnail } from "@/components/viewer/part-thumbnail";
 import { TriageChip } from "@/components/triage/triage-chip";
 import { routes } from "@/lib/routes";
 import { formatMm, interpolate } from "@/lib/format";
-import { deletePart } from "@/lib/parts/actions";
+import { deletePart, removeReferenceBodies } from "@/lib/parts/actions";
 import type { PartListRow } from "@/lib/parts/queries";
 
-export function PartsTable({ rows, canWrite }: { rows: PartListRow[]; canWrite: boolean }) {
+export function PartsTable({ rows, canWrite, quoteId }: { rows: PartListRow[]; canWrite: boolean; quoteId?: string }) {
   const c = useContent();
   const locale = useLocale();
   const t = c.upload.intake.parts;
   const router = useRouter();
   const { toast } = useToast();
+  const suspected = rows.filter((r) => r.referenceBody);
 
   if (rows.length === 0) {
     return <p className="px-4 py-6 text-[13.5px] text-text-muted">{t.empty}</p>;
@@ -39,6 +40,25 @@ export function PartsTable({ rows, canWrite }: { rows: PartListRow[]; canWrite: 
 
   return (
     <TableWrap>
+      {canWrite && quoteId && suspected.length > 0 && (
+        <div className="px-4 py-2">
+          <ConfirmButton
+            question={t.deleteConfirm}
+            variant="danger"
+            action={async () => {
+              const result = await removeReferenceBodies(quoteId, suspected.map((r) => r.id));
+              if (result.ok) {
+                toast(interpolate(c.upload.intake.results.referenceBodiesRemoved, { count: result.data.removed }), { tone: "success" });
+                router.refresh();
+              } else {
+                toast(c.upload.errors[result.error] ?? c.upload.errors.generic, { tone: "error" });
+              }
+            }}
+          >
+            {interpolate(t.removeReferenceBodies, { count: suspected.length })}
+          </ConfirmButton>
+        </div>
+      )}
       <Table dense>
         <thead>
           <tr>
@@ -76,7 +96,9 @@ export function PartsTable({ rows, canWrite }: { rows: PartListRow[]; canWrite: 
                 <TriageChip state={row.triageState} />
               </Td>
               <Td>
-                {row.worstFlag ? (
+                {row.referenceBody ? (
+                  <StatusChip severity="red" label={c.upload.intake.results.referenceBodyChip} />
+                ) : row.worstFlag ? (
                   <StatusChip severity={row.worstFlag} label={c.flags.severity[row.worstFlag]} />
                 ) : (
                   <span className="text-text-faint">—</span>

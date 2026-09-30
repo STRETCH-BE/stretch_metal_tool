@@ -451,6 +451,38 @@ export async function deletePart(partId: string, redirectAfter = false): Promise
   return result;
 }
 
+/**
+ * Deletes the suspected reference bodies of a quote in one go (their quote
+ * items cascade), then re-prices. Only parts of THIS quote are touched;
+ * ids that are not among them are ignored, so a stale list is harmless.
+ */
+export async function removeReferenceBodies(quoteId: string, partIds: string[]): Promise<ActionResult<{ removed: number }>> {
+  return run(async () => {
+    const ids = partIds.filter(isUuid);
+    if (ids.length === 0) fail("validation");
+    const writer = await requireQuoteWriter(quoteId);
+    const { data: rows, error } = await writer.supabase.from("parts").select("id, name").eq("quote_id", quoteId).in("id", ids);
+    if (error) throw new Error(`parts select: ${error.message}`);
+    const found = rows ?? [];
+    if (found.length === 0) return { removed: 0 };
+    const { error: deleteError } = await writer.supabase
+      .from("parts")
+      .delete()
+      .eq("quote_id", quoteId)
+      .in("id", found.map((r) => r.id));
+    if (deleteError) throw new Error(`parts delete: ${deleteError.message}`);
+    await logAudit({
+      actor: writer.session.user.id,
+      action: "part.delete_reference_bodies",
+      entity: "quotes",
+      entityId: quoteId,
+      before: toJson({ parts: found }),
+    });
+    await afterChange(quoteId);
+    return { removed: found.length };
+  });
+}
+
 /* ─── Quick part ──────────────────────────────────────────── */
 
 export async function createQuickPart(

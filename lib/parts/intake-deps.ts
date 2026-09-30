@@ -15,7 +15,7 @@
 import { randomUUID } from "node:crypto";
 import { env } from "@/lib/env";
 import { geometryEngine, geometryToSvg, writeProductionDxf } from "@/lib/geometry";
-import { loadBendTable, loadHardwareNames } from "@/lib/rates/load";
+import { loadBendTable, loadHardwareNames, loadMachinePark } from "@/lib/rates/load";
 import { extractPdfText } from "@/lib/pdf-text";
 import { prefillFromPdf } from "@/lib/ai/prefill";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
@@ -34,7 +34,7 @@ export const DEFAULT_SHEET_FAMILY = "mild_steel";
 
 export async function createIntakeDeps(writer: IntakeWriter): Promise<IntakeDeps> {
   const { supabase, session, quote } = writer;
-  const [rates, bendTable, hardwareNames] = await Promise.all([
+  const [rates, bendTable, hardwareNames, machines] = await Promise.all([
     loadRatesInfo(supabase, quote.rate_version_id),
     loadBendTable(supabase, quote.bend_table_version_id).catch((error: unknown) => {
       console.error("[intake] bend table unavailable", error);
@@ -44,9 +44,15 @@ export async function createIntakeDeps(writer: IntakeWriter): Promise<IntakeDeps
       console.error("[intake] hardware names unavailable", error);
       return [];
     }),
+    loadMachinePark(supabase).catch((error: unknown) => {
+      console.error("[intake] machine park unavailable", error);
+      return [];
+    }),
   ]);
+  const laser = machines.find((m) => m.kind === "flat_laser");
+  const laserBedLengthMm = laser && laser.kind === "flat_laser" ? laser.limits.bedLengthMm : null;
   return {
-    sheet: { bendTable, hardwareNames, defaultMaterialFamily: DEFAULT_SHEET_FAMILY },
+    sheet: { bendTable, hardwareNames, defaultMaterialFamily: DEFAULT_SHEET_FAMILY, laserBedLengthMm },
     writeProductionDxf: (geometry, annotations, title) => writeProductionDxf(geometry, annotations, { title }),
     analyse: (text, options) => geometryEngine.analyzeDxf(text, options),
     analyseStep: (text, options) => geometryEngine.analyzeStep(text, options),

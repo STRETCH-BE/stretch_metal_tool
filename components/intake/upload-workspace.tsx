@@ -38,6 +38,8 @@ import { routes } from "@/lib/routes";
 import { interpolate } from "@/lib/format";
 import { MAX_FILE_BYTES, validateUploadRequest } from "@/lib/files/sniff";
 import { healingSentence } from "@/lib/parts/flag-message";
+import { removeReferenceBodies } from "@/lib/parts/actions";
+import { useToast } from "@/components/ui/toast";
 import type { UploadErrorCode } from "@/content/upload";
 import { Dropzone } from "./dropzone";
 import { QuickPartModal, type QuickPartMaterial } from "./quick-part-modal";
@@ -198,6 +200,18 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
 
   const remove = (id: string) => setRows((current) => current.filter((row) => row.id !== id));
 
+  /** Parts deleted from the quote (reference bodies) leave the row's result too. */
+  const dropParts = (rowId: string, partIds: string[]) => {
+    const gone = new Set(partIds);
+    setRows((current) =>
+      current.map((row) => {
+        if (row.id !== rowId || !row.result || row.result.kind !== "assembly") return row;
+        return { ...row, result: { ...row.result, parts: row.result.parts.filter((p) => !gone.has(p.partId)) } };
+      })
+    );
+    router.refresh();
+  };
+
   return (
     <div className="flex flex-col gap-6">
       {!canWrite && <Notice tone="info">{t.readOnly}</Notice>}
@@ -222,7 +236,7 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
           <ul className="divide-y divide-border" aria-label={t.dropzone.queueLabel}>
             {rows.map((row) => (
               <li key={row.id} className="flex flex-col gap-3 px-4 py-3">
-                <UploadRow row={row} onRetry={() => retry(row)} onRemove={() => remove(row.id)} />
+                <UploadRow row={row} quoteId={quoteId} canWrite={canWrite} onRetry={() => retry(row)} onRemove={() => remove(row.id)} onPartsRemoved={(ids) => dropParts(row.id, ids)} />
               </li>
             ))}
           </ul>
@@ -243,10 +257,42 @@ export function UploadWorkspace({ quoteId, bucket, canWrite, materials }: Upload
   );
 }
 
-function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; onRemove: () => void }) {
+function UploadRow({
+  row,
+  quoteId,
+  canWrite,
+  onRetry,
+  onRemove,
+  onPartsRemoved,
+}: {
+  row: Row;
+  quoteId: string;
+  canWrite: boolean;
+  onRetry: () => void;
+  onRemove: () => void;
+  onPartsRemoved: (partIds: string[]) => void;
+}) {
   const c = useContent();
   const locale = useLocale();
   const t = c.upload.intake;
+  const { toast } = useToast();
+  const [removing, setRemoving] = useState(false);
+  const suspected = row.result?.kind === "assembly" ? row.result.parts.filter((p) => p.referenceBody) : [];
+  const removeSuspected = async () => {
+    setRemoving(true);
+    try {
+      const ids = suspected.map((p) => p.partId);
+      const result = await removeReferenceBodies(quoteId, ids);
+      if (result.ok) {
+        toast(interpolate(t.results.referenceBodiesRemoved, { count: result.data.removed }), { tone: "success" });
+        onPartsRemoved(ids);
+      } else {
+        toast(c.upload.errors[result.error] ?? c.upload.errors.generic, { tone: "error" });
+      }
+    } finally {
+      setRemoving(false);
+    }
+  };
   const status = t.status[row.status];
   const result = row.result;
   const sizeKb = Math.max(1, Math.round(row.file.size / 1024));
@@ -377,12 +423,23 @@ function UploadRow({ row, onRetry, onRemove }: { row: Row; onRetry: () => void; 
               {result.failed.length > 0 && (
                 <li className="text-red">{interpolate(t.results.partsFailed, { names: result.failed.map((f) => f.name).join(", ") })}</li>
               )}
+              {canWrite && suspected.length > 0 && (
+                <li>
+                  <button type="button" className="btn btn-ghost btn-sm" disabled={removing} onClick={removeSuspected}>
+                    {interpolate(t.results.removeReferenceBodies, { count: suspected.length })}
+                    <span aria-hidden="true" className="btn-arrow">
+                      →
+                    </span>
+                  </button>
+                </li>
+              )}
               {result.parts.map((p) => (
                 <li key={p.partId} className="flex flex-wrap items-center gap-2">
                   {p.thumbnailSvg ? <PartThumbnail svg={p.thumbnailSvg} size={40} label={p.name} /> : <span className="inline-block h-10 w-10 shrink-0 bg-surface" aria-hidden="true" />}
                   <span className="font-bold text-text-body">{p.name}</span>
                   {p.qty > 1 && <span className="num">× {p.qty}</span>}
                   <TriageChip state={p.triage.state} />
+                  {p.referenceBody && <StatusChip severity="red" plain label={t.results.referenceBodyChip} />}
                   <Link href={routes.part(p.partId)} className="btn btn-ghost btn-sm">
                     {t.results.openPart}
                     <span aria-hidden="true" className="btn-arrow">

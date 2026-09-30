@@ -93,7 +93,7 @@ export default async function QuoteUploadPage({ params }: { params: Params }) {
             ) : undefined
           }
         >
-          <PartsTable rows={parts} canWrite={canWrite} />
+          <PartsTable rows={parts} canWrite={canWrite} quoteId={quote.id} />
         </Panel>
       </div>
     </>

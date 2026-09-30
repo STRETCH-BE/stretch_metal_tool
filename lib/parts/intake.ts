@@ -61,6 +61,7 @@ import type {
   Triage,
 } from "@/lib/geometry/types";
 import type { ExtraOperation } from "@/lib/pricing/types";
+import { referenceBodyVerdict } from "@/lib/pricing/reference-body";
 import { EMPTY_ANNOTATIONS } from "@/lib/geometry/types";
 import { decodeDxfBytes } from "@/lib/geometry/parse";
 import { decodeStepBytes } from "@/lib/geometry/step/part21";
@@ -179,6 +180,8 @@ export type IntakeDeps = {
     bendTable: { versionId: string | null; rows: BendTableLookup["rows"] };
     hardwareNames: readonly HardwareNameRule[];
     defaultMaterialFamily: string;
+    /** Flat laser bed length of the machine park (reference-body rule: a block longer than the bed); null when unknown. */
+    laserBedLengthMm?: number | null;
   };
   /** Production DXF text of a sheet part (lib/geometry/export-dxf.ts writeProductionDxf). */
   writeProductionDxf?(geometry: PartGeometry, annotations: PartAnnotations, title: string): string;
@@ -268,6 +271,8 @@ export type AssemblyPartResult = {
   thumbnailSvg: string | null;
   /** Representation items that could not be converted (IFC). */
   warnings: string[];
+  /** Suspected CAD reference body (red geometry.reference_body): offered for removal in one action. */
+  referenceBody: boolean;
 };
 
 export type IntakeInput = {
@@ -339,6 +344,11 @@ export function hardwareExtras(sheet: SheetReport | undefined): ExtraOperation[]
     counts.set(code, (counts.get(code) ?? 0) + 1);
   }
   return Array.from(counts, ([code, count]) => ({ type: "feature", code, count }));
+}
+
+/** Whether the part's body hints make it a suspected reference body (the same rule the pricing flags use). */
+export function isSuspectedReferenceBody(deps: IntakeDeps, geometry: PartGeometry): boolean {
+  return referenceBodyVerdict(geometry.sheet?.bodyHints, deps.sheet?.laserBedLengthMm ?? null)?.severity === "red";
 }
 
 /** Companion drawing (PDF with the same base name) text for a model, or null. */
@@ -782,13 +792,13 @@ async function storeModelParts(input: IntakeInput, uploadName: string, split: Sp
       return;
     }
     const kept = existingByName.get(name);
-    if (kept) parts.push(fromStoredPart(kept, split.parts[index]));
+    if (kept) parts.push(fromStoredPart(deps, kept, split.parts[index]));
   });
   return { parts, expected: names.length, failed, intakeStatus, skipped };
 }
 
 /** An already stored part echoed into the assembly result (triage / thumbnail from the row, warnings from the model). */
-function fromStoredPart(row: StoredSourcePart, modelPart: ModelPart): AssemblyPartResult {
+function fromStoredPart(deps: IntakeDeps, row: StoredSourcePart, modelPart: ModelPart): AssemblyPartResult {
   return {
     partId: row.id,
     itemId: row.itemId ?? "",
@@ -799,6 +809,7 @@ function fromStoredPart(row: StoredSourcePart, modelPart: ModelPart): AssemblyPa
     thicknessMm: row.thicknessMm,
     thumbnailSvg: row.thumbnailSvg,
     warnings: modelPart.warnings,
+    referenceBody: isSuspectedReferenceBody(deps, modelPart.geometry),
   };
 }
 
@@ -837,6 +848,7 @@ async function storeSplitPart(input: IntakeInput, name: string, file: IntakeFile
     thicknessMm,
     thumbnailSvg,
     warnings: modelPart.warnings,
+    referenceBody: isSuspectedReferenceBody(deps, geometry),
   };
 }
 
