@@ -91,10 +91,10 @@ export function tessellatedChannel(w = 120, h = 60, t = 3, r = 3, L = 200, n = 6
   const profile: P[] = [];
   profile.push(...arc({ x: w - R, y: R }, R, 270, 360)); // (w-R, 0) → (w, R)
   profile.push({ x: w, y: h }, { x: w - t, y: h });
-  profile.push(...arc({ x: w - R, y: R }, r, 0, -90).slice(0, -1)); // (w-t, R) → (w-R, t) (clockwise)
+  profile.push(...arc({ x: w - R, y: R }, r, 0, -90)); // (w-t, R) → (w-R, t) (clockwise)
   profile.push(...arc({ x: R, y: R }, r, 270, 180)); // (R, t) → (t, R) (clockwise)
   profile.push({ x: t, y: h }, { x: 0, y: h });
-  profile.push(...arc({ x: R, y: R }, R, 180, 270).slice(0, -1)); // (0, R) → (R, 0)
+  profile.push(...arc({ x: R, y: R }, R, 180, 270)); // (0, R) → (R, 0)
   const polygons: Vec3[][] = [];
   polygons.push(profile.map((p) => at(p, L)));
   polygons.push(profile.map((p) => at(p, 0)).reverse());

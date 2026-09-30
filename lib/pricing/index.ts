@@ -34,6 +34,7 @@ export {
 } from "./bend-checks";
 export { computeFinish, finishTypeFor, type FinishComputation, type FinishDrivers } from "./finish";
 export { evaluateContextFlags, evaluatePartFlags, evaluateQuoteFlags } from "./feasibility";
+export { isReferenceBodyFlag, referenceBodyParams, referenceBodyVerdict, type ReferenceBodyVerdict } from "./reference-body";
 export { buildContextOperations, buildItemOperations, weldRateRef, type ItemOperations } from "./operations";
 export { priceCostQuote, priceQuote, resolveMarginPct } from "./price-quote";
 export { priceMarketQuote, laserSetupGroupKey, type MarketPricingOptions } from "./market";

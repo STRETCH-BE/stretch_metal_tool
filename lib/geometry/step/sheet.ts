@@ -8,13 +8,19 @@
  * Bodies are first moved into the assembly frame (assembly.ts
  * bodyPlacements, one copy per occurrence) so a stud's base can be found
  * on the sheet it is welded to. A body is a SHEET when its planar faces
- * give a thickness and the faces on that normal are large against it
- * (≥ SHEET_MIN_FACE_FACTOR × t² and ≥ SHEET_MIN_PLANAR_SHARE of its
- * surface); the largest such body is always a sheet, any other sheet-like
- * body is a sheet too unless it is tiny (largest face under
- * HARDWARE_MAX_FACE_MM2 and under HARDWARE_MAX_SHARE of the largest
- * sheet's) — a nut insert, never a small bracket. Everything else is hardware and is attached to the sheet
- * whose face its base point touches (else the largest sheet).
+ * give a thickness, its largest face is large against it (≥
+ * SHEET_MIN_FACE_FACTOR × t²) and at least PAIRED_MIN_SHARE of its planar
+ * area has an opposite, parallel partner face at distance t — over all
+ * normals, so a box-shaped part bent in three directions qualifies like a
+ * flat plate, while a stud or a block does not. The largest such body is
+ * always a sheet, any other sheet-like body is a sheet too unless it is
+ * tiny (largest face under HARDWARE_MAX_FACE_MM2 and under
+ * HARDWARE_MAX_SHARE of the largest sheet's) — a nut insert, never a
+ * small bracket. A tiny body that is not a sheet is HARDWARE, attached to
+ * the sheet whose face its base point touches (else the largest sheet); a
+ * body that is neither a sheet nor tiny is a SOLID — its own part, never
+ * swallowed as a hardware line (a bent part the rebuild could not read, a
+ * machined block, a CAD helper body).
  *
  * Hardware: an admin name rule (hardwareNames: substring of the PRODUCT
  * name) wins; otherwise the body's main cylinder gives the axis and
@@ -33,7 +39,8 @@
  * this module never reads a table.
  */
 
-import type { AnalyzeOptions, BendAllowanceSource, BendTableLookup, HardwareLine, HardwareNameRule, Point, SheetReport } from "../types";
+import type { AnalyzeOptions, BendAllowanceSource, BendTableLookup, BodyHints, HardwareLine, HardwareNameRule, Point, SheetReport } from "../types";
+import { featureNameOf } from "./feature-names";
 import { DEFAULT_CHORD_ERROR_MM } from "../math";
 import type { StepFile } from "./part21";
 import { add3, dot3, loopPolyline, placementReader, scale3, sub3, type Body3, type BrepModel, type Face3, type Loop3, type Vec3 } from "./brep";
@@ -44,7 +51,16 @@ import { din6935Allowance, unfoldBody, type AllowanceFn, type UnfoldResult } fro
 
 const PARALLEL = 0.999;
 const SHEET_MIN_FACE_FACTOR = 25;
-const SHEET_MIN_PLANAR_SHARE = 0.3;
+/** Share of the planar area that must have a thickness partner for a body to be a sheet. */
+const PAIRED_MIN_SHARE = 0.6;
+/** A thickness partner may sit this far from t (absolute, or 2 % of t). */
+const PAIRED_TOL_MM = 0.05;
+/** Body hints (reference-body rules): a solid block is at least this thick and this share of its smallest in-plane extent. */
+const SOLID_BLOCK_MIN_THICKNESS_MM = 20;
+const SOLID_BLOCK_MIN_SHARE = 0.05;
+/** A sliver has less volume than this (mm³) or a bounding-box side under SLIVER_MIN_SIDE_MM. */
+const SLIVER_MAX_VOLUME_MM3 = 1;
+const SLIVER_MIN_SIDE_MM = 0.5;
 /** A sheet-like body this small (mm², and this share of the largest sheet) is hardware, not a second sheet. [CONFIRM] */
 const HARDWARE_MAX_FACE_MM2 = 400;
 const HARDWARE_MAX_SHARE = 0.05;
@@ -164,8 +180,8 @@ export type BodyFacts = {
   sheetNormal: Vec3 | null;
   /** Largest planar face area. */
   largestFaceMm2: number;
-  /** Area of planar faces on the sheet normal / all planar area. */
-  onNormalShare: number;
+  /** Planar area with an opposite parallel partner face at thickness distance / all planar area. */
+  pairedShare: number;
   bbox: { min: Vec3; max: Vec3 } | null;
   sheetLike: boolean;
 };
@@ -181,11 +197,18 @@ export function bodyFacts(body: Body3, chordError = DEFAULT_CHORD_ERROR_MM): Bod
   const normal = thickness?.normal ?? null;
   let largest = 0;
   let total = 0;
-  let onNormal = 0;
+  let paired = 0;
+  const tol = thicknessMm === null ? 0 : Math.max(PAIRED_TOL_MM, thicknessMm * 0.02);
   for (const f of planar) {
     total += f.area;
     largest = Math.max(largest, f.area);
-    if (normal && Math.abs(dot3(f.normal, normal)) > PARALLEL) onNormal += f.area;
+    if (thicknessMm === null) continue;
+    const partner = planar.some((b) => {
+      if (b === f || dot3(f.normal, b.normal) > -PARALLEL) return false;
+      const d = dot3(scale3(f.normal, -1), sub3(b.origin, f.origin));
+      return Math.abs(d - thicknessMm) <= tol;
+    });
+    if (partner) paired += f.area;
   }
   let bbox: BodyFacts["bbox"] = null;
   for (const face of body.faces) {
@@ -198,9 +221,41 @@ export function bodyFacts(body: Body3, chordError = DEFAULT_CHORD_ERROR_MM): Bod
       }
     }
   }
-  const onNormalShare = total > 0 ? onNormal / total : 0;
-  const sheetLike = thicknessMm !== null && largest >= SHEET_MIN_FACE_FACTOR * thicknessMm * thicknessMm && onNormalShare >= SHEET_MIN_PLANAR_SHARE;
-  return { body, planar, thicknessMm, sheetNormal: normal, largestFaceMm2: largest, onNormalShare, bbox, sheetLike };
+  const pairedShare = total > 0 ? paired / total : 0;
+  const sheetLike = thicknessMm !== null && largest >= SHEET_MIN_FACE_FACTOR * thicknessMm * thicknessMm && pairedShare >= PAIRED_MIN_SHARE;
+  return { body, planar, thicknessMm, sheetNormal: normal, largestFaceMm2: largest, pairedShare, bbox, sheetLike };
+}
+
+/** Sorted extents of a body's bounding box, largest first. */
+export function sortedExtents(facts: BodyFacts): [number, number, number] {
+  const b = facts.bbox;
+  if (!b) return [0, 0, 0];
+  const dims = [b.max.x - b.min.x, b.max.y - b.min.y, b.max.z - b.min.z].sort((x, y) => y - x);
+  return [dims[0], dims[1], dims[2]];
+}
+
+/**
+ * Facts for the reference-body rules: the CAD feature name the body is
+ * named after, whether it is a solid block (thickness ≥ 20 mm and over
+ * 5 % of the smallest in-plane extent), a sliver (volume under 1 mm³ or a
+ * side under 0.5 mm), and whether it is a sheet at all.
+ */
+export function bodyHintsOf(facts: BodyFacts, name: string | null | undefined): BodyHints {
+  const bboxMm = sortedExtents(facts);
+  const volumeMm3 = bodyVolume(facts.body);
+  const t = facts.thicknessMm;
+  // In-plane extents: the two largest sides when the thickness is the smallest one.
+  const inPlaneMin = bboxMm[1];
+  const solidBlock = t !== null && t >= SOLID_BLOCK_MIN_THICKNESS_MM && inPlaneMin > 0 && t > SOLID_BLOCK_MIN_SHARE * inPlaneMin;
+  const sliver = (volumeMm3 !== null && volumeMm3 < SLIVER_MAX_VOLUME_MM3) || bboxMm.some((d) => d < SLIVER_MIN_SIDE_MM);
+  return {
+    featureName: featureNameOf(name ?? null),
+    solidBlock,
+    sliver,
+    notSheet: !facts.sheetLike,
+    bboxMm: bboxMm.map((d) => Math.round(d * 100) / 100) as [number, number, number],
+    volumeMm3: volumeMm3 === null ? null : Math.round(volumeMm3 * 100) / 100,
+  };
 }
 
 /* ─── Model in the assembly frame ───────────────────────────── */
@@ -230,26 +285,33 @@ export function placeBodies(file: StepFile, model: BrepModel): PlacedBody[] {
   return out;
 }
 
+export type ClassifiedBody = { placed: PlacedBody; facts: BodyFacts };
+
 export type SheetClassification = {
   /** One entry per sheet body occurrence (the part candidates). */
-  sheets: { placed: PlacedBody; facts: BodyFacts }[];
-  hardware: { placed: PlacedBody; facts: BodyFacts }[];
+  sheets: ClassifiedBody[];
+  /** Tiny bodies that are not sheets: studs, inserts, nuts — attached to a sheet. */
+  hardware: ClassifiedBody[];
+  /** Bodies that are neither sheets nor tiny: their own (not sheet metal) parts. */
+  solids: ClassifiedBody[];
 };
 
-/** Sheets vs hardware among the placed bodies. */
+/** Sheets, hardware and solids among the placed bodies. */
 export function classifyBodies(placed: PlacedBody[], chordError = DEFAULT_CHORD_ERROR_MM): SheetClassification {
   const all = placed.map((p) => ({ placed: p, facts: bodyFacts(p.body, chordError) }));
   const candidates = all.filter((b) => b.facts.sheetLike).sort((a, b) => b.facts.largestFaceMm2 - a.facts.largestFaceMm2);
-  const sheets: SheetClassification["sheets"] = [];
-  const hardware: SheetClassification["hardware"] = [];
+  const sheets: ClassifiedBody[] = [];
+  const hardware: ClassifiedBody[] = [];
+  const solids: ClassifiedBody[] = [];
   const top = candidates[0]?.facts.largestFaceMm2 ?? 0;
   for (const b of all) {
-    const tiny = b.facts.largestFaceMm2 < HARDWARE_MAX_FACE_MM2 && b.facts.largestFaceMm2 < top * HARDWARE_MAX_SHARE;
+    const tiny = b.facts.largestFaceMm2 < HARDWARE_MAX_FACE_MM2 && (top === 0 || b.facts.largestFaceMm2 < top * HARDWARE_MAX_SHARE);
     const isSheet = b.facts.sheetLike && (b === candidates[0] || !tiny);
     if (isSheet) sheets.push(b);
-    else hardware.push(b);
+    else if (tiny) hardware.push(b);
+    else solids.push(b);
   }
-  return { sheets, hardware };
+  return { sheets, hardware, solids };
 }
 
 /* ─── Hardware ──────────────────────────────────────────────── */

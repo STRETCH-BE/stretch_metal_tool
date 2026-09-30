@@ -66,6 +66,7 @@ import type {
 } from "./types";
 import type { HoleInfo, Point } from "../geometry/types";
 import { evaluateDfmFlags, laserKerfMm } from "./dfm";
+import { referenceBodyParams, referenceBodyVerdict } from "./reference-body";
 
 const EPS = 1e-9;
 
@@ -135,6 +136,16 @@ function geometryFlags(ctx: PartContext): Flag[] {
     flags.push(partFlag(ctx, "geometry.no_material", "red", { code: part.materialCode ?? "" }));
   }
   if (ctx.thicknessMm === null) flags.push(partFlag(ctx, "geometry.no_thickness", "red"));
+
+  // Reference bodies: the engine's body hints against the laser bed (reference-body.ts).
+  const hints = geometry.sheet?.bodyHints;
+  const verdict = referenceBodyVerdict(hints, ctx.flatLaser?.limits.bedLengthMm ?? null);
+  if (hints && verdict) {
+    const flag = partFlag(ctx, verdict.code, verdict.severity, referenceBodyParams(hints, geometry.sheet?.productName ?? part.name ?? null, ctx.thicknessMm));
+    // The one red flag an admin may approve as "real part".
+    if (verdict.code === "geometry.reference_body") flag.overridable = true;
+    flags.push(flag);
+  }
   return flags;
 }
 

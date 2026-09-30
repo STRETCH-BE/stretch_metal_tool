@@ -111,6 +111,9 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `geometry.triage_red` | red | triage `red_*` | `state` |
 | `geometry.no_material` | red | no material code, or code not in the snapshot | `code` |
 | `geometry.no_thickness` | red | no thickness on the part or geometry | — |
+| `geometry.reference_body` | red | STEP / IFC body that is a CAD helper body or a sliver (`reference-body.ts`): sliver; or feature-named and (solid block or not a sheet); or (not a sheet or solid block) and longer than the laser bed. Left out of the total; the one red flag an approved override ("real part") clears | `name`, `featureName`, `size`, `thicknessMm`, `volumeMm3` |
+| `geometry.unnamed_body` | amber | body named after a default CAD feature ("Cut-Extrude3", "Linear austragen6") that otherwise looks like a part | same |
+| `geometry.solid_block` | amber | thickness ≥ 20 mm and over 5 % of the smallest in-plane extent, no feature name | same |
 | `laser.thickness_over_limit` | amber | `t >` flat-laser limit of the family; cut priced from a supplier row ("subcontract — above 12.7 mm") | `limitMm`, `thicknessMm`, `family`, `rowThicknessMm`, `supplier` |
 | `laser.subcontract` | amber | allowed thickness but only a supplier row prices it (or no flat laser in the park) | `thicknessMm`, `rowThicknessMm`, `supplier`, `reason` |
 | `laser.no_rate_row` | red | no usable in-house or supplier row | `materialCode`, `thicknessMm`, `limitMm`, `family`, `reason` |

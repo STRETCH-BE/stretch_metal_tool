@@ -459,6 +459,27 @@ export type ReliefInfo = {
   entityIds: string[];
 };
 
+/**
+ * Facts about the body a part was read from, for the reference-body rules
+ * (a CAD helper body — a cut tool, an extrude used for a boolean, a window
+ * block — must never be priced silently). The engine only reports; the
+ * decision (red / amber) is made in lib/pricing where the machine park is
+ * known.
+ */
+export type BodyHints = {
+  /** The default CAD feature name the body is named after (lib/geometry/step/feature-names.ts), or null. */
+  featureName: string | null;
+  /** Thickness ≥ 20 mm and over 5 % of the smallest in-plane extent: a machined block or a helper body. */
+  solidBlock: boolean;
+  /** Volume under 1 mm³ or a bounding-box side under 0.5 mm. */
+  sliver: boolean;
+  /** The body has no sheet-like face pair (isSheetMetal false). */
+  notSheet: boolean;
+  /** Bounding-box extents in the body's frame, sorted largest first (mm). */
+  bboxMm: [number, number, number];
+  volumeMm3: number | null;
+};
+
 export type SheetReport = {
   version: 1;
   thicknessMm: number;
@@ -485,6 +506,8 @@ export type SheetReport = {
   productName: string | null;
   /** Cross-checks against the companion drawing text, when one was given. */
   drawing?: DrawingCrossCheck | null;
+  /** Facts for the reference-body rules (absent on reports written before this field existed). */
+  bodyHints?: BodyHints;
 };
 
 export type DrawingCrossCheck = {

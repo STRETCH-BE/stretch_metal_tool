@@ -210,6 +210,19 @@ export const flags: FlagsContent = {
       label: "Brak grubości",
       message: "Podaj grubość blachy — bez niej nie policzymy masy, cięcia ani gięcia.",
     },
+    "geometry.reference_body": {
+      label: "Podejrzenie bryły pomocniczej CAD",
+      message:
+        "Bryła „{name}” ({size} mm, grubość {thicknessMm} mm, objętość {volumeMm3} mm³, nazwa operacji CAD: {featureName}) wygląda na bryłę pomocniczą z modelu, nie na część — nie wchodzi do sumy wyceny. Usuń ją z wyceny albo poproś admina o zatwierdzenie jako prawdziwej części.",
+    },
+    "geometry.unnamed_body": {
+      label: "Bryła nazwana po operacji CAD",
+      message: "Bryła „{name}” nosi domyślną nazwę operacji CAD ({featureName}), {size} mm, grubość {thicknessMm} mm — potwierdź, że to prawdziwa część, a nie bryła pomocnicza.",
+    },
+    "geometry.solid_block": {
+      label: "Wygląda na blok",
+      message: "Bryła „{name}”: grubość {thicknessMm} mm przy gabarycie {size} mm — wygląda na blok obrabiany albo bryłę pomocniczą CAD, nie na blachę. Potwierdź przed wyceną.",
+    },
     "laser.thickness_over_limit": {
       label: "Kooperacja — ponad limit lasera",
       message:

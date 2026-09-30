@@ -659,6 +659,12 @@ export type FlagCode =
   | "geometry.units_unconfirmed"
   | "geometry.no_material"
   | "geometry.no_thickness"
+  /** A CAD helper body or sliver read as a part (reference-body.ts) — red, left out of the total; an admin may approve it as a real part. */
+  | "geometry.reference_body"
+  /** A body named after a CAD feature (e.g. "Cut-Extrude3") that otherwise looks like a part — confirm it is one. */
+  | "geometry.unnamed_body"
+  /** Thickness ≥ 20 mm and over 5 % of the smallest in-plane extent — a machined block or a helper body. */
+  | "geometry.solid_block"
   | "laser.thickness_over_limit"
   | "laser.blank_exceeds_bed"
   | "laser.no_rate_row"

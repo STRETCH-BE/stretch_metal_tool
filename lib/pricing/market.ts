@@ -99,6 +99,7 @@ import {
 } from "./eligibility";
 import { PricingError } from "./errors";
 import { evaluateContextFlags, evaluateQuoteFlags } from "./feasibility";
+import { isReferenceBodyFlag } from "./reference-body";
 import { machiningCost, mmToM } from "./formulas";
 import { OPERATION_LABELS } from "./labels";
 import { findFeatureRate, findThreadRate, findWeldRate, normaliseThreadSize } from "./lookup";
@@ -998,7 +999,9 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
   const minLeadDays = Math.max(0, ...finishMinLead.values());
   const finishLeadOk = leadTimeDays === null || minLeadDays <= 0 || leadTimeDays + EPS >= minLeadDays;
   const leadOffered = lead.offered && finishLeadOk;
-  const priceable = ctxs.map((_, i) => verdicts[i].priceable && leadOffered);
+  // A suspected CAD reference body (red geometry.reference_body) is never priced: out of the total like a refusal.
+  const contextFlagsOf = ctxs.map((ctx) => evaluateContextFlags(ctx).filter((f) => !REPLACED_COST_FLAGS.has(f.code) && !(f.code === "material.mass_handling" && general.handlingSurchargeEur <= 0)));
+  const priceable = ctxs.map((_, i) => verdicts[i].priceable && leadOffered && !contextFlagsOf[i].some((f) => f.severity === "red" && isReferenceBodyFlag(f.code)));
 
   // Pieces of the order: Σ qty over the priceable lines, per (material,
   // thickness) group for the laser set-up and overall for the order charge.
@@ -1017,7 +1020,7 @@ export function priceMarketQuote(input: QuoteInput, rates: RateSnapshot, machine
   const finishUses: FinishUse[] = [];
   const items: PricedItem[] = ctxs.map((ctx, index) => {
     const verdict = verdicts[index];
-    const contextFlags = evaluateContextFlags(ctx).filter((f) => !REPLACED_COST_FLAGS.has(f.code) && !(f.code === "material.mass_handling" && general.handlingSurchargeEur <= 0));
+    const contextFlags = contextFlagsOf[index];
     const unitCost = costItems.get(ctx.item.id)?.unitCost ?? 0;
     if (!priceable[index]) {
       return {

@@ -59,7 +59,7 @@
  * `sheet.isSheetMetal = false` (a machined or solid part).
  */
 
-import type { AnalyzeOptions, BendLine, DxfHeaderInfo, HardwareLine, ModelPart, PartGeometry, Point, SheetReport, SplitModel, Triage, TriageReasonCode } from "../types";
+import type { AnalyzeOptions, BendLine, BodyHints, DxfHeaderInfo, HardwareLine, ModelPart, PartGeometry, Point, SheetReport, SplitModel, Triage, TriageReasonCode } from "../types";
 import type { ParsedDxf } from "../parse";
 import { runPipeline, GEOMETRY_VERSION } from "../pipeline";
 import { clampTolerance, emptyHealingReport } from "../heal";
@@ -68,7 +68,7 @@ import { DEFAULT_CHORD_ERROR_MM } from "../math";
 import { parseStep, StepFormatError, isStepText, decodeStepBytes } from "./part21";
 import { evaluateBrep, loopPolyline, dot3, sub3, scale3, type Body3, type BrepModel, type Face3, type Loop3, type Placement, type Vec3 } from "./brep";
 import { bendGroups, extentsOf, loopToEntities, polygonArea, type Flattening, type FlatMap } from "./unfold";
-import { analyseSheetBody, buildSheetReport, classifyBodies, classifyHardware, placeBodies, type PlacedBody, type BodyFacts, type SheetAnalysis } from "./sheet";
+import { analyseSheetBody, bodyHintsOf, buildSheetReport, classifyBodies, classifyHardware, placeBodies, type ClassifiedBody, type PlacedBody, type BodyFacts, type SheetAnalysis } from "./sheet";
 import { detectReliefs } from "./reliefs";
 import { checkDrawing, compareHardware, revisionFromFileName } from "./drawing-check";
 import { isTessellatedBody, meshToBody, polygonsOfFacetedBody } from "./mesh";
@@ -528,6 +528,7 @@ function sheetGeometry(part: SheetPart, model: BrepModel, options: AnalyzeOption
     productName: part.placed.info?.name ?? null,
     maskingConfirmed: drawing.masking,
   });
+  report.bodyHints = bodyHintsOf(part.facts, part.placed.info?.name ?? options.name);
   report.reliefs = detectReliefs(geometry, report.bends, thicknessMm);
   if (options.drawingText || options.pdfText) {
     report.drawing = {
@@ -556,10 +557,11 @@ export function countersinkCode(throughDiameterMm: number): string | null {
   return null;
 }
 
-/** Manual geometry for a file that holds no sheet body (a machined / solid part). */
-function notSheetMetal(model: BrepModel, analyses: BodyAnalysis[], options: AnalyzeOptions, hardwareBodies: number): PartGeometry {
+/** Manual geometry for a file that holds no sheet body (a machined / solid part, or a CAD helper body). */
+function notSheetMetal(model: BrepModel, analyses: BodyAnalysis[], options: AnalyzeOptions, hardwareBodies: number, bodyHints: BodyHints | undefined): PartGeometry {
   const g = manualGeometry(model, analyses, options);
   const sheet: SheetReport = {
+    ...(bodyHints ? { bodyHints } : {}),
     version: 1,
     thicknessMm: g.material.thicknessMm ?? 0,
     isSheetMetal: false,
@@ -590,7 +592,12 @@ export function analyseStepSync(text: string, options: AnalyzeOptions = {}): Par
   if (model.bodies.length === 0) return manualGeometry(model, analyses, options);
   const placed = placeBodies(file, model);
   const parts = sheetParts(placed, options, model.unitScale);
-  if (parts.length === 0) return notSheetMetal(model, analyses, options, placed.length);
+  if (parts.length === 0) {
+    // The largest body describes the part; its hints feed the reference-body rules.
+    const cls = classifyBodies(placed);
+    const main = [...cls.solids, ...cls.hardware].sort((a, b) => b.facts.largestFaceMm2 - a.facts.largestFaceMm2)[0];
+    return notSheetMetal(model, analyses, options, placed.length, main ? bodyHintsOf(main.facts, main.placed.info?.name ?? options.name) : undefined);
+  }
   if (parts.length === 1) {
     const geometry = sheetGeometry(parts[0], model, options);
     if (geometry) return geometry;
@@ -647,16 +654,22 @@ export function splitModelSync(text: string, options: AnalyzeOptions = {}): Spli
   const placed = placeBodies(file, model);
   const cls = classifyBodies(placed);
   const sheetSolids = new Set(cls.sheets.map((s) => s.placed.solidId));
-  if (sheetSolids.size <= 1) {
-    // One sheet (plus hardware): the whole file is that part.
-    const name = cls.sheets[0]?.placed.info?.name ?? fallbackName;
+  const solidIds = new Set(cls.solids.map((s) => s.placed.solidId).filter((id) => !sheetSolids.has(id)));
+  if (sheetSolids.size + solidIds.size <= 1) {
+    // One sheet (plus hardware), or one solid: the whole file is that part.
+    const name = cls.sheets[0]?.placed.info?.name ?? cls.solids[0]?.placed.info?.name ?? fallbackName;
     return { format: "step", parts: [{ name, occurrences: 1, stepText: null, geometry: analyseStepSync(text, { ...options, name }), warnings: model.warnings }], warnings: model.warnings };
   }
-  // Several sheets: one part per sheet solid, its hardware carried along in the derived file.
+  // Several parts: one per sheet solid (its hardware carried along in the
+  // derived file) and one per solid that is not sheet metal. Every body
+  // ends up in a part or in the warnings — never dropped in silence.
   const infos = stepBodyInfos(file);
   const parts: ModelPart[] = [];
+  const warnings = [...model.warnings];
+  const covered = new Set<number>();
   const hardwareBySheet = new Map<number, number[]>();
-  const sheetOf = (h: (typeof cls.hardware)[number]): number => {
+  const sheetOf = (h: ClassifiedBody): number | null => {
+    if (cls.sheets.length === 0) return null;
     const b = h.facts.bbox;
     const centre = b ? { x: (b.min.x + b.max.x) / 2, y: (b.min.y + b.max.y) / 2, z: (b.min.z + b.max.z) / 2 } : null;
     for (const s of cls.sheets) {
@@ -665,20 +678,36 @@ export function splitModelSync(text: string, options: AnalyzeOptions = {}): Spli
     }
     return cls.sheets[0].placed.solidId;
   };
+  const loose: ClassifiedBody[] = [];
   for (const h of cls.hardware) {
     const owner = sheetOf(h);
+    if (owner === null) {
+      loose.push(h);
+      continue;
+    }
     const list = hardwareBySheet.get(owner) ?? [];
     if (!list.includes(h.placed.solidId)) list.push(h.placed.solidId);
     hardwareBySheet.set(owner, list);
+    covered.add(h.placed.solidId);
   }
   const seen = new Set<number>();
-  for (const s of cls.sheets) {
-    if (seen.has(s.placed.solidId)) continue;
+  const addPart = (s: ClassifiedBody, along: number[]) => {
+    if (seen.has(s.placed.solidId)) return;
     seen.add(s.placed.solidId);
+    covered.add(s.placed.solidId);
     const info = infos.get(s.placed.solidId) ?? null;
     const name = info?.name ?? `${fallbackName} ${parts.length + 1}`;
-    const stepText = extractBodyStep(text, file, s.placed.solidId, name, info, hardwareBySheet.get(s.placed.solidId) ?? []);
+    const stepText = extractBodyStep(text, file, s.placed.solidId, name, info, along);
     parts.push({ name, occurrences: info?.occurrences ?? 1, stepText, geometry: analyseStepSync(stepText, { ...options, name }), warnings: [] });
+  };
+  for (const s of cls.sheets) addPart(s, hardwareBySheet.get(s.placed.solidId) ?? []);
+  for (const s of cls.solids) addPart(s, []);
+  // Hardware with no sheet to sit on becomes its own (not sheet metal) part rather than vanishing.
+  for (const h of loose) addPart(h, []);
+  for (const p of placed) {
+    if (covered.has(p.solidId)) continue;
+    covered.add(p.solidId);
+    warnings.push(`body #${p.solidId}${p.info?.name ? ` (${p.info.name})` : ""} was not assigned to any part`);
   }
-  return { format: "step", parts, warnings: model.warnings };
+  return { format: "step", parts, warnings };
 }

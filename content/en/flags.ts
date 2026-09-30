@@ -156,6 +156,19 @@ export const flags: FlagsContent = {
       label: "No thickness",
       message: "Enter the sheet thickness — without it mass, cutting and bending cannot be priced.",
     },
+    "geometry.reference_body": {
+      label: "Suspected CAD reference body",
+      message:
+        "Body “{name}” ({size} mm, thickness {thicknessMm} mm, volume {volumeMm3} mm³, CAD feature name: {featureName}) looks like a helper body from the model, not a part — it is left out of the quote total. Remove it from the quote or ask an admin to approve it as a real part.",
+    },
+    "geometry.unnamed_body": {
+      label: "Body named after a CAD feature",
+      message: "Body “{name}” carries a default CAD feature name ({featureName}), {size} mm, thickness {thicknessMm} mm — confirm it is a real part, not a helper body.",
+    },
+    "geometry.solid_block": {
+      label: "Looks like a block",
+      message: "Body “{name}”: thickness {thicknessMm} mm at {size} mm — looks like a machined block or a CAD helper body, not sheet. Confirm before pricing.",
+    },
     "laser.thickness_over_limit": {
       label: "Subcontract — above the laser limit",
       message:

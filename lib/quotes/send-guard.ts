@@ -8,7 +8,10 @@
  *
  * Rules (build prompt Step 2, spec 5.5):
  *   red_flags          any red flag — never overridable, not even by the admin
- *                      (a red *.no_rate_row would ship an operation at 0 €)
+ *                      (a red *.no_rate_row would ship an operation at 0 €);
+ *                      the one exception is geometry.reference_body, which an
+ *                      admin may approve as "real part" (the body is then
+ *                      priced again) — an APPROVED override covers it
  *   pending_override   any override row still pending
  *   amber_unconfirmed  an amber flag with neither an approved override nor a
  *                      sales confirmation
@@ -124,7 +127,7 @@ export function canSend(bundle: SendGuardInput, options: SendGuardOptions = {}):
   if (bundle.items.length === 0 && seams === 0) reasons.push("no_items");
   else if (!bundle.pricing) reasons.push("not_priced");
 
-  if (flags.some((f) => f.severity === "red")) reasons.push("red_flags");
+  if (flags.some((f) => f.severity === "red" && !(f.code === "geometry.reference_body" && approved.some((o) => overrideMatchesFlag(o, f))))) reasons.push("red_flags");
   if (pending.length > 0) reasons.push("pending_override");
 
   const amberUncovered = flags.some(

@@ -73,6 +73,7 @@
 import { accumulateAssemblyCosts, effectiveMemberPart, partitionItems, priceAssemblies } from "./assembly";
 import { PricingError } from "./errors";
 import { evaluateQuoteFlags } from "./feasibility";
+import { isReferenceBodyFlag } from "./reference-body";
 import { assessForming, formingHint, formingSuspected, type FormingAssessment } from "./forming";
 import { OPERATION_LABELS } from "./labels";
 import { priceMarketQuote } from "./market";
@@ -183,6 +184,10 @@ export function priceCostQuote(input: QuoteInput, rates: RateSnapshot, machines:
       });
     }
     const { operations, flags } = buildItemOperations(part, item, rates, machines);
+    // A suspected CAD reference body is left out of the total: no lines, no price (reference-body.ts).
+    if (flags.some((f) => f.severity === "red" && isReferenceBodyFlag(f.code))) {
+      return { itemId: item.id, partId: part.id, qty: item.qty, operations: [], unitCost: 0, unitPrice: null, batchCost: 0, batchPrice: null, flags };
+    }
     const unitCost = operations.reduce((sum, op) => sum + op.unitCost, 0);
     const unitPrice = priceFromCost(unitCost, marginPct);
     return {
