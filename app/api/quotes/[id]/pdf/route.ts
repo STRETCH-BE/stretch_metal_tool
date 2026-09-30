@@ -58,7 +58,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   // customer edited since — VAT follows the customer) is re-priced first,
   // like the send action does; a reader without edit rights gets the stored
   // snapshot.
-  if (isQuoteEditable(bundle.quote.status) && isPricingStale(bundle.quote, bundle.pricing, bundle.customer?.updated_at ?? null)) {
+  if (isQuoteEditable(bundle.quote.status) && isPricingStale(bundle.quote, bundle.pricing, bundle.customer?.updated_at ?? null, bundle.ratesUpdatedAt)) {
     try {
       await repriceQuote(id);
       bundle = (await getQuoteBundle(id)) ?? bundle;

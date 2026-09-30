@@ -32,6 +32,8 @@ export type QuoteBundle = {
   operations: OperationRow[];
   overrides: OverrideRow[];
   rateVersionLabel: string | null;
+  /** Latest rates_updated_at of the pinned price / cost versions (live rate edits); null before the migration or when never edited. */
+  ratesUpdatedAt: string | null;
   /** Market mode: label of the cost version the margin is computed against (quotes.cost_rate_version_id). */
   costRateVersionLabel: string | null;
   /** quotes.pricing parsed, or null before the first pricing run. */

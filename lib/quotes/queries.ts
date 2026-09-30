@@ -158,6 +158,22 @@ export async function listQuotes(filters: QuoteListFilters = {}): Promise<QuoteL
 }
 
 /** Full bundle with an explicit client (RLS or admin). Null when the quote is not visible. */
+type RateVersionMeta = { label: string; ratesUpdatedAt: string | null };
+
+/** Label + live-edit stamp of a rate version; select("*") so a database without rates_updated_at still answers. */
+async function rateVersionMeta(client: QuoteReadClient, id: string): Promise<RateVersionMeta | null> {
+  const { data } = await client.from("rate_versions").select("*").eq("id", id).maybeSingle();
+  const row = data as { label?: string; rates_updated_at?: string | null } | null;
+  if (!row || typeof row.label !== "string") return null;
+  return { label: row.label, ratesUpdatedAt: row.rates_updated_at ?? null };
+}
+
+function latestOf(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return Date.parse(b) > Date.parse(a) ? b : a;
+}
+
 export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string): Promise<QuoteBundle | null> {
   if (!isUuid(quoteId)) return null;
   const { data: quote, error } = await client.from("quotes").select("*").eq("id", quoteId).maybeSingle();
@@ -185,22 +201,8 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
       client.from("overrides").select("*").eq("quote_id", quoteId).order("created_at"),
       "loadQuoteBundle/overrides"
     ),
-    quote.rate_version_id
-      ? client
-          .from("rate_versions")
-          .select("label")
-          .eq("id", quote.rate_version_id)
-          .maybeSingle()
-          .then(({ data }) => (data as { label: string } | null)?.label ?? null)
-      : Promise.resolve(null),
-    quote.cost_rate_version_id
-      ? client
-          .from("rate_versions")
-          .select("label")
-          .eq("id", quote.cost_rate_version_id)
-          .maybeSingle()
-          .then(({ data }) => (data as { label: string } | null)?.label ?? null)
-      : Promise.resolve(null),
+    quote.rate_version_id ? rateVersionMeta(client, quote.rate_version_id) : Promise.resolve(null),
+    quote.cost_rate_version_id ? rateVersionMeta(client, quote.cost_rate_version_id) : Promise.resolve(null),
   ]);
 
   const itemIds = items.map((i) => i.id);
@@ -236,8 +238,9 @@ export async function loadQuoteBundle(client: QuoteReadClient, quoteId: string):
     parts,
     operations,
     overrides,
-    rateVersionLabel: version,
-    costRateVersionLabel: costVersion,
+    rateVersionLabel: version?.label ?? null,
+    costRateVersionLabel: costVersion?.label ?? null,
+    ratesUpdatedAt: latestOf(version?.ratesUpdatedAt ?? null, costVersion?.ratesUpdatedAt ?? null),
     pricing: parsePricing(quote.pricing),
     flags: parseFlags(quote.flags),
     weldingOnly: parseWeldingOnly(quote.welding_only),

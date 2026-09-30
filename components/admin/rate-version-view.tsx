@@ -97,6 +97,11 @@ export async function RateVersionView({
       )}
       {version.note && <p className="mb-4 max-w-[860px] text-[13px] text-text-muted">{version.note}</p>}
 
+      {state.editable && version.active && (
+        <Notice tone="info" className="mb-6">
+          {interpolate(t.version.liveActive, { drafts: state.draftCount })}
+        </Notice>
+      )}
       {!state.editable && (
         <Panel className="mb-6" title={t.version.cloneToEdit}>
           <div className="flex flex-col gap-4">

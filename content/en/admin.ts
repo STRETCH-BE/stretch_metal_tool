@@ -76,6 +76,13 @@ export const admin: AdminContent = {
       statusActive: "Active",
       statusDraft: "Draft",
       statusUsed: "Used",
+      current: {
+        title: "Current prices",
+        body: "Material and service prices of the active price list are edited directly — a change is saved to the database and applies from the next calculation. Versions are for bigger changes (clone, compare, activate).",
+        materials: "Edit material prices",
+        services: "Edit service rates",
+        none: "No active price list — activate a version below.",
+      },
       cloneTitle: "Clone this version",
       cloneLabel: "Label of the new version",
       cloneLabelPlaceholder: "e.g. v2 — calibrated rates",
@@ -109,6 +116,8 @@ export const admin: AdminContent = {
       tabsLabel: "Rate tables",
       readOnlyActive:
         "This version is active — its rows are read-only. Clone it, edit the copy and activate the copy.",
+      liveActive:
+        "This is the active price list. A saved change applies to every new calculation at once; {drafts} open quotes re-price when opened; sent and decided quotes keep their prices.",
       readOnlyUsed:
         "This version has been used by quotes ({count}) — its rows are immutable. Clone it to edit.",
       cloneToEdit: "Clone to edit",

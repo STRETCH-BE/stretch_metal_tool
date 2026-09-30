@@ -30,7 +30,15 @@ export type RateVersionSummary = RateVersionRow & {
 export type RateVersionState = {
   version: RateVersionRow;
   quoteCount: number;
+  /** Open quotes (draft / pending override) pinned to the version: they re-price on open after a live edit. */
+  draftCount: number;
   placeholderCount: number;
+  /**
+   * The active version is edited in place (live prices: sent quotes keep
+   * their stored prices, drafts re-price on open); a draft nobody uses is
+   * edited freely; a retired version used by quotes stays read-only as the
+   * record of what was quoted.
+   */
   editable: boolean;
   createdByName: string | null;
 };
@@ -51,6 +59,23 @@ export async function countQuotesByVersion(
     .select("rate_version_id")
     .in("rate_version_id", [...versionIds]);
   if (error) fail("countQuotesByVersion", error);
+  for (const row of data ?? []) {
+    if (!row.rate_version_id) continue;
+    counts.set(row.rate_version_id, (counts.get(row.rate_version_id) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** Open (draft / pending override) quotes per rate version. */
+export async function countDraftsByVersion(supabase: AdminClient, versionIds: readonly string[]): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (versionIds.length === 0) return counts;
+  const { data, error } = await supabase
+    .from("quotes")
+    .select("rate_version_id")
+    .in("rate_version_id", [...versionIds])
+    .in("status", ["draft", "pending_override"]);
+  if (error) fail("countDraftsByVersion", error);
   for (const row of data ?? []) {
     if (!row.rate_version_id) continue;
     counts.set(row.rate_version_id, (counts.get(row.rate_version_id) ?? 0) + 1);
@@ -139,8 +164,9 @@ export async function getActiveRateVersion(supabase: AdminClient): Promise<RateV
 export async function getRateVersionState(supabase: AdminClient, id: string): Promise<RateVersionState | null> {
   const version = await getRateVersion(supabase, id);
   if (!version) return null;
-  const [quotes, placeholders, names] = await Promise.all([
+  const [quotes, drafts, placeholders, names] = await Promise.all([
     countQuotesByVersion(supabase, [id]),
+    countDraftsByVersion(supabase, [id]),
     countPlaceholdersByVersion(supabase, [id]),
     profileNames(supabase, [version.created_by]),
   ]);
@@ -148,8 +174,9 @@ export async function getRateVersionState(supabase: AdminClient, id: string): Pr
   return {
     version,
     quoteCount,
+    draftCount: drafts.get(id) ?? 0,
     placeholderCount: placeholders.get(id) ?? 0,
-    editable: !version.active && quoteCount === 0,
+    editable: version.active || quoteCount === 0,
     createdByName: version.created_by ? (names.get(version.created_by) ?? null) : null,
   };
 }

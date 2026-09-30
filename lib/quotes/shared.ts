@@ -198,14 +198,23 @@ export type StalePricingSnapshot = Pick<PricedQuote, "rateVersionId" | "inputMar
  * quote only through the engine version and its inputs (the first pricing
  * run pins it).
  */
-export function isPricingStale(quote: StalePricingQuote, pricing: StalePricingSnapshot | null, customerUpdatedAt: string | null = null): boolean {
+export function isPricingStale(
+  quote: StalePricingQuote,
+  pricing: StalePricingSnapshot | null,
+  customerUpdatedAt: string | null = null,
+  ratesUpdatedAt: string | null = null
+): boolean {
   if (pricing === null) return false;
   // The VAT mode, rate and gross come from the customer's type, country and
-  // VAT id at pricing time; a customer saved after that is a new input.
-  if (customerUpdatedAt && quote.priced_at) {
-    const edited = Date.parse(customerUpdatedAt);
+  // VAT id at pricing time; a customer saved after that is a new input. A
+  // rate row of the pinned version edited in place (live prices) likewise.
+  if (quote.priced_at) {
     const priced = Date.parse(quote.priced_at);
-    if (Number.isFinite(edited) && Number.isFinite(priced) && edited > priced) return true;
+    for (const stamp of [customerUpdatedAt, ratesUpdatedAt]) {
+      if (!stamp) continue;
+      const edited = Date.parse(stamp);
+      if (Number.isFinite(edited) && Number.isFinite(priced) && edited > priced) return true;
+    }
   }
   if ((pricing.engineVersion ?? 0) !== PRICING_ENGINE_VERSION) return true;
   if (quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id) return true;

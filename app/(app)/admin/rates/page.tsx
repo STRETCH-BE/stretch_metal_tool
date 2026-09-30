@@ -18,6 +18,8 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Notice } from "@/components/ui/notice";
 import { PageHeader } from "@/components/ui/page-header";
 import { Panel } from "@/components/ui/panel";
+import Link from "next/link";
+import { routes } from "@/lib/routes";
 import { RateVersionsTable } from "@/components/admin/rate-versions-table";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -39,6 +41,7 @@ export default async function RateVersionsPage({ searchParams }: { searchParams:
   const t = c.admin.rates;
   const supabase = await createClient();
   const versions = await listRateVersions(supabase);
+  const active = versions.find((v) => v.active) ?? null;
 
   const notice = first(params.notice);
   const error = first(params.error);
@@ -70,6 +73,24 @@ export default async function RateVersionsPage({ searchParams }: { searchParams:
           {errorText}
         </Notice>
       )}
+      <Panel className="mb-6" title={t.versions.current.title}>
+        <div className="flex flex-col gap-3">
+          <p className="max-w-[860px] text-[13px] text-text-muted">{t.versions.current.body}</p>
+          {active ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <span className="text-[13px]">{active.label}</span>
+              <Link href={routes.adminRateTable(active.id, "materials")} className="btn btn-primary btn-sm">
+                {t.versions.current.materials}
+              </Link>
+              <Link href={routes.adminRateTable(active.id, "laser")} className="btn btn-ghost btn-sm">
+                {t.versions.current.services}
+              </Link>
+            </div>
+          ) : (
+            <Notice tone="error">{t.versions.current.none}</Notice>
+          )}
+        </div>
+      </Panel>
       {versions.length === 0 ? (
         <EmptyState title={t.versions.empty} body={t.versions.emptyBody} />
       ) : (

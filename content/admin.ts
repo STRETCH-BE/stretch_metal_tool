@@ -110,6 +110,7 @@ export type AdminContent = {
       };
       statusActive: string;
       statusDraft: string;
+      current: { title: string; body: string; materials: string; services: string; none: string };
       statusUsed: string;
       cloneTitle: string;
       cloneLabel: string;
@@ -143,6 +144,7 @@ export type AdminContent = {
       csvImport: string;
       tabsLabel: string;
       readOnlyActive: string;
+      liveActive: string;
       readOnlyUsed: string;
       cloneToEdit: string;
       cloneToEditLabel: string;
@@ -726,6 +728,13 @@ export const admin: AdminContent = {
       statusActive: "Aktywna",
       statusDraft: "Szkic",
       statusUsed: "Użyta",
+      current: {
+        title: "Aktualne ceny",
+        body: "Ceny materiałów i usług aktywnego cennika edytujesz bezpośrednio — zmiana zapisuje się w bazie i działa od następnej kalkulacji. Wersje służą do większych zmian (klon, porównanie, aktywacja).",
+        materials: "Edytuj ceny materiałów",
+        services: "Edytuj stawki usług",
+        none: "Brak aktywnego cennika — aktywuj wersję poniżej.",
+      },
       cloneTitle: "Sklonuj tę wersję",
       cloneLabel: "Etykieta nowej wersji",
       cloneLabelPlaceholder: "np. v2 — stawki po kalibracji",
@@ -759,6 +768,8 @@ export const admin: AdminContent = {
       tabsLabel: "Tabele cennika",
       readOnlyActive:
         "Ta wersja jest aktywna — jej wiersze są tylko do odczytu. Sklonuj ją, edytuj kopię i aktywuj kopię.",
+      liveActive:
+        "To jest aktywny cennik. Zapisana zmiana obowiązuje od razu w każdej nowej kalkulacji; {drafts} otwartych wycen przeliczy się przy otwarciu; wysłane i rozstrzygnięte wyceny zachowują swoje ceny.",
       readOnlyUsed:
         "Ta wersja została użyta w wycenach ({count}) — jej wiersze są niezmienne. Sklonuj ją, aby edytować.",
       cloneToEdit: "Sklonuj, aby edytować",

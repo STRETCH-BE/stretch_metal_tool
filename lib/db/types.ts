@@ -80,6 +80,8 @@ export type RateVersionRow = {
   created_by: string | null;
   created_at: string;
   active: boolean;
+  /** Stamped by trigger on every row change of the version (migration 20260930120000); absent before it. */
+  rates_updated_at?: string | null;
 };
 
 export type RateGeneralRow = {

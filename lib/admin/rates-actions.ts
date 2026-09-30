@@ -84,14 +84,22 @@ type DraftCheck =
   | { ok: true }
   | { ok: false; error: "notFound" | "versionActive" | "versionHasQuotes" };
 
+/**
+ * Which versions may be written. Rows: the ACTIVE version (live prices —
+ * the trigger of migration 20260930120000 stamps rates_updated_at, drafts
+ * re-price on open, sent quotes keep their snapshot) and an unused draft;
+ * a retired version used by quotes is the record of what was quoted and
+ * stays read-only. Deleting a version: unused drafts only.
+ */
 async function checkDraft(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  versionId: string
+  versionId: string,
+  options: { allowActive?: boolean } = {}
 ): Promise<DraftCheck> {
   if (!UUID.test(versionId)) return { ok: false, error: "notFound" };
   const version = await getRateVersion(supabase, versionId);
   if (!version) return { ok: false, error: "notFound" };
-  if (version.active) return { ok: false, error: "versionActive" };
+  if (version.active) return options.allowActive ? { ok: true } : { ok: false, error: "versionActive" };
   const quotes = await countQuotesByVersion(supabase, [versionId]);
   if ((quotes.get(versionId) ?? 0) > 0) return { ok: false, error: "versionHasQuotes" };
   return { ok: true };
@@ -202,7 +210,7 @@ export async function saveRateRow(input: SaveRateRowInput): Promise<SaveRateRowR
   if (!validated.ok) return { ok: false, error: "validation", fieldErrors: validated.fieldErrors };
 
   const supabase = await createClient();
-  const draft = await checkDraft(supabase, input.versionId);
+  const draft = await checkDraft(supabase, input.versionId, { allowActive: true });
   if (!draft.ok) return { ok: false, error: draft.error };
 
   const def = RATE_TABLES[input.table];
@@ -278,7 +286,7 @@ export async function deleteRateRow(input: DeleteRateRowInput): Promise<DeleteRa
   if (def.singleRow) return { ok: false, error: "invalid" };
 
   const supabase = await createClient();
-  const draft = await checkDraft(supabase, input.versionId);
+  const draft = await checkDraft(supabase, input.versionId, { allowActive: true });
   if (!draft.ok) return { ok: false, error: draft.error };
 
   const filter = refFilter(input.table, input.versionId, input.ref ?? {});
@@ -357,7 +365,7 @@ export async function importRateCsv(
   if (file.size > CSV_MAX_BYTES) return { status: "error", error: "tooLarge" };
 
   const supabase = await createClient();
-  const draft = await checkDraft(supabase, versionId);
+  const draft = await checkDraft(supabase, versionId, { allowActive: true });
   if (!draft.ok) return { status: "error", error: draft.error };
 
   const def = RATE_TABLES[table];

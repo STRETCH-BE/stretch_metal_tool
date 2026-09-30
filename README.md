@@ -243,6 +243,19 @@ every seeded number is a calibration placeholder (`placeholder = true`,
 | `assembly_rates` | labour €/h, gas + wire €/h, tack s, fit-up min/part, deburr min/part, handling min, distortion factor, step-bend s/hit, roll min/m |
 | `weld_speeds` | process × thickness → effective mm/min (incl. stops and repositioning) |
 
+## Changing prices (materials and services)
+
+Admin → Rates → **Current prices** opens the active price list for direct
+editing (materials €/kg, laser, bending, welding, finishing, threads,
+features, lead-time multipliers). A saved row is written to the database at
+once and applies from the next calculation: sent, won and lost quotes keep
+the prices stored in their pricing snapshot; open drafts pinned to that
+version re-price when opened (`rate_versions.rates_updated_at`, stamped by
+the trigger of migration `20260930120000_live_rate_editing.sql`, makes them
+stale). Versions remain the tool for bigger changes: clone the active
+version, edit the copy, compare (diff) and activate it. A retired version
+used by quotes stays read-only as the record of what was quoted.
+
 ## Adding a rate table
 
 1. Migration: a `rate_<name>` table with `rate_version_id uuid references rate_versions(id) on delete cascade`, a natural unique key, `placeholder boolean default true`, RLS policies (all read, admin write — copy the block in the initial migration) and a line in `clone_rate_version()` so versions copy the new rows.

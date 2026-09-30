@@ -226,7 +226,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = nu
   // shows numbers the header or the engine would contradict. Keyed by quote
   // + version so a failed run is not retried in a loop; the next save
   // re-prices anyway.
-  const staleRates = editable && isPricingStale(quote, bundle.pricing, bundle.customer?.updated_at ?? null);
+  const staleRates = editable && isPricingStale(quote, bundle.pricing, bundle.customer?.updated_at ?? null, bundle.ratesUpdatedAt);
   const staleRepriced = useRef<string | null>(null);
   useEffect(() => {
     if (!staleRates) return;

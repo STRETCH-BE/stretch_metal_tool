@@ -100,12 +100,20 @@ describe("saveRateRow", () => {
     expect(createClient).not.toHaveBeenCalled();
   });
 
-  it("refuses to edit the active version", async () => {
+  it("edits the ACTIVE version in place (live prices) and audits it like any row change", async () => {
     getCurrentUser.mockResolvedValue(ADMIN);
-    createClient.mockResolvedValue(fakeClient({ rate_versions: { single: { data: { ...draftVersion, active: true } } } }));
+    const before = { id: ROW_ID, rate_version_id: VERSION, ...LASER_VALUES, speed_m_min: 10, placeholder: false };
+    const after = { id: ROW_ID, rate_version_id: VERSION, ...LASER_VALUES, placeholder: false };
+    const client = fakeClient({
+      rate_versions: { single: { data: { ...draftVersion, active: true } } },
+      // pinned by quotes: irrelevant for the active version (sent quotes keep their snapshot, drafts re-price on open)
+      quotes: { list: { data: [{ rate_version_id: VERSION }, { rate_version_id: VERSION }] } },
+      rate_laser: { single: [{ data: before }, { data: after }] },
+    });
+    createClient.mockResolvedValue(client);
     const result = await saveRateRow({ versionId: VERSION, table: "laser", ref: { id: ROW_ID }, values: LASER_VALUES });
-    expect(result).toEqual({ ok: false, error: "versionActive" });
-    expect(logAudit).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, row: after });
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "rate_laser.update", entityId: ROW_ID, before, after }));
   });
 
   it("refuses to edit a version referenced by quotes", async () => {
