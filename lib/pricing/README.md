@@ -135,6 +135,7 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `dfm.bend_collision` | amber | two same-direction bends: no straight punch ≥ W + 10 mm and no gooseneck with throat ≥ min(legs) | `bendA`, `bendB`, `widthMm`, `legMm`, `punchMm`, `thicknessMm` |
 | `dfm.laser_cannot_make` | amber | countersinks (`what = countersink`), blind pockets that are not stud seats (`pocket`), modelled threads (`thread`) | `what`, `count`, `sizeMm`, `topMm`, `depthMm` |
 | `dfm.flat_mass_mismatch` | amber | flat net volume × (1 ± 2 %) does not contain the model's body volume | `flatMm3`, `solidMm3`, `deltaPct`, `thicknessMm` |
+| `dfm.not_press_brake_formable` | amber | curved formed edges the unfold did not develop (toroidal / free-form walls, a bend along a curved edge): priced by hand | `count`, `lengthMm`, `kinds` |
 | `dfm.open_contour` | red | flat pattern without a closed outline | — |
 | `dfm.overlapping_cuts` | red | two cut loops intersect | `count` |
 | `bend.hole_crosses_bend` | red | a hole edge crosses the bend line (per bend, aggregated; circles by centre/radius, other holes by their loop polygon) | `bendId`, `count`, `loopIds` |

@@ -103,15 +103,47 @@ the product structure, the solid's statements copied verbatim into a
 per-part STEP file); an IFC file (`ifc.ts`) yields one part per element
 with its geometry rewritten as STEP by `write-step.ts` (extruded profiles
 exactly, faceted / triangulated solids as FACETED_BREPs). Tessellated
-solids are rebuilt by `mesh.ts`: coplanar facets merge into flanges,
-strips of rotating quads become cylinders fitted through their vertices
-(bends, hole walls, slot ends), so the same thickness / unfold / flat
-pattern code runs on meshes.
+solids are rebuilt by `mesh.ts`: coplanar facets merge into flanges
+(holes kept as inner rings), strips of rotating quads become cylinders
+fitted through their vertices (bends, hole walls, slot ends), so the same
+thickness / unfold / flat pattern code runs on meshes. Every cylinder
+face's loop is chained end to end (tangent line, side, tangent line,
+side; closed rims joined by a seam), which is what `volume.ts` needs to
+integrate it — the rebuilt body carries the exact mesh volume as
+`Body3.meshVolumeMm3` and `sheet.ts` prefers it, so `solidVolumeMm3` is
+the true volume of an IFC body. Mesh-to-STEP files (every face planar
+with line edges, bends as runs of ≥ 3 narrow quads rotating 0.05°–60°
+about parallel edges) take the same route (`isTessellatedBody`); a
+straight-edged flat plate keeps the exact path. When the integral over
+the rebuilt faces differs from the mesh volume by more than 1 %, a
+warning names the body (`withReconstructedMeshes`, for developers).
+
+Bodies of a file are sheets (thickness found, largest face ≥ 25 t², and
+≥ 60 % of the planar area with an opposite parallel partner face at
+distance t — a box bent in three directions qualifies), hardware (tiny
+non-sheets, attached to the sheet they touch) or solids (their own not
+sheet-metal parts) — every body ends in a part, a hardware line or a
+`SplitModel.warnings` entry. Each part's `sheet.bodyHints` reports facts
+for the reference-body rules of `lib/pricing/reference-body.ts`: the
+default CAD feature name it is named after (`feature-names.ts`), solid
+block, sliver, not a sheet, sorted bbox, volume. Curved formed edges the
+unfold does not develop (toroidal / free-form walls, bends along curved
+edges) are listed in `sheet.formedEdges`. IFC elements with the same name
+and the same local geometry (sorted vertex set within 0.01 mm) are one
+part with occurrences; mirrored copies stay apart. Part 21 strings are
+repaired when a converter stored UTF-8 bytes as Latin-1 characters
+(`StÃ¼tzenfuÃ\x9F` → `Stützenfuß`); U+FFFD is left as it is.
 
 Test fixtures are written by the library writer (`test/geometry/step-builder.ts`
 wraps `write-step.ts`: extruded profiles the way CAD exporters write them,
-optionally with a product structure), `test/geometry/mesh-fixtures.ts`
-(watertight tessellated plate and bracket) and `test/geometry/ifc-builder.ts`.
+optionally with a product structure; `facetProfile` turns the arcs into
+chords for planar-strip files), `test/geometry/mesh-fixtures.ts`
+(watertight tessellated plate, bracket and channel),
+`test/geometry/folded-fixtures.ts` (folded parts with bends in several
+directions built from a mid-surface) and `test/geometry/ifc-builder.ts`.
+Customer files live outside git: `test/fixtures/sst/` and
+`test/fixtures/customer-142/` are ignored and their suites skip when the
+folders are absent.
 
 ## Tests
 

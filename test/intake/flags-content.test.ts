@@ -82,6 +82,7 @@ const FLAG_CODES: FlagCode[] = [
   "dfm.bend_collision",
   "dfm.laser_cannot_make",
   "dfm.flat_mass_mismatch",
+  "dfm.not_press_brake_formable",
   "dfm.open_contour",
   "dfm.overlapping_cuts",
 ];

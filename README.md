@@ -176,6 +176,21 @@ cylinders / cones, so everything runs inside the Vercel function
   overlapping cuts. Tooling lives in `/admin/tooling`
   (`press_brake_tools`, seeded with placeholders `placeholder = true` —
   replace them with the real punches and dies).
+- **Reference bodies.** A SolidWorks / Inventor export carries the tool
+  bodies of the model (cut and extrude helpers, window blocks) as bodies
+  named after the feature that made them (`Schnitt-Linear austragen5`,
+  `Cut-Extrude3`). The geometry engine reports facts on every part
+  (`sheet.bodyHints`: feature name from `lib/geometry/step/feature-names.ts`,
+  solid block, sliver, not a sheet, size, volume); `lib/pricing/reference-body.ts`
+  decides with the laser bed: red `geometry.reference_body` (left out of
+  the total, blocks sending — the one red flag an admin's approved
+  override "real part" clears), amber `geometry.unnamed_body` (a feature
+  name alone: confirm it is a part), amber `geometry.solid_block`. The
+  intake result and the parts list offer "Remove suspected reference
+  bodies (n)" in one click. IFC volumes are the exact mesh volumes, so
+  `dfm.flat_mass_mismatch` fires only when the flat really misses material
+  — a drawn tray rim the press brake cannot make is reported as
+  `dfm.not_press_brake_formable` with its length.
 - **Verification report**: the part page's "STEP model report" panel and
   the flat-pattern preview with stud positions, masking zones and the
   flagged spots circled. The SST fixture suite

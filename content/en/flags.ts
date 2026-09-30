@@ -373,6 +373,10 @@ export const flags: FlagsContent = {
       label: "Flat mass ≠ model mass",
       message: "The flat pattern's volume {flatMm3} mm³ differs from the model's body {solidMm3} mm³ by {deltaPct} % (tolerance ±2 %) — probably a missed hole or a misplaced feature. Check the flat pattern.",
     },
+    "dfm.not_press_brake_formable": {
+      label: "Formed edge — not for the press brake",
+      message: "{count} curved formed edges (surfaces: {kinds}, {lengthMm} mm in total) — a press brake cannot make them and the flat pattern does not develop them (its mass is too low). Price the forming by hand or as subcontract.",
+    },
     "dfm.open_contour": {
       label: "Open contour",
       message: "The flat pattern has no closed outline — the file cannot be cut.",

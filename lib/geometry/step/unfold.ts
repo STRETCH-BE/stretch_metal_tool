@@ -44,7 +44,7 @@
  */
 
 import type { ParsedDxf, RawEntity } from "../parse";
-import type { BendAllowanceSource, BlindPocket, CountersinkInfo, DxfHeaderInfo, MaskingZone, Point, SheetBend } from "../types";
+import type { BendAllowanceSource, BlindPocket, CountersinkInfo, DxfHeaderInfo, FormedEdge, MaskingZone, Point, SheetBend } from "../types";
 import { DEFAULT_CHORD_ERROR_MM, angleDeg, makeArc, makeCircle, makeLine, pointsEqual, pointInPolygon } from "../math";
 import {
   add3,
@@ -498,6 +498,14 @@ export type UnfoldResult = {
   overThroughHole: (p: Vec3) => boolean;
   /** Placed flange area / all planar area of the body. */
   placedShare: number;
+  /**
+   * Faces that join the sheet but are not planar flanges, cylindrical
+   * bends or hole walls: toroidal / conical / free-form surfaces, and
+   * cylinders at sheet thickness that do not run between two flange
+   * tangent lines (a curved formed edge). Not developed; reported with the
+   * longest edge of each face so the quote can price the forming by hand.
+   */
+  formedEdges: FormedEdge[];
 };
 
 type Tangent = { edge: Edge3; flange: Flange };
@@ -558,6 +566,7 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
     }
   }
   if (groups.length > 0 && bends.length === 0) return null;
+  const formedEdges = findFormedEdges(body, groups, bends.map((b) => b.group), thicknessMm, chordError);
 
   // Root: the largest flange. Its side is "outside" when its bends attach through the outer radius.
   let root: Flange | null = null;
@@ -836,7 +845,48 @@ export function unfoldBody(body: Body3, options: UnfoldOptions): UnfoldResult | 
       return (throughLoopsByFlange.get(f) ?? []).some((loop) => pointInPolygon(q, loop));
     },
     placedShare: planarArea > 0 ? placedArea / planarArea : 0,
+    formedEdges,
   };
+}
+
+/** A face's longest loop edge, as sampled (mm). */
+function longestEdgeMm(face: Face3, chordError: number): number {
+  let best = 0;
+  const loops: Loop3[] = face.outer ? [face.outer, ...face.inner] : face.inner;
+  for (const loop of loops) {
+    for (const oe of loop.edges) {
+      const pts = sampleEdge(oe.edge, chordError);
+      let l = 0;
+      for (let i = 0; i + 1 < pts.length; i++) l += dist3(pts[i], pts[i + 1]);
+      best = Math.max(best, l);
+    }
+  }
+  return best;
+}
+
+/**
+ * Formed edges a press brake cannot make: toroidal, conical and free-form
+ * faces, plus cylinders at sheet thickness (a coaxial partner r / r + t)
+ * whose bend was refused — no two straight flange tangent lines (a bend
+ * along a curved edge, a drawn tray rim). Edge fillets (no partner) and
+ * hole walls (no partner either) are not formed edges.
+ */
+export function findFormedEdges(body: Body3, groups: BendGroup[], usable: BendGroup[], thicknessMm: number, chordError: number): FormedEdge[] {
+  const out: FormedEdge[] = [];
+  const usableFaces = new Set<Face3>();
+  for (const g of usable) for (const f of g.faces) usableFaces.add(f);
+  const refused = new Set<Face3>();
+  for (const g of groups) if (!usable.includes(g)) for (const f of g.faces) refused.add(f);
+  for (const face of body.faces) {
+    const s = face.surface;
+    if (s.kind === "plane" || s.kind === "sphere") continue;
+    if (s.kind === "cylinder" && !refused.has(face)) continue;
+    if (usableFaces.has(face)) continue;
+    const lengthMm = longestEdgeMm(face, chordError);
+    if (lengthMm < thicknessMm) continue;
+    out.push({ kind: s.kind, lengthMm: Math.round(lengthMm * 100) / 100 });
+  }
+  return out;
 }
 
 type FeatureSinks = { studPositions: Point[]; maskingZones: MaskingZone[]; countersinks: CountersinkInfo[]; blindPockets: BlindPocket[]; helicalHoles: Point[] };

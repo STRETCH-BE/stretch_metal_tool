@@ -706,6 +706,8 @@ export type FlagCode =
   | "dfm.bend_collision"
   | "dfm.laser_cannot_make"
   | "dfm.flat_mass_mismatch"
+  /** Curved formed edges (drawn tray rims, bends along curved edges) a press brake cannot make; the flat does not develop them. */
+  | "dfm.not_press_brake_formable"
   | "dfm.open_contour"
   | "dfm.overlapping_cuts"
   /** Market mode: no rate_laser row for exactly this material + thickness (or no thread row) — quote manually. */

@@ -480,6 +480,19 @@ export type BodyHints = {
   volumeMm3: number | null;
 };
 
+/**
+ * A formed edge a press brake cannot make: a curved (drawn) edge of a
+ * tray, a free-form or toroidal wall — a non-planar face at sheet
+ * thickness that is not a plain cylindrical bend. The flat pattern does
+ * not develop it; the length is what the quote needs to price it by hand.
+ */
+export type FormedEdge = {
+  /** Surface kind of the face: torus, cone, other (free-form), or a cylinder that is not a bend. */
+  kind: string;
+  /** Length of the edge along the sheet (mm, the face's longest loop edge). */
+  lengthMm: number;
+};
+
 export type SheetReport = {
   version: 1;
   thicknessMm: number;
@@ -508,6 +521,8 @@ export type SheetReport = {
   drawing?: DrawingCrossCheck | null;
   /** Facts for the reference-body rules (absent on reports written before this field existed). */
   bodyHints?: BodyHints;
+  /** Curved formed edges the unfold did not develop (dfm.not_press_brake_formable); absent on older reports. */
+  formedEdges?: FormedEdge[];
 };
 
 export type DrawingCrossCheck = {

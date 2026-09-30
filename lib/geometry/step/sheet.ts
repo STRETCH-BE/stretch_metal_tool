@@ -498,5 +498,6 @@ export function buildSheetReport(input: {
     flatVolumeMm3: input.flatNetAreaMm2 * input.thicknessMm,
     hardwareBodies: input.hardwareBodies,
     productName: input.productName,
+    ...(u.formedEdges.length ? { formedEdges: u.formedEdges } : {}),
   };
 }

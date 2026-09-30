@@ -430,6 +430,10 @@ export const flags: FlagsContent = {
       label: "Masa rozwinięcia ≠ masa modelu",
       message: "Objętość rozwinięcia {flatMm3} mm³ różni się od bryły w modelu {solidMm3} mm³ o {deltaPct} % (tolerancja ±2 %) — prawdopodobnie pominięty otwór albo źle umieszczona cecha. Sprawdź rozwinięcie.",
     },
+    "dfm.not_press_brake_formable": {
+      label: "Krawędź formowana — nie na prasie",
+      message: "{count} krawędzi formowanych po łuku (powierzchnie: {kinds}, łącznie {lengthMm} mm) — prasa krawędziowa ich nie wykona i rozwinięcie ich nie zawiera (masa rozwinięcia jest za mała). Wyceń formowanie ręcznie albo jako kooperację.",
+    },
     "dfm.open_contour": {
       label: "Otwarty obrys",
       message: "Rozwinięcie nie ma zamkniętego obrysu — plik nie nadaje się do cięcia.",

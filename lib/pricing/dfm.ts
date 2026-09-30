@@ -22,6 +22,9 @@
  *   blind pockets that are not stud seats, modelled threads.
  * - dfm.flat_mass_mismatch amber  flat volume × (1 ± 2 %) does not contain
  *   the model's sheet-body volume (a missed hole or a misplaced feature).
+ * - dfm.not_press_brake_formable amber  curved formed edges (toroidal /
+ *   free-form walls, bends along curved edges) the unfold did not develop;
+ *   carries the count and the summed edge length — priced by hand.
  * - dfm.open_contour       red    no closed outline; dfm.overlapping_cuts
  *   red: two cut loops intersect.
  * - sheet.bend_deduction_unverified amber: any bend without a test-bend row.
@@ -242,6 +245,13 @@ function massFlags(input: DfmInput): Flag[] {
   ];
 }
 
+function formedEdgeFlags(input: DfmInput): Flag[] {
+  const edges = input.sheet.formedEdges ?? [];
+  if (edges.length === 0) return [];
+  const lengthMm = edges.reduce((sum, e) => sum + e.lengthMm, 0);
+  return [flag(input, "dfm.not_press_brake_formable", "amber", { count: edges.length, lengthMm: round(lengthMm, 1), kinds: Array.from(new Set(edges.map((e) => e.kind))).join(",") })];
+}
+
 function contourFlags(input: DfmInput): Flag[] {
   const g = input.geometry;
   const out: Flag[] = [];
@@ -341,6 +351,7 @@ export function evaluateDfmFlags(input: DfmInput): Flag[] {
     ...collisionFlags(input),
     ...laserFlags(input),
     ...massFlags(input),
+    ...formedEdgeFlags(input),
     ...sheetFlags(input),
     ...drawingFlags(input),
   ];

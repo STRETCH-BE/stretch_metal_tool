@@ -746,6 +746,7 @@ const FLAG_CODES = {
   "dfm.bend_collision": true,
   "dfm.laser_cannot_make": true,
   "dfm.flat_mass_mismatch": true,
+  "dfm.not_press_brake_formable": true,
   "dfm.open_contour": true,
   "dfm.overlapping_cuts": true,
 } satisfies Record<FlagCode, true>;
