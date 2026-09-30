@@ -8,7 +8,7 @@
 
 import { FRAME_XZ, writeExtrudedStep, type ExtrusionSpec, type WriteOptions } from "@/lib/geometry/step/write-step";
 
-export { circle, lProfile, rect, type Profile, type ProfileSegment } from "@/lib/geometry/step/write-step";
+export { circle, facetProfile, lProfile, rect, uProfile, type Profile, type ProfileSegment } from "@/lib/geometry/step/write-step";
 
 export type P = { x: number; y: number };
 export type Frame = "xy" | "xz";

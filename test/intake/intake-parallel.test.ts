@@ -14,7 +14,7 @@ import { buildIfc, type IfcElementSpec } from "../geometry/ifc-builder";
 import { tessellatedPlate } from "../geometry/mesh-fixtures";
 import { evaluateBrep } from "@/lib/geometry/step/brep";
 import { parseStep } from "@/lib/geometry/step/part21";
-import { polygonsOfFacetedBody } from "@/lib/geometry/step/mesh";
+import { polygonOuter, polygonsOfFacetedBody } from "@/lib/geometry/step/mesh";
 import type { SplitModel } from "@/lib/geometry/types";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import { sha256 } from "@/lib/files/storage";
@@ -42,7 +42,7 @@ type ItemRecord = { id: string; quoteId: string; partId: string; position: numbe
 type FileRecord = IntakeFile & Partial<IntakeProgress>;
 
 const plate = polygonsOfFacetedBody(evaluateBrep(parseStep(tessellatedPlate())).bodies[0]).map((poly) =>
-  poly.map((p) => ({ x: p.x / 1000, y: p.y / 1000, z: p.z / 1000 }))
+  polygonOuter(poly).map((p) => ({ x: p.x / 1000, y: p.y / 1000, z: p.z / 1000 }))
 );
 
 function hallIfc(): { bytes: Uint8Array; expectedNames: string[] } {

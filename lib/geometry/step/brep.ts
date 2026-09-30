@@ -133,7 +133,18 @@ export type Face3 = {
   inner: Loop3[];
 };
 
-export type Body3 = { id: number; kind: "solid" | "shell"; faces: Face3[] };
+export type Body3 = {
+  id: number;
+  kind: "solid" | "shell";
+  faces: Face3[];
+  /**
+   * Exact enclosed volume of the tessellation a body was rebuilt from
+   * (mesh.ts, sum of signed tetrahedra over the facets), mm³. Absent on
+   * bodies evaluated from exact surfaces; sheet.ts prefers it over the
+   * integral of the rebuilt faces.
+   */
+  meshVolumeMm3?: number;
+};
 
 export type BrepModel = {
   /** Factor already applied to every coordinate (25.4 for inch files, 1 for mm). */

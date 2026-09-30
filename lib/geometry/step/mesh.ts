@@ -4,15 +4,21 @@
  *
  * IFC exports (and STEP FACETED_BREPs) carry no surfaces, only planar
  * facets: a plate's top is dozens of triangles, a bend is a strip of
- * narrow quads, a hole wall a ring of quads. This module rebuilds what
- * the sheet analysis and the unfolder need from that:
+ * narrow quads, a hole wall a ring of quads. Mesh-to-STEP converters
+ * (OpenCASCADE, Revit, SketchUp) write the same thing as an ADVANCED_BREP
+ * whose faces are all planar with straight edges: merged flange faces
+ * with holes as inner bounds and bends as runs of narrow planar strips.
+ * This module rebuilds what the sheet analysis and the unfolder need from
+ * either form:
  *   1. vertices are merged by position and facets welded into a closed
- *      mesh (edge → the two facets using it); winding is made outward
- *      by the sign of the enclosed volume;
+ *      mesh (edge → the two facets using it); a facet may carry inner
+ *      rings (holes), wound against its outer ring; winding is made
+ *      outward by the sign of the enclosed volume, which is also the
+ *      exact volume of the mesh (`Body3.meshVolumeMm3`);
  *   2. coplanar facets that share an edge are merged into planar REGIONS
  *      (flange tops and bottoms, edge walls); a region's boundary is the
  *      set of its directed edges whose twin lies outside it, chained into
- *      loops and simplified by dropping collinear vertices;
+ *      loops (outer + holes) and simplified by dropping collinear vertices;
  *   3. quad regions whose neighbours across a pair of parallel edges are
  *      quads with a normal rotated about that edge direction form STRIPS:
  *      a circle fitted through the strip vertices in the plane across its
@@ -20,8 +26,16 @@
  *      round); a strip that closes on itself is a full cylinder;
  *   4. the result is a Body3: planar faces with line-edge loops (edges
  *      shared by object between neighbouring faces, so the unfolder finds
- *      a bend's tangent lines), cylinder faces for the strips whose loop
- *      holds the two tangent lines and two polyline sides.
+ *      a bend's tangent lines), cylinder faces for the strips whose loop is
+ *      CHAINED end to end — tangent line, side polyline, tangent line, side
+ *      polyline — and, for a closed strip, both rims as closed polylines
+ *      joined by a seam line walked twice, as a STEP seam is. volume.ts
+ *      integrates a cylinder face by scanning its loop in (angle, axial)
+ *      parameter space, so an unchained loop (the earlier form) made the
+ *      even / odd coverage miss part of the face; since the divergence
+ *      theorem multiplies the missing area by the distance from the origin,
+ *      a part modelled metres from its origin came out with a volume tens
+ *      of percent off.
  *
  * Decisions:
  *   - Positions are merged at 0.001 mm; coplanarity at 0.01 mm / 0.01°;
@@ -30,11 +44,17 @@
  *     decides whether they are outward. A mesh with inconsistent winding
  *     yields regions with wrong thickness pairs and ends in the manual
  *     result, never in a wrong flat pattern.
+ *   - A planar-strip B-rep qualifies for the rebuild (isTessellatedBody)
+ *     when every face is planar with line edges and at least one run of
+ *     STRIP_MIN_RUN edge-adjacent narrow quads (width across the shared
+ *     edges under NARROW_MAX_RATIO of their length) rotates about parallel
+ *     edges by 0.05°–60° per step; a plain flat plate with straight edges
+ *     has no such run and keeps the exact path.
  *   - No `any`; deterministic; never throws for a mesh with ≥ 1 facet.
  */
 
 import type { Point } from "../types";
-import { add3, cross3, dot3, len3, norm3, scale3, sub3, type Body3, type Edge3, type Face3, type Loop3, type OrientedEdge3, type Placement, type Vec3 } from "./brep";
+import { add3, cross3, dot3, len3, loopPolyline, norm3, scale3, sub3, type Body3, type Edge3, type Face3, type Loop3, type OrientedEdge3, type Placement, type Vec3 } from "./brep";
 
 const MERGE_MM = 0.001;
 const COPLANAR_MM = 0.01;
@@ -42,8 +62,21 @@ const COPLANAR_DOT = 0.99999;
 const COLLINEAR_DOT = 0.99999;
 const STRIP_MIN_DEG = 0.05;
 const STRIP_MAX_DEG = 60;
+/** A planar-strip B-rep needs a run of this many rotating narrow quads to count as a tessellation. */
+const STRIP_MIN_RUN = 3;
+/** A quad is "narrow" when its width across the shared (axis) edges is under this share of their length. */
+const NARROW_MAX_RATIO = 0.4;
 
-export type MeshPolygon = Vec3[];
+/** A facet: a simple ring, or an outer ring with holes (any winding, the holes are wound against the outer ring). */
+export type MeshPolygon = Vec3[] | { outer: Vec3[]; holes: Vec3[][] };
+
+export function polygonOuter(poly: MeshPolygon): Vec3[] {
+  return Array.isArray(poly) ? poly : poly.outer;
+}
+
+export function polygonHoles(poly: MeshPolygon): Vec3[][] {
+  return Array.isArray(poly) ? [] : poly.holes;
+}
 
 /* ─── Small helpers ─────────────────────────────────────────── */
 
@@ -75,15 +108,60 @@ function placementOf(origin: Vec3, axis: Vec3): Placement {
   return { origin, axis, ref, y: cross3(axis, ref) };
 }
 
+function edgeKey(a: number, b: number): string {
+  return a < b ? `${a}-${b}` : `${b}-${a}`;
+}
+
+/** Signed volume of the fan of tetrahedra (origin, p0, pi, pi+1) over a ring — exact for a planar ring, any winding. */
+function fanVolume(positions: Vec3[], ring: number[]): number {
+  let volume = 0;
+  const p0 = positions[ring[0]];
+  for (let i = 1; i < ring.length - 1; i++) {
+    const p1 = positions[ring[i]];
+    const p2 = positions[ring[i + 1]];
+    volume += dot3(p0, cross3(p1, p2)) / 6;
+  }
+  return volume;
+}
+
+/** Volume enclosed by polygons as written (before any orientation fix); the sign tells the winding. */
+export function polygonsSignedVolumeMm3(polygons: readonly MeshPolygon[]): number {
+  let volume = 0;
+  for (const poly of polygons) {
+    const outer = polygonOuter(poly);
+    if (outer.length < 3) continue;
+    const n = newell(outer);
+    volume += fanVolume(outer, outer.map((_, i) => i));
+    for (const hole of polygonHoles(poly)) {
+      if (hole.length < 3) continue;
+      // A hole wound with the outer ring would add material: flip it.
+      const ring = dot3(newell(hole), n) > 0 ? [...hole].reverse() : hole;
+      volume += fanVolume(ring, ring.map((_, i) => i));
+    }
+  }
+  return volume;
+}
+
 /* ─── Mesh ──────────────────────────────────────────────────── */
 
-type Facet = { vertices: number[]; normal: Vec3; area: number; offset: number; region: number };
+type Facet = {
+  /** rings[0] is the outer ring (= vertices); the rest are holes wound against it. */
+  rings: number[][];
+  vertices: number[];
+  normal: Vec3;
+  /** Outer area minus the holes. */
+  area: number;
+  offset: number;
+  region: number;
+};
 
 class Mesh {
   readonly positions: Vec3[] = [];
   readonly facets: Facet[] = [];
   /** undirected edge key "a-b" (a < b) → facet indices */
   readonly edgeFacets = new Map<string, number[]>();
+  /** Enclosed volume (mm³), set by orientOutward(). */
+  volumeMm3 = 0;
   private readonly index = new Map<string, number>();
 
   vertex(p: Vec3): number {
@@ -96,46 +174,60 @@ class Mesh {
     return id;
   }
 
-  addPolygon(points: Vec3[]): void {
+  private ring(points: Vec3[]): number[] {
     const ids: number[] = [];
     for (const p of points) {
       const id = this.vertex(p);
       if (ids.length === 0 || ids[ids.length - 1] !== id) ids.push(id);
     }
     while (ids.length > 1 && ids[0] === ids[ids.length - 1]) ids.pop();
+    return ids;
+  }
+
+  addPolygon(poly: MeshPolygon): void {
+    const ids = this.ring(polygonOuter(poly));
     if (ids.length < 3) return;
     const pts = ids.map((i) => this.positions[i]);
     const n = newell(pts);
     const area2 = len3(n);
     if (area2 < 1e-9) return;
     const normal = scale3(n, 1 / area2);
-    const facet: Facet = { vertices: ids, normal, area: area2 / 2, offset: dot3(normal, pts[0]), region: -1 };
+    let area = area2 / 2;
+    const rings: number[][] = [ids];
+    for (const hole of polygonHoles(poly)) {
+      let ring = this.ring(hole);
+      if (ring.length < 3) continue;
+      const hn = newell(ring.map((i) => this.positions[i]));
+      if (dot3(hn, normal) > 0) ring = ring.reverse();
+      area -= len3(hn) / 2;
+      rings.push(ring);
+    }
+    const facet: Facet = { rings, vertices: ids, normal, area: Math.max(0, area), offset: dot3(normal, pts[0]), region: -1 };
     const fi = this.facets.length;
     this.facets.push(facet);
-    for (let i = 0; i < ids.length; i++) {
-      const a = ids[i];
-      const b = ids[(i + 1) % ids.length];
-      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-      const list = this.edgeFacets.get(key);
-      if (list) list.push(fi);
-      else this.edgeFacets.set(key, [fi]);
+    for (const ring of rings) {
+      for (let i = 0; i < ring.length; i++) {
+        const key = edgeKey(ring[i], ring[(i + 1) % ring.length]);
+        const list = this.edgeFacets.get(key);
+        if (list) list.push(fi);
+        else this.edgeFacets.set(key, [fi]);
+      }
     }
   }
 
-  /** Flip every facet when the winding encloses a negative volume. */
-  orientOutward(): void {
+  signedVolume(): number {
     let volume = 0;
-    for (const f of this.facets) {
-      const p0 = this.positions[f.vertices[0]];
-      for (let i = 1; i < f.vertices.length - 1; i++) {
-        const p1 = this.positions[f.vertices[i]];
-        const p2 = this.positions[f.vertices[i + 1]];
-        volume += dot3(p0, cross3(p1, p2)) / 6;
-      }
-    }
+    for (const f of this.facets) for (const ring of f.rings) volume += fanVolume(this.positions, ring);
+    return volume;
+  }
+
+  /** Flip every facet when the winding encloses a negative volume; records the enclosed volume. */
+  orientOutward(): void {
+    const volume = this.signedVolume();
+    this.volumeMm3 = Math.abs(volume);
     if (volume >= 0) return;
     for (const f of this.facets) {
-      f.vertices.reverse();
+      for (const ring of f.rings) ring.reverse();
       f.normal = scale3(f.normal, -1);
       f.offset = -f.offset;
     }
@@ -144,11 +236,12 @@ class Mesh {
   neighbours(fi: number): { facet: number; a: number; b: number }[] {
     const f = this.facets[fi];
     const out: { facet: number; a: number; b: number }[] = [];
-    for (let i = 0; i < f.vertices.length; i++) {
-      const a = f.vertices[i];
-      const b = f.vertices[(i + 1) % f.vertices.length];
-      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-      for (const other of this.edgeFacets.get(key) ?? []) if (other !== fi) out.push({ facet: other, a, b });
+    for (const ring of f.rings) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        for (const other of this.edgeFacets.get(edgeKey(a, b)) ?? []) if (other !== fi) out.push({ facet: other, a, b });
+      }
     }
     return out;
   }
@@ -216,16 +309,17 @@ function regionLoops(mesh: Mesh, region: Region): number[][] {
   const next = new Map<number, Out[]>();
   for (const fi of region.facets) {
     const f = mesh.facets[fi];
-    for (let i = 0; i < f.vertices.length; i++) {
-      const a = f.vertices[i];
-      const b = f.vertices[(i + 1) % f.vertices.length];
-      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-      const twins = (mesh.edgeFacets.get(key) ?? []).filter((other) => other !== fi);
-      if (twins.some((other) => mesh.facets[other].region === region.id)) continue;
-      const across = twins.length ? mesh.facets[twins[0]].region : -1;
-      const list = next.get(a);
-      if (list) list.push({ to: b, across });
-      else next.set(a, [{ to: b, across }]);
+    for (const ring of f.rings) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i];
+        const b = ring[(i + 1) % ring.length];
+        const twins = (mesh.edgeFacets.get(edgeKey(a, b)) ?? []).filter((other) => other !== fi);
+        if (twins.some((other) => mesh.facets[other].region === region.id)) continue;
+        const across = twins.length ? mesh.facets[twins[0]].region : -1;
+        const list = next.get(a);
+        if (list) list.push({ to: b, across });
+        else next.set(a, [{ to: b, across }]);
+      }
     }
   }
   const loops: number[][] = [];
@@ -273,14 +367,16 @@ function ringArea(mesh: Mesh, ring: number[], normal: Vec3): number {
 
 /* ─── Strips (cylinders) ────────────────────────────────────── */
 
+type ChainLink = { region: number; entry: [number, number]; exit: [number, number] };
+
 type Strip = {
+  /** Links in chain order: consecutive exit / entry edges are the same undirected edge. */
+  links: ChainLink[];
   regions: number[];
   axis: Vec3;
   center: Vec3;
   radius: number;
   closed: boolean;
-  /** Boundary rings at both ends of the strip (vertex ids along the axis edges), or null when closed. */
-  endEdges: [number, number][] | null;
 };
 
 type Quad = { region: number; ring: number[] };
@@ -302,8 +398,7 @@ function parallelPairs(mesh: Mesh, ring: number[]): { edges: [[number, number], 
 }
 
 function regionAcross(mesh: Mesh, region: Region, a: number, b: number): number | null {
-  const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-  for (const fi of mesh.edgeFacets.get(key) ?? []) {
+  for (const fi of mesh.edgeFacets.get(edgeKey(a, b)) ?? []) {
     const r = mesh.facets[fi].region;
     if (r !== region.id) return r;
   }
@@ -363,8 +458,6 @@ function fitCircle(points: Point[]): { center: Point; radius: number } | null {
   if (!(r2 > 0)) return null;
   return { center: { x: cx, y: cy }, radius: Math.sqrt(r2) };
 }
-
-type ChainLink = { region: number; entry: [number, number]; exit: [number, number] };
 
 /** Width of a quad region across the strip axis: area over the axis-parallel edge length. */
 function quadWidth(mesh: Mesh, region: Region, edge: [number, number]): number {
@@ -468,14 +561,7 @@ function findStrips(mesh: Mesh, regions: Region[]): Strip[] {
         const along = dot3(mesh.positions[quad.ring[0]], axis);
         const center = add3(add3(scale3(u, fit.center.x), scale3(v, fit.center.y)), scale3(axis, along));
         for (const link of r) assigned.add(link.region);
-        strips.push({
-          regions: r.map((l) => l.region),
-          axis,
-          center,
-          radius: fit.radius,
-          closed: wholeRing,
-          endEdges: wholeRing ? null : [r[0].entry, r[r.length - 1].exit],
-        });
+        strips.push({ links: r, regions: r.map((l) => l.region), axis, center, radius: fit.radius, closed: wholeRing });
         made++;
       }
       if (made === 0) continue;
@@ -492,8 +578,9 @@ class EdgeCache {
   private readonly edges = new Map<string, Edge3>();
   constructor(private readonly mesh: Mesh) {}
 
-  line(a: number, b: number): { edge: Edge3; forward: boolean } {
-    const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+  /** The shared line edge between vertices a and b, oriented from a to b. */
+  line(a: number, b: number): OrientedEdge3 {
+    const key = edgeKey(a, b);
     let edge = this.edges.get(key);
     if (!edge) {
       const start = this.mesh.positions[Math.min(a, b)];
@@ -501,29 +588,54 @@ class EdgeCache {
       edge = { id: this.next++, start, end, curve: { kind: "line", point: start, dir: norm3(sub3(end, start)) }, sameSense: true };
       this.edges.set(key, edge);
     }
-    return { edge, forward: a < b };
+    return { edge, orientation: a < b };
   }
 
-  polyline(points: Vec3[]): Edge3 {
-    return { id: this.next++, start: points[0], end: points[points.length - 1], curve: { kind: "polyline", points }, sameSense: true };
+  /** A polyline edge through the vertices, in the given order (orientation true). */
+  polyline(ids: number[]): OrientedEdge3 {
+    const points = ids.map((i) => this.mesh.positions[i]);
+    return { edge: { id: this.next++, start: points[0], end: points[points.length - 1], curve: { kind: "polyline", points }, sameSense: true }, orientation: true };
   }
 
   ringLoop(id: number, ring: number[]): Loop3 {
     const edges: OrientedEdge3[] = [];
-    for (let i = 0; i < ring.length; i++) {
-      const { edge, forward } = this.line(ring[i], ring[(i + 1) % ring.length]);
-      edges.push({ edge, orientation: forward });
-    }
+    for (let i = 0; i < ring.length; i++) edges.push(this.line(ring[i], ring[(i + 1) % ring.length]));
     return { id, edges };
   }
 }
 
+/** The endpoints of an axis-parallel edge split by their position along the axis: [low, high]. */
+function bySide(mesh: Mesh, edge: [number, number], axis: Vec3): [number, number] {
+  return dot3(mesh.positions[edge[0]], axis) <= dot3(mesh.positions[edge[1]], axis) ? [edge[0], edge[1]] : [edge[1], edge[0]];
+}
+
 /**
- * Rebuild faces from planar polygons (each a closed ring of points, any
- * winding as long as the mesh is consistent). Returns null when nothing
- * usable is in the mesh.
+ * The two sides of a strip as vertex sequences in chain order: side 0 at
+ * the low end of the axis, side 1 at the high end. Both start at the
+ * first link's entry edge; an open strip ends at the last link's exit
+ * edge, a closed one comes back to its start (the closing vertex is
+ * repeated).
  */
-export function meshToBody(id: number, polygons: MeshPolygon[]): Body3 | null {
+function stripSides(mesh: Mesh, strip: Strip): [number[], number[]] {
+  const lo: number[] = [];
+  const hi: number[] = [];
+  const push = (edge: [number, number]) => {
+    const [a, b] = bySide(mesh, edge, strip.axis);
+    if (lo[lo.length - 1] !== a) lo.push(a);
+    if (hi[hi.length - 1] !== b) hi.push(b);
+  };
+  for (const link of strip.links) push(link.entry);
+  push(strip.links[strip.links.length - 1].exit);
+  return [lo, hi];
+}
+
+/**
+ * Rebuild faces from planar polygons (each a closed ring of points, with
+ * optional holes, any winding as long as the mesh is consistent). Returns
+ * null when nothing usable is in the mesh. The body carries the exact
+ * enclosed volume of the mesh as `meshVolumeMm3`.
+ */
+export function meshToBody(id: number, polygons: readonly MeshPolygon[]): Body3 | null {
   const mesh = new Mesh();
   for (const poly of polygons) mesh.addPolygon(poly);
   if (mesh.facets.length === 0) return null;
@@ -555,39 +667,31 @@ export function meshToBody(id: number, polygons: MeshPolygon[]): Body3 | null {
     const c = scale3(centroid, 1 / first.loops[0].length);
     const radial = sub3(c, add3(strip.center, scale3(strip.axis, dot3(sub3(c, strip.center), strip.axis))));
     const convex = dot3(first.normal, radial) > 0;
+    const [lo, hi] = stripSides(mesh, strip);
     const edges: OrientedEdge3[] = [];
-    if (strip.endEdges && strip.endEdges.length === 2) {
-      // Tangent line A, side polyline, tangent line B, side polyline.
-      const [ea, eb] = strip.endEdges;
-      const la = cache.line(ea[0], ea[1]);
-      const lb = cache.line(eb[0], eb[1]);
-      // Side polylines: walk the strip's vertices on each end of the axis.
-      const sideA: Vec3[] = [];
-      const sideB: Vec3[] = [];
-      const alongA0 = dot3(mesh.positions[ea[0]], strip.axis);
-      for (const rid of strip.regions) {
-        for (const vi of regions[rid].loops[0]) {
-          const p = mesh.positions[vi];
-          (Math.abs(dot3(p, strip.axis) - alongA0) < MERGE_MM * 10 ? sideA : sideB).push(p);
-        }
-      }
-      edges.push({ edge: la.edge, orientation: la.forward });
-      if (sideB.length >= 2) edges.push({ edge: cache.polyline(dedupe(sideB)), orientation: true });
-      edges.push({ edge: lb.edge, orientation: lb.forward });
-      if (sideA.length >= 2) edges.push({ edge: cache.polyline(dedupe(sideA)), orientation: true });
+    if (!strip.closed && lo.length >= 2 && hi.length >= 2) {
+      // Tangent line at the entry (low → high), the high side forward, the
+      // tangent line at the exit (high → low), the low side back: a loop
+      // chained end to end.
+      const p0 = lo[0];
+      const p1 = hi[0];
+      const q0 = lo[lo.length - 1];
+      const q1 = hi[hi.length - 1];
+      edges.push(cache.line(p0, p1));
+      edges.push(cache.polyline(hi));
+      edges.push(cache.line(q1, q0));
+      edges.push(cache.polyline([...lo].reverse()));
+    } else if (lo.length >= 3 && hi.length >= 3) {
+      // Closed ring (hole wall, full round): both rims as closed polylines
+      // joined by the seam edge walked down and up, as a STEP seam is.
+      const rimLo = lo[lo.length - 1] === lo[0] ? lo : [...lo, lo[0]];
+      const rimHi = hi[hi.length - 1] === hi[0] ? hi : [...hi, hi[0]];
+      edges.push(cache.polyline(rimLo));
+      edges.push(cache.line(rimLo[0], rimHi[0]));
+      edges.push(cache.polyline([...rimHi].reverse()));
+      edges.push(cache.line(rimHi[0], rimLo[0]));
     } else {
-      // Closed ring (hole wall, full round): both rims as polylines.
-      const rimA: Vec3[] = [];
-      const rimB: Vec3[] = [];
-      const along0 = dot3(mesh.positions[first.loops[0][0]], strip.axis);
-      for (const rid of strip.regions) {
-        for (const vi of regions[rid].loops[0]) {
-          const p = mesh.positions[vi];
-          (Math.abs(dot3(p, strip.axis) - along0) < MERGE_MM * 10 ? rimA : rimB).push(p);
-        }
-      }
-      if (rimA.length >= 2) edges.push({ edge: cache.polyline(dedupe(rimA)), orientation: true });
-      if (rimB.length >= 2) edges.push({ edge: cache.polyline(dedupe(rimB)), orientation: true });
+      continue;
     }
     faces.push({
       id: faceId++,
@@ -598,22 +702,12 @@ export function meshToBody(id: number, polygons: MeshPolygon[]): Body3 | null {
     });
   }
 
-  return faces.length ? { id, kind: "solid", faces } : null;
+  return faces.length ? { id, kind: "solid", faces, meshVolumeMm3: mesh.volumeMm3 } : null;
 }
 
-function dedupe(points: Vec3[]): Vec3[] {
-  const out: Vec3[] = [];
-  const seen = new Set<string>();
-  for (const p of points) {
-    const k = keyOf(p);
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(p);
-  }
-  return out;
-}
+/* ─── Which bodies are tessellations ────────────────────────── */
 
-/** Polygons of a body whose faces are all planar polygon loops (FACETED_BREP / POLY_LOOP). */
+/** Every face is a planar polygon of synthetic POLY_LOOP edges (FACETED_BREP / IFC facets). */
 export function isFacetedBody(body: Body3): boolean {
   if (body.faces.length === 0) return false;
   for (const face of body.faces) {
@@ -623,14 +717,119 @@ export function isFacetedBody(body: Body3): boolean {
   return true;
 }
 
+/** Every face planar, every edge a line (real EDGE_CURVEs or POLY_LOOPs alike). */
+export function isPlanarLineBody(body: Body3): boolean {
+  if (body.faces.length === 0) return false;
+  for (const face of body.faces) {
+    if (face.surface.kind !== "plane" || !face.outer) return false;
+    for (const loop of [face.outer, ...face.inner]) for (const oe of loop.edges) if (oe.edge.curve.kind !== "line") return false;
+  }
+  return true;
+}
+
+type BrepQuad = { face: Face3; ring: Vec3[]; edgeIds: number[]; normal: Vec3; area: number };
+
+/**
+ * A planar B-rep that is really a tessellation: at least one run of
+ * STRIP_MIN_RUN edge-adjacent narrow quads that rotate about parallel edges
+ * by STRIP_MIN_DEG–STRIP_MAX_DEG per step, in one direction — a bend, a
+ * round or a hole wall written as facets. A flat plate with straight
+ * edges, or a body with true cylinders, is not one.
+ */
+export function hasPlanarStripRun(body: Body3): boolean {
+  if (!isPlanarLineBody(body)) return false;
+  const quads: BrepQuad[] = [];
+  const facesByEdge = new Map<number, Face3[]>();
+  for (const face of body.faces) {
+    const outer = face.outer as Loop3;
+    for (const loop of [outer, ...face.inner]) {
+      for (const oe of loop.edges) {
+        if (oe.edge.id < 0) continue;
+        const list = facesByEdge.get(oe.edge.id) ?? [];
+        if (!list.includes(face)) list.push(face);
+        facesByEdge.set(oe.edge.id, list);
+      }
+    }
+    if (face.inner.length > 0 || outer.edges.length !== 4) continue;
+    const ring = outer.edges.map((oe) => (oe.orientation ? oe.edge.start : oe.edge.end));
+    const n = newell(ring);
+    const area2 = len3(n);
+    if (area2 < 1e-9) continue;
+    const normal = scale3(n, face.sameSense ? 1 / area2 : -1 / area2);
+    quads.push({ face, ring, edgeIds: outer.edges.map((oe) => oe.edge.id), normal, area: area2 / 2 });
+  }
+  if (quads.length < STRIP_MIN_RUN) return false;
+  const quadOfFace = new Map<Face3, BrepQuad>();
+  for (const q of quads) quadOfFace.set(q.face, q);
+
+  // Parallel edge pairs of a quad by edge index: (0, 2) and (1, 3).
+  const pairOf = (q: BrepQuad, i: number): { dir: Vec3; length: number; narrow: boolean } | null => {
+    const a = q.ring[i];
+    const b = q.ring[(i + 1) % 4];
+    const c = q.ring[(i + 2) % 4];
+    const d = q.ring[(i + 3) % 4];
+    const d1 = sub3(b, a);
+    const d2 = sub3(d, c);
+    const l1 = len3(d1);
+    const l2 = len3(d2);
+    if (l1 < 1e-9 || l2 < 1e-9 || Math.abs(dot3(d1, d2)) / (l1 * l2) < 0.9999) return null;
+    const length = (l1 + l2) / 2;
+    return { dir: scale3(d1, 1 / l1), length, narrow: q.area / length < NARROW_MAX_RATIO * length };
+  };
+
+  const visited = new Set<Face3>();
+  for (const start of quads) {
+    if (visited.has(start.face)) continue;
+    for (const i of [0, 1]) {
+      const pair = pairOf(start, i);
+      if (!pair || !pair.narrow) continue;
+      // Walk both ways across the pair's edges, counting narrow quads that rotate consistently about the pair direction.
+      let run = 1;
+      for (const edgeIndex of [i, i + 2]) {
+        let current = start;
+        let edgeId = start.edgeIds[edgeIndex];
+        let sign = 0;
+        for (let guard = 0; guard < 10000; guard++) {
+          const next = (facesByEdge.get(edgeId) ?? []).find((f) => f !== current.face);
+          const nq = next ? quadOfFace.get(next) : undefined;
+          if (!nq || nq === start || visited.has(nq.face)) break;
+          const step = stepAngleDeg(current.normal, nq.normal);
+          if (step < STRIP_MIN_DEG || step > STRIP_MAX_DEG) break;
+          const turn = dot3(cross3(current.normal, nq.normal), pair.dir);
+          const s = turn > 0 ? 1 : -1;
+          if (sign !== 0 && s !== sign) break;
+          sign = s;
+          // The quad must have the shared edge in a parallel pair of its own, and be narrow.
+          const shared = nq.edgeIds.indexOf(edgeId);
+          if (shared < 0) break;
+          const np = pairOf(nq, shared % 2);
+          if (!np || !np.narrow || Math.abs(dot3(np.dir, pair.dir)) < 0.9999) break;
+          run++;
+          if (run >= STRIP_MIN_RUN) return true;
+          current = nq;
+          edgeId = nq.edgeIds[(shared + 2) % 4];
+        }
+      }
+    }
+    visited.add(start.face);
+  }
+  return false;
+}
+
+/** Bodies that go through the mesh rebuild: POLY_LOOP facets, or a planar-strip B-rep. */
+export function isTessellatedBody(body: Body3): boolean {
+  return isFacetedBody(body) || hasPlanarStripRun(body);
+}
+
+/** Polygons (outer ring + holes) of a body whose faces are all planar with line edges. */
 export function polygonsOfFacetedBody(body: Body3): MeshPolygon[] {
   const out: MeshPolygon[] = [];
   for (const face of body.faces) {
     if (!face.outer) continue;
-    const ring: Vec3[] = [];
-    for (const oe of face.outer.edges) ring.push(oe.orientation ? oe.edge.start : oe.edge.end);
-    if (ring.length >= 3) out.push(ring);
+    const outer = loopPolyline(face.outer, 1);
+    if (outer.length < 3) continue;
+    const holes = face.inner.map((l) => loopPolyline(l, 1)).filter((h) => h.length >= 3);
+    out.push(holes.length ? { outer, holes } : outer);
   }
   return out;
 }
-

@@ -402,7 +402,12 @@ export function analyseSheetBody(placed: PlacedBody, facts: BodyFacts, options: 
   if (thicknessMm === null || thicknessMm <= 0) return null;
   const unfold = unfoldBody(placed.body, { thicknessMm, unitScale, allowance: allowanceFrom(options.bendTable, thicknessMm), chordError });
   if (!unfold) return null;
-  return { unfold, facts, solidVolumeMm3: bodyVolumeMm3(placed.body) };
+  return { unfold, facts, solidVolumeMm3: bodyVolume(placed.body) };
+}
+
+/** Volume of a body: the exact mesh volume of a rebuilt tessellation, else the integral over its faces (null when a surface is not covered). */
+export function bodyVolume(body: Body3): number | null {
+  return body.meshVolumeMm3 ?? bodyVolumeMm3(body);
 }
 
 export function buildSheetReport(input: {

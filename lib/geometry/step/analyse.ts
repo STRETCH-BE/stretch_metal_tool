@@ -71,7 +71,8 @@ import { bendGroups, extentsOf, loopToEntities, polygonArea, type Flattening, ty
 import { analyseSheetBody, buildSheetReport, classifyBodies, classifyHardware, placeBodies, type PlacedBody, type BodyFacts, type SheetAnalysis } from "./sheet";
 import { detectReliefs } from "./reliefs";
 import { checkDrawing, compareHardware, revisionFromFileName } from "./drawing-check";
-import { isFacetedBody, meshToBody, polygonsOfFacetedBody } from "./mesh";
+import { isTessellatedBody, meshToBody, polygonsOfFacetedBody } from "./mesh";
+import { bodyVolumeMm3 } from "./volume";
 import { ifcModel, isIfcFile } from "./ifc";
 import { extractBodyStep, stepBodyInfos } from "./assembly";
 
@@ -397,18 +398,38 @@ function manualGeometry(model: BrepModel, analyses: BodyAnalysis[], options: Ana
   };
 }
 
-/** Tessellated bodies (FACETED_BREP / POLY_LOOP faces) rebuilt into flanges and cylinders (mesh.ts). */
+/** The rebuilt body's integrated volume may differ from the mesh volume by this share before a warning is written. */
+export const REBUILD_VOLUME_TOLERANCE = 0.01;
+
+/**
+ * Tessellated bodies (FACETED_BREP / POLY_LOOP faces, or a planar-strip
+ * B-rep written by a mesh-to-STEP converter) rebuilt into flanges and
+ * cylinders (mesh.ts). The rebuilt body carries the exact mesh volume;
+ * when the integral over its rebuilt faces disagrees with it by more than
+ * REBUILD_VOLUME_TOLERANCE, a warning names the body — a developer signal
+ * that the rebuild lost or doubled faces, never a user flag.
+ */
 export function withReconstructedMeshes(model: BrepModel): BrepModel {
   const bodies: Body3[] = [];
+  const warnings = [...model.warnings];
   for (const body of model.bodies) {
-    if (!isFacetedBody(body)) {
+    if (!isTessellatedBody(body)) {
       bodies.push(body);
       continue;
     }
     const rebuilt = meshToBody(body.id, polygonsOfFacetedBody(body));
-    if (rebuilt) bodies.push(rebuilt);
+    if (!rebuilt) {
+      warnings.push(`body #${body.id}: tessellation could not be rebuilt`);
+      continue;
+    }
+    bodies.push(rebuilt);
+    const mesh = rebuilt.meshVolumeMm3 ?? 0;
+    const integrated = bodyVolumeMm3(rebuilt);
+    if (mesh > 0 && integrated !== null && Math.abs(integrated - mesh) > mesh * REBUILD_VOLUME_TOLERANCE) {
+      warnings.push(`body #${body.id}: rebuilt volume ${Math.round(integrated)} mm³ differs from the mesh volume ${Math.round(mesh)} mm³ by ${Math.round(((integrated - mesh) / mesh) * 1000) / 10} %`);
+    }
   }
-  return { ...model, bodies };
+  return { ...model, bodies, warnings };
 }
 
 /* ─── Sheet-metal path ──────────────────────────────────────── */

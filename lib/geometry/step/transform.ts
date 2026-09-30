@@ -113,7 +113,7 @@ export function transformBody(body: Body3, m: Rigid3): Body3 {
     outer: f.outer ? loop(f.outer) : null,
     inner: f.inner.map(loop),
   }));
-  return { id: body.id, kind: body.kind, faces };
+  return body.meshVolumeMm3 === undefined ? { id: body.id, kind: body.kind, faces } : { id: body.id, kind: body.kind, faces, meshVolumeMm3: body.meshVolumeMm3 };
 }
 
 /** Sanity check on a placement-derived transform: columns orthonormal. */

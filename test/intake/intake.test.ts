@@ -16,7 +16,7 @@ import { buildIfc } from "../geometry/ifc-builder";
 import { tessellatedPlate } from "../geometry/mesh-fixtures";
 import { evaluateBrep } from "@/lib/geometry/step/brep";
 import { parseStep } from "@/lib/geometry/step/part21";
-import { polygonsOfFacetedBody } from "@/lib/geometry/step/mesh";
+import { polygonOuter, polygonsOfFacetedBody } from "@/lib/geometry/step/mesh";
 import { EMPTY_ANNOTATIONS, type PartAnnotations, type PartGeometry } from "@/lib/geometry/types";
 import { heuristicSuggestions } from "@/lib/ai/heuristics";
 import { sha256 } from "@/lib/files/storage";
@@ -539,7 +539,7 @@ describe("processUploadedFile — STEP", () => {
     const store = memoryDb();
     const deps = makeDeps(store);
     const plate = polygonsOfFacetedBody(evaluateBrep(parseStep(tessellatedPlate())).bodies[0]).map((poly) =>
-      poly.map((p) => ({ x: p.x / 1000, y: p.y / 1000, z: p.z / 1000 }))
+      polygonOuter(poly).map((p) => ({ x: p.x / 1000, y: p.y / 1000, z: p.z / 1000 }))
     );
     const text = buildIfc([
       { kind: "brep", name: "Rib", polygons: plate, mapShared: "rib" },

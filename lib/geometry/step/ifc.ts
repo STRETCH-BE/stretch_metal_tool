@@ -19,14 +19,19 @@
  *     (SI prefix or a conversion-based unit); no unit → millimetres with a
  *     warning. Placements (IfcLocalPlacement, mapped-item operators) are
  *     ignored: each element is analysed in its own coordinates.
- *   - Elements that share an IfcRepresentationMap (or, unmapped, a name)
- *     are the same part used several times: one element with
- *     `occurrences` = the count, so the quote item gets that quantity.
+ *   - Elements with the same name and the same geometry in their LOCAL
+ *     coordinates (the same vertex set within GROUP_TOLERANCE_MM after
+ *     sorting, or the same extrusion) are the same part used several
+ *     times: one element with `occurrences` = the count, so the quote item
+ *     gets that quantity. Elements sharing an IfcRepresentationMap have the
+ *     same local geometry by construction, so they keep grouping; a
+ *     mirrored copy has another vertex set and stays its own part.
  *   - Boolean results, CSG, revolved / swept solids and IfcAdvancedBrep
  *     are not converted: the element is reported with the type in
  *     `unsupported` and no geometry (the quick part is the fallback).
- *     A faceted face with inner bounds (holes as face voids) is treated
- *     the same way rather than filling the hole.
+ *     A faceted face with inner bounds (holes as face voids, or an
+ *     IfcIndexedPolygonalFaceWithVoids) keeps its holes: the polygon goes
+ *     to the mesh rebuild as an outer ring with inner rings.
  *   - Spatial containers, openings, grids, annotations and the assembly
  *     element itself are skipped; the assembly's parts are the elements.
  */
@@ -35,6 +40,7 @@ import type { Point } from "../types";
 import { asNumber, asNumbers, asRef, asRefs, asString, isEnum, isList, isTyped, type StepFile, type StepInstance, type StepValue } from "./part21";
 import { add3, dot3, norm3, scale3, type Vec3 } from "./brep";
 import { writeExtrudedStep, writeFacetedStep, type ExtrusionFrame, type ExtrusionSpec, type Profile, type ProfileSegment } from "./write-step";
+import { polygonHoles, polygonOuter, type MeshPolygon } from "./mesh";
 
 export type IfcElement = {
   id: number;
@@ -74,7 +80,7 @@ const SKIP_TYPES = new Set([
 
 const BODY_IDENTIFIERS = new Set(["BODY", "FACETATION", "SURFACE", ""]);
 
-type Collected = { polygons: Vec3[][]; extrusions: ExtrusionSpec[]; unsupported: string[]; mapKeys: number[] };
+type Collected = { polygons: MeshPolygon[]; extrusions: ExtrusionSpec[]; unsupported: string[]; mapKeys: number[] };
 
 class IfcReader {
   readonly warnings: string[] = [];
@@ -187,10 +193,10 @@ class IfcReader {
       found.push({ inst, collected, name });
     }
 
-    // Same representation map (or same name when unmapped) = same part, several times.
+    // Same name + same local geometry = same part, several times.
     const groups = new Map<string, { first: (typeof found)[number]; count: number }>();
     for (const f of found) {
-      const key = f.collected.mapKeys.length ? `map:${f.collected.mapKeys.join(",")}` : `name:${f.name}`;
+      const key = `${f.name}|${geometryKey(f.collected)}`;
       const g = groups.get(key);
       if (g) g.count++;
       else groups.set(key, { first: f, count: 1 });
@@ -265,13 +271,24 @@ class IfcReader {
         const coords = this.pointList(asRef(item.args[0]));
         const pn = asNumbers(item.args[3]);
         if (!coords) return;
+        const ringOf = (indices: StepValue | undefined): Vec3[] =>
+          asNumbers(indices)
+            .map((i) => (pn.length ? pn[i - 1] : i) - 1)
+            .map((i) => coords[i])
+            .filter((p): p is Vec3 => p !== undefined);
         for (const faceRef of asRefs(item.args[2])) {
           const face = this.inst(faceRef);
           if (!face) continue;
-          if (face.type === "IFCINDEXEDPOLYGONALFACEWITHVOIDS") out.unsupported.push("polygonal_face_voids");
-          const idx = asNumbers(face.args[0]).map((i) => (pn.length ? pn[i - 1] : i) - 1);
-          const poly = idx.map((i) => coords[i]).filter((p): p is Vec3 => p !== undefined);
-          if (poly.length >= 3) out.polygons.push(poly);
+          const outer = ringOf(face.args[0]);
+          if (outer.length < 3) continue;
+          const holes: Vec3[][] = [];
+          if (face.type === "IFCINDEXEDPOLYGONALFACEWITHVOIDS" && isList(face.args[1])) {
+            for (const inner of face.args[1]) {
+              const ring = ringOf(inner);
+              if (ring.length >= 3) holes.push(ring);
+            }
+          }
+          out.polygons.push(holes.length ? { outer, holes } : outer);
         }
         return;
       }
@@ -304,26 +321,33 @@ class IfcReader {
     for (const faceRef of asRefs(shell.args[0])) {
       const face = this.inst(faceRef);
       if (!face) continue;
-      const bounds = asRefs(face.args[0]);
-      if (bounds.length !== 1) {
-        out.unsupported.push("face_voids");
-        continue;
+      // Every bound as a ring: the IfcFaceOuterBound (else the longest ring) is the outer one, the rest are holes.
+      const rings: { pts: Vec3[]; outer: boolean }[] = [];
+      let unsupported = false;
+      for (const boundRef of asRefs(face.args[0])) {
+        const bound = this.inst(boundRef);
+        if (!bound) continue;
+        const loop = this.inst(asRef(bound.args[0]));
+        const orientation = bound.args[1];
+        if (!loop || loop.type !== "IFCPOLYLOOP") {
+          out.unsupported.push(loop?.type ?? "loop");
+          unsupported = true;
+          continue;
+        }
+        const pts: Vec3[] = [];
+        for (const ref of asRefs(loop.args[0])) {
+          const p = this.point3(ref);
+          if (p) pts.push(p);
+        }
+        if (isEnum(orientation) && orientation.enum === "F") pts.reverse();
+        if (pts.length >= 3) rings.push({ pts, outer: bound.type === "IFCFACEOUTERBOUND" });
       }
-      const bound = this.inst(bounds[0]);
-      if (!bound) continue;
-      const loop = this.inst(asRef(bound.args[0]));
-      const orientation = bound.args[1];
-      if (!loop || loop.type !== "IFCPOLYLOOP") {
-        out.unsupported.push(loop?.type ?? "loop");
-        continue;
-      }
-      const pts: Vec3[] = [];
-      for (const ref of asRefs(loop.args[0])) {
-        const p = this.point3(ref);
-        if (p) pts.push(p);
-      }
-      if (isEnum(orientation) && orientation.enum === "F") pts.reverse();
-      if (pts.length >= 3) out.polygons.push(pts);
+      if (unsupported || rings.length === 0) continue;
+      let outerIndex = rings.findIndex((r) => r.outer);
+      if (outerIndex < 0) outerIndex = rings.reduce((best, r, i) => (ringLength(r.pts) > ringLength(rings[best].pts) ? i : best), 0);
+      const outer = rings[outerIndex].pts;
+      const holes = rings.filter((_, i) => i !== outerIndex).map((r) => r.pts);
+      out.polygons.push(holes.length ? { outer, holes } : outer);
     }
   }
 
@@ -545,6 +569,59 @@ class IfcReader {
     }
     return null;
   }
+}
+
+/* ─── Grouping ──────────────────────────────────────────────── */
+
+/** Vertices closer than this (after rounding) are the same vertex when two elements are compared. */
+export const GROUP_TOLERANCE_MM = 0.01;
+
+function fnv1a(text: string, seed: number): number {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+function q(n: number): string {
+  return String(Math.round(n / GROUP_TOLERANCE_MM));
+}
+
+/**
+ * Key of an element's geometry in its own coordinates: the sorted unique
+ * vertex set of its facets (rounded to GROUP_TOLERANCE_MM), or its
+ * extrusion profiles, hashed twice. Identical parts placed several times
+ * share it; a mirrored part does not.
+ */
+export function geometryKey(collected: Pick<Collected, "polygons" | "extrusions">): string {
+  const parts: string[] = [];
+  if (collected.polygons.length) {
+    const vertices = new Set<string>();
+    for (const poly of collected.polygons) {
+      for (const p of polygonOuter(poly)) vertices.add(`${q(p.x)},${q(p.y)},${q(p.z)}`);
+      for (const hole of polygonHoles(poly)) for (const p of hole) vertices.add(`${q(p.x)},${q(p.y)},${q(p.z)}`);
+    }
+    parts.push(`v${vertices.size}:${Array.from(vertices).sort().join(";")}`);
+  }
+  for (const e of collected.extrusions) {
+    const profile = (p: Profile) => `${q(p.start.x)},${q(p.start.y)}` + p.segments.map((s) => (s.kind === "arc" ? `a${q(s.to.x)},${q(s.to.y)},${q(s.center.x)},${q(s.center.y)},${s.ccw ? 1 : 0}` : `l${q(s.to.x)},${q(s.to.y)}`)).join("");
+    const frame = e.frame ? `${q(e.frame.origin.x)},${q(e.frame.origin.y)},${q(e.frame.origin.z)}|${e.frame.axis.x.toFixed(6)},${e.frame.axis.y.toFixed(6)},${e.frame.axis.z.toFixed(6)}|${e.frame.ref.x.toFixed(6)},${e.frame.ref.y.toFixed(6)},${e.frame.ref.z.toFixed(6)}` : "";
+    parts.push(`e:${profile(e.outer)}|${(e.holes ?? []).map(profile).join("+")}|h${q(e.height)}|${frame}`);
+  }
+  const text = parts.sort().join("\n");
+  return `${text.length.toString(16)}-${fnv1a(text, 0x811c9dc5).toString(16)}-${fnv1a(text, 0x9747b28c).toString(16)}`;
+}
+
+function ringLength(pts: Vec3[]): number {
+  let total = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[(i + 1) % pts.length];
+    total += Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z);
+  }
+  return total;
 }
 
 /* ─── 2D helpers ────────────────────────────────────────────── */

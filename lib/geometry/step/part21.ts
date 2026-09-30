@@ -14,8 +14,11 @@
  *     splits it into instances (a `;` outside a string ends one), and
  *     each instance's argument list is parsed by recursive descent.
  *   - Strings keep the Part 21 escape rules that matter for names
- *     (`''` → `'`); \X2\ unicode escapes are left as written — names are
- *     informational only.
+ *     (`''` → `'`); \X2\ unicode escapes are decoded. Classic mojibake —
+ *     UTF-8 bytes stored as Latin-1 characters by a converter
+ *     ("StÃ¼tzenfuÃ\x9F") — is repaired when re-reading the code units as
+ *     UTF-8 decodes cleanly; a U+FFFD replacement character is left as it
+ *     is, the information was lost at the source.
  *   - Complex instances (`#5 = ( A(...) B(...) C(...) );`, used for the
  *     representation context with its units and for rational B-splines)
  *     are kept as a list of (type, args) parts; `part(instance, "TYPE")`
@@ -93,9 +96,37 @@ export function decodeStepBytes(bytes: Uint8Array): string {
   }
 }
 
-/** Part 21 string escapes: \X2\00FC\X0\ (UTF-16BE hex), \X\FC (one byte), \S\x (Latin-1 upper half). */
+/** A UTF-8 lead byte (Â–Å as Latin-1: 0xC2–0xC5) followed by a continuation byte (0x80–0xBF). */
+const MOJIBAKE_RE = /[\u00C2-\u00C5][\u0080-\u00BF]/;
+
+/**
+ * Repair UTF-8 text that was read as Latin-1: when the string holds a
+ * lead + continuation pair and every code unit fits a byte, re-read the
+ * bytes as UTF-8; the repaired text is used only when it decodes cleanly.
+ * "StÃ¼tzenfuÃ\x9F" → "Stützenfuß"; clean UTF-8 and U+FFFD pass through.
+ */
+export function repairMojibake(text: string): string {
+  if (!MOJIBAKE_RE.test(text)) return text;
+  const bytes = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code > 0xff) return text;
+    bytes[i] = code;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return text;
+  }
+}
+
+/** Part 21 string escapes: \X2\00FC\X0\ (UTF-16BE hex), \X\FC (one byte), \S\x (Latin-1 upper half); then the mojibake repair. */
 export function decodeStepString(raw: string): string {
-  if (!raw.includes("\\")) return raw;
+  if (!raw.includes("\\")) return repairMojibake(raw);
+  return repairMojibake(unescapeStepString(raw));
+}
+
+function unescapeStepString(raw: string): string {
   return raw
     .replace(/\\X2\\([0-9A-Fa-f]+)\\X0\\/g, (_, hex: string) => {
       let out = "";

@@ -5,9 +5,10 @@
  * File path: /test/geometry/ifc-builder.ts
  */
 import type { Vec3 } from "@/lib/geometry/step/brep";
+import { polygonHoles, polygonOuter, type MeshPolygon } from "@/lib/geometry/step/mesh";
 
 export type IfcElementSpec =
-  | { kind: "brep"; name: string; polygons: Vec3[][]; mapShared?: string }
+  | { kind: "brep"; name: string; polygons: MeshPolygon[]; mapShared?: string }
   | { kind: "extrusion"; name: string; rect: { x: number; y: number }; hole?: { r: number }; depth: number }
   | { kind: "boolean"; name: string };
 
@@ -38,12 +39,12 @@ export function buildIfc(elements: IfcElementSpec[], opts: { unit?: "m" | "mm" }
   const placement = add(`IFCLOCALPLACEMENT($,#${axis})`);
 
   const maps = new Map<string, number>();
-  const brepRep = (polygons: Vec3[][]): number => {
+  const brepRep = (polygons: MeshPolygon[]): number => {
+    const polyLoop = (ring: Vec3[]): number => add(`IFCPOLYLOOP((${ring.map((p) => `#${point(p)}`).join(",")}))`);
     const faces = polygons.map((poly) => {
-      const pts = poly.map((p) => `#${point(p)}`).join(",");
-      const loop = add(`IFCPOLYLOOP((${pts}))`);
-      const bound = add(`IFCFACEOUTERBOUND(#${loop},.T.)`);
-      return add(`IFCFACE((#${bound}))`);
+      const bounds = [add(`IFCFACEOUTERBOUND(#${polyLoop(polygonOuter(poly))},.T.)`)];
+      for (const hole of polygonHoles(poly)) bounds.push(add(`IFCFACEBOUND(#${polyLoop(hole)},.T.)`));
+      return add(`IFCFACE((${bounds.map((b) => `#${b}`).join(",")}))`);
     });
     const shell = add(`IFCCLOSEDSHELL((${faces.map((f) => `#${f}`).join(",")}))`);
     const brep = add(`IFCFACETEDBREP(#${shell})`);

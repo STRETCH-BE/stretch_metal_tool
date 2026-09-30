@@ -24,6 +24,7 @@
 
 import type { Point } from "../types";
 import { cross3, dot3, norm3, scale3, sub3, type Vec3 } from "./brep";
+import { polygonHoles, polygonOuter, type MeshPolygon } from "./mesh";
 
 export type ProfileSegment = { kind: "line"; to: Point } | { kind: "arc"; to: Point; center: Point; ccw: boolean };
 
@@ -382,17 +383,18 @@ export function writeExtrudedStep(solids: ExtrusionSpec[], opts: WriteOptions = 
   return [...header(opts, "Extruded sheet part"), ...w.lines, "ENDSEC;", "END-ISO-10303-21;", ""].join("\n");
 }
 
-/** A tessellated solid as an AP214 FACETED_BREP of POLY_LOOP faces (millimetres). */
-export function writeFacetedStep(name: string, polygons: Vec3[][], opts: WriteOptions = {}): string {
+/** A tessellated solid as an AP214 FACETED_BREP of POLY_LOOP faces (millimetres); holes become FACE_BOUND inner loops. */
+export function writeFacetedStep(name: string, polygons: readonly MeshPolygon[], opts: WriteOptions = {}): string {
   const w = new Writer();
   const { context } = w.units("mm");
   const faces: number[] = [];
+  const polyLoop = (ring: Vec3[]): number => w.add(`POLY_LOOP('',(${ring.map((p) => `#${w.point([p.x, p.y, p.z])}`).join(",")}))`);
   for (const poly of polygons) {
-    if (poly.length < 3) continue;
-    const pts = poly.map((p) => `#${w.point([p.x, p.y, p.z])}`);
-    const loop = w.add(`POLY_LOOP('',(${pts.join(",")}))`);
-    const bound = w.add(`FACE_OUTER_BOUND('',#${loop},.T.)`);
-    faces.push(w.add(`FACE('',(#${bound}))`));
+    const outer = polygonOuter(poly);
+    if (outer.length < 3) continue;
+    const bounds = [w.add(`FACE_OUTER_BOUND('',#${polyLoop(outer)},.T.)`)];
+    for (const hole of polygonHoles(poly)) if (hole.length >= 3) bounds.push(w.add(`FACE_BOUND('',#${polyLoop(hole)},.T.)`));
+    faces.push(w.add(`FACE('',(${bounds.map((b) => `#${b}`).join(",")}))`));
   }
   const shell = w.add(`CLOSED_SHELL('',(${faces.map((id) => `#${id}`).join(",")}))`);
   const solid = w.add(`FACETED_BREP('${escape(name)}',#${shell})`);
@@ -444,6 +446,57 @@ export function lProfile(a: number, b: number, t: number, r: number): Profile {
       { kind: "arc", to: { x: r + t, y: 0 }, center: { x: r + t, y: r + t }, ccw: true },
     ],
   };
+}
+
+/** U channel: web `w` (outside), legs `h` (outside), thickness `t`, inner bend radius `r`; profile in u–v. Counter-clockwise. */
+export function uProfile(w: number, h: number, t: number, r: number): Profile {
+  const R = r + t;
+  return {
+    start: { x: R, y: 0 },
+    segments: [
+      { kind: "line", to: { x: w - R, y: 0 } },
+      { kind: "arc", to: { x: w, y: R }, center: { x: w - R, y: R }, ccw: true },
+      { kind: "line", to: { x: w, y: h } },
+      { kind: "line", to: { x: w - t, y: h } },
+      { kind: "line", to: { x: w - t, y: R } },
+      { kind: "arc", to: { x: w - R, y: t }, center: { x: w - R, y: R }, ccw: false },
+      { kind: "line", to: { x: R, y: t } },
+      { kind: "arc", to: { x: t, y: R }, center: { x: R, y: R }, ccw: false },
+      { kind: "line", to: { x: t, y: h } },
+      { kind: "line", to: { x: 0, y: h } },
+      { kind: "line", to: { x: 0, y: R } },
+      { kind: "arc", to: { x: R, y: 0 }, center: { x: R, y: R }, ccw: true },
+    ],
+  };
+}
+
+/**
+ * The same profile with every arc replaced by `n` chords — what a
+ * mesh-to-STEP converter writes: the extrusion then has planar strips
+ * where the bends and hole walls were.
+ */
+export function facetProfile(profile: Profile, n = 6): Profile {
+  const segments: ProfileSegment[] = [];
+  let from = profile.start;
+  for (const seg of profile.segments) {
+    if (seg.kind === "line") {
+      segments.push(seg);
+      from = seg.to;
+      continue;
+    }
+    const r = Math.hypot(from.x - seg.center.x, from.y - seg.center.y);
+    const a0 = Math.atan2(from.y - seg.center.y, from.x - seg.center.x);
+    let a1 = Math.atan2(seg.to.y - seg.center.y, seg.to.x - seg.center.x);
+    if (seg.ccw && a1 <= a0) a1 += 2 * Math.PI;
+    if (!seg.ccw && a1 >= a0) a1 -= 2 * Math.PI;
+    for (let k = 1; k <= n; k++) {
+      const a = a0 + ((a1 - a0) * k) / n;
+      const to = k === n ? seg.to : { x: seg.center.x + r * Math.cos(a), y: seg.center.y + r * Math.sin(a) };
+      segments.push({ kind: "line", to });
+    }
+    from = seg.to;
+  }
+  return { start: profile.start, segments };
 }
 
 /** Frame for the tests' "xz" layout: profile (u, v) → (x, z), extruded along y. */

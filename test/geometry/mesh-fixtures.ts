@@ -63,6 +63,45 @@ export function tessellatedPlate(L = 100, W = 50, t = 5, hole = { x: 30, y: 25, 
   return writeFacetedStep("plate", polygons);
 }
 
+/** Analytic volume of the L bracket: two straight legs plus the quarter annulus of the bend. */
+export function bracketVolumeMm3(a = 80, b = 60, t = 5, r = 5, width = 40): number {
+  return ((a - (r + t)) * t + (b - (r + t)) * t + (Math.PI / 4) * ((r + t) ** 2 - r * r)) * width;
+}
+
+/** Analytic volume of the U channel (web w, legs h, both outside; thickness t, inner radius r, length L). */
+export function channelVolumeMm3(w: number, h: number, t: number, r: number, L: number): number {
+  const R = r + t;
+  return ((w - 2 * R) * t + 2 * (h - R) * t + 2 * (Math.PI / 4) * (R * R - r * r)) * L;
+}
+
+/** U channel (web w, legs h outside, thickness t, inner radius r, length L along z) with the bend arcs in n facets each. */
+export function tessellatedChannel(w = 120, h = 60, t = 3, r = 3, L = 200, n = 6): string {
+  const R = r + t;
+  const arc = (c: P, radius: number, fromDeg: number, toDeg: number): P[] => {
+    const out: P[] = [];
+    for (let k = 0; k <= n; k++) {
+      const deg = fromDeg + ((toDeg - fromDeg) * k) / n;
+      out.push({ x: c.x + radius * Math.cos((deg * Math.PI) / 180), y: c.y + radius * Math.sin((deg * Math.PI) / 180) });
+    }
+    return out;
+  };
+  // Counter-clockwise: along the outside of the web, outer arc up the right
+  // leg, over its top, down its inside, inner arc, along the inside of the
+  // web, inner arc, up the left leg's inside, over, down its outside, outer arc.
+  const profile: P[] = [];
+  profile.push(...arc({ x: w - R, y: R }, R, 270, 360)); // (w-R, 0) → (w, R)
+  profile.push({ x: w, y: h }, { x: w - t, y: h });
+  profile.push(...arc({ x: w - R, y: R }, r, 0, -90).slice(0, -1)); // (w-t, R) → (w-R, t) (clockwise)
+  profile.push(...arc({ x: R, y: R }, r, 270, 180)); // (R, t) → (t, R) (clockwise)
+  profile.push({ x: t, y: h }, { x: 0, y: h });
+  profile.push(...arc({ x: R, y: R }, R, 180, 270).slice(0, -1)); // (0, R) → (R, 0)
+  const polygons: Vec3[][] = [];
+  polygons.push(profile.map((p) => at(p, L)));
+  polygons.push(profile.map((p) => at(p, 0)).reverse());
+  for (let i = 0; i < profile.length; i++) polygons.push(wall(profile[i], profile[(i + 1) % profile.length], 0, L));
+  return writeFacetedStep("channel", polygons);
+}
+
 /** L bracket (legs a, b, thickness t, inner radius r, width along z) with the bend arcs in n facets. */
 export function tessellatedBracket(a = 80, b = 60, t = 5, r = 5, width = 40, n = 6): string {
   const c = { x: r + t, y: r + t };
