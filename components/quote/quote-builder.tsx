@@ -129,6 +129,27 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = nu
   const editable = canEdit && isQuoteEditable(quote.status);
   const marketMode = rates?.general.pricingMode === "market";
   const bundleKey = `${quote.updated_at}|${quote.priced_at ?? ""}|${bundle.items.map((i) => `${i.id}:${i.qty}:${i.position}:${i.assembly_id ?? ""}`).join(",")}|${bundle.assemblies.map((a) => a.id).join(",")}`;
+  // The header form is reset only when a HEADER column changed on the server:
+  // an assembly / seam / forming action re-prices the quote (updated_at,
+  // priced_at move) and must not wipe a shipping block or reference the user
+  // is still typing.
+  const headerKey = JSON.stringify([
+    quote.customer_id,
+    quote.currency,
+    quote.fx_rate,
+    quote.margin_pct,
+    quote.validity_days,
+    quote.lead_time_days,
+    quote.lead_time_text,
+    quote.payment_terms_text,
+    quote.notes,
+    quote.show_operations_on_pdf,
+    quote.welding_separate,
+    quote.customer_reference ?? null,
+    quote.contact_person ?? null,
+    quote.shipping ?? null,
+    quote.price_scale ?? [],
+  ]);
 
   const [draft, setDraft] = useState<QuoteDraft>(() => draftFromBundle(bundle));
   const [header, setHeader] = useState<HeaderState>(() => headerFromBundle(bundle, fxEurPln));
@@ -139,14 +160,18 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = nu
   // UI convenience: "Welded assembly" reveals the assembly panel; a quote with ≥ 1 assembly is an assembly quote.
   const [kind, setKind] = useState<QuoteKind>(bundle.assemblies.length > 0 ? "assembly" : "parts");
 
-  // Server truth arrived (after a save): drop local edits.
+  // Server truth arrived (after a save): drop local item edits.
   useEffect(() => {
     setDraft(draftFromBundle(bundle));
-    setHeader(headerFromBundle(bundle, fxEurPln));
-    setPdfOps(bundle.quote.show_operations_on_pdf);
     if (bundle.assemblies.length > 0) setKind("assembly");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bundleKey]);
+  // …and the header form only when a header column changed.
+  useEffect(() => {
+    setHeader(headerFromBundle(bundle, fxEurPln));
+    setPdfOps(bundle.quote.show_operations_on_pdf);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerKey]);
 
   const dirty = isDraftDirty(draft, bundle);
   const preview = useMemo(() => computePreview(bundle, rates, machines, draft, { costRates, jobRates }), [bundle, rates, machines, draft, costRates, jobRates]);
@@ -201,7 +226,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = nu
   // shows numbers the header or the engine would contradict. Keyed by quote
   // + version so a failed run is not retried in a loop; the next save
   // re-prices anyway.
-  const staleRates = editable && isPricingStale(quote, bundle.pricing);
+  const staleRates = editable && isPricingStale(quote, bundle.pricing, bundle.customer?.updated_at ?? null);
   const staleRepriced = useRef<string | null>(null);
   useEffect(() => {
     if (!staleRates) return;
@@ -365,7 +390,7 @@ export function QuoteBuilder({ bundle, rates, costRates, machines, jobRates = nu
             <Field
               label={b.header.customer}
               htmlFor="q-customer"
-              help={selectedCustomer ? interpolate(b.header.customerTypeHint, { type: c.quote.customers.types[selectedCustomer.customer_type] }) : undefined}
+              help={selectedCustomer?.customer_type ? interpolate(b.header.customerTypeHint, { type: c.quote.customers.types[selectedCustomer.customer_type] }) : undefined}
             >
               <Select id="q-customer" dense value={header.customerId} onChange={(e) => patchHeader({ customerId: e.target.value })}>
                 <option value="">{b.header.noCustomer}</option>

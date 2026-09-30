@@ -255,11 +255,11 @@ export function AssemblySeamsEditor({ assembly, seams, memberParts, partsById, e
             saveForm();
           }}
         >
-          <Field label={t.columns.label} htmlFor="seam-label">
-            <Input id="seam-label" dense inline className="w-[140px]" value={form.label} maxLength={120} onChange={(e) => patchForm({ label: e.target.value })} />
+          <Field label={t.columns.label} htmlFor={`seam-${assembly.id}-label`}>
+            <Input id={`seam-${assembly.id}-label`} dense inline className="w-[140px]" value={form.label} maxLength={120} onChange={(e) => patchForm({ label: e.target.value })} />
           </Field>
-          <Field label={t.columns.part} htmlFor="seam-part">
-            <Select id="seam-part" dense inline value={form.partId} onChange={(e) => patchForm({ partId: e.target.value })}>
+          <Field label={t.columns.part} htmlFor={`seam-${assembly.id}-part`}>
+            <Select id={`seam-${assembly.id}-part`} dense inline value={form.partId} onChange={(e) => patchForm({ partId: e.target.value })}>
               <option value="">{t.byHand}</option>
               {memberParts.map((part) => (
                 <option key={part.id} value={part.id}>
@@ -268,11 +268,11 @@ export function AssemblySeamsEditor({ assembly, seams, memberParts, partsById, e
               ))}
             </Select>
           </Field>
-          <Field label={t.columns.length} htmlFor="seam-length">
-            <NumberInput id="seam-length" dense inline className="w-[100px]" value={form.lengthMm} decimals={1} min={0} onValueChange={(v) => v !== null && patchForm({ lengthMm: v })} />
+          <Field label={t.columns.length} htmlFor={`seam-${assembly.id}-length`}>
+            <NumberInput id={`seam-${assembly.id}-length`} dense inline className="w-[100px]" value={form.lengthMm} decimals={1} min={0} onValueChange={(v) => v !== null && patchForm({ lengthMm: v })} />
           </Field>
-          <Field label={t.columns.process} htmlFor="seam-process">
-            <Select id="seam-process" dense inline value={form.process} onChange={(e) => patchForm({ process: e.target.value as WeldProcessDb })}>
+          <Field label={t.columns.process} htmlFor={`seam-${assembly.id}-process`}>
+            <Select id={`seam-${assembly.id}-process`} dense inline value={form.process} onChange={(e) => patchForm({ process: e.target.value as WeldProcessDb })}>
               {WELD_PROCESSES.map((p) => (
                 <option key={p} value={p}>
                   {processes[p]}
@@ -280,11 +280,11 @@ export function AssemblySeamsEditor({ assembly, seams, memberParts, partsById, e
               ))}
             </Select>
           </Field>
-          <Field label={t.columns.thickness} htmlFor="seam-thickness" help={form.thicknessMm === null ? t.thicknessInherited : undefined}>
-            <NumberInput id="seam-thickness" dense inline className="w-[80px]" value={form.thicknessMm} decimals={2} min={0.01} onValueChange={(v) => patchForm({ thicknessMm: v })} />
+          <Field label={t.columns.thickness} htmlFor={`seam-${assembly.id}-thickness`} help={form.thicknessMm === null ? t.thicknessInherited : undefined}>
+            <NumberInput id={`seam-${assembly.id}-thickness`} dense inline className="w-[80px]" value={form.thicknessMm} decimals={2} min={0.01} onValueChange={(v) => patchForm({ thicknessMm: v })} />
           </Field>
-          <Field label={t.columns.type} htmlFor="seam-type">
-            <Select id="seam-type" dense inline value={form.seamType} onChange={(e) => patchForm({ seamType: e.target.value as SeamForm["seamType"] })}>
+          <Field label={t.columns.type} htmlFor={`seam-${assembly.id}-type`}>
+            <Select id={`seam-${assembly.id}-type`} dense inline value={form.seamType} onChange={(e) => patchForm({ seamType: e.target.value as SeamForm["seamType"] })}>
               {SEAM_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {t.types[type]}
@@ -294,21 +294,21 @@ export function AssemblySeamsEditor({ assembly, seams, memberParts, partsById, e
           </Field>
           {form.seamType === "stitch" && (
             <>
-              <Field label={t.beadMm} htmlFor="seam-bead">
-                <NumberInput id="seam-bead" dense inline className="w-[80px]" value={form.stitchBeadMm} decimals={1} min={0.1} onValueChange={(v) => v !== null && patchForm({ stitchBeadMm: v })} />
+              <Field label={t.beadMm} htmlFor={`seam-${assembly.id}-bead`}>
+                <NumberInput id={`seam-${assembly.id}-bead`} dense inline className="w-[80px]" value={form.stitchBeadMm} decimals={1} min={0.1} onValueChange={(v) => v !== null && patchForm({ stitchBeadMm: v })} />
               </Field>
-              <Field label={t.pitchMm} htmlFor="seam-pitch">
-                <NumberInput id="seam-pitch" dense inline className="w-[80px]" value={form.stitchPitchMm} decimals={1} min={0.1} onValueChange={(v) => v !== null && patchForm({ stitchPitchMm: v })} />
+              <Field label={t.pitchMm} htmlFor={`seam-${assembly.id}-pitch`}>
+                <NumberInput id={`seam-${assembly.id}-pitch`} dense inline className="w-[80px]" value={form.stitchPitchMm} decimals={1} min={0.1} onValueChange={(v) => v !== null && patchForm({ stitchPitchMm: v })} />
               </Field>
             </>
           )}
           {form.seamType === "tack" && (
-            <Field label={t.tackCount} htmlFor="seam-tacks">
-              <NumberInput id="seam-tacks" dense inline className="w-[80px]" value={form.tackCount} decimals={0} min={0} onValueChange={(v) => v !== null && patchForm({ tackCount: Math.max(0, Math.round(v)) })} />
+            <Field label={t.tackCount} htmlFor={`seam-${assembly.id}-tacks`}>
+              <NumberInput id={`seam-${assembly.id}-tacks`} dense inline className="w-[80px]" value={form.tackCount} decimals={0} min={0} onValueChange={(v) => v !== null && patchForm({ tackCount: Math.max(0, Math.round(v)) })} />
             </Field>
           )}
-          <Field label={t.columns.sides} htmlFor="seam-sides">
-            <Select id="seam-sides" dense inline value={String(form.sides)} onChange={(e) => patchForm({ sides: e.target.value === "2" ? 2 : 1 })}>
+          <Field label={t.columns.sides} htmlFor={`seam-${assembly.id}-sides`}>
+            <Select id={`seam-${assembly.id}-sides`} dense inline value={String(form.sides)} onChange={(e) => patchForm({ sides: e.target.value === "2" ? 2 : 1 })}>
               <option value="1">1</option>
               <option value="2">2</option>
             </Select>

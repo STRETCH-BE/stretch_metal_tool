@@ -28,7 +28,6 @@ import { Fragment, useEffect, useState } from "react";
 import { useContent } from "@/components/providers/locale";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
-import { Notice } from "@/components/ui/notice";
 import { NumberInput } from "@/components/ui/number-input";
 import { StatusChip } from "@/components/ui/status-chip";
 import { Table, TableWrap, Td, Th } from "@/components/ui/table";
@@ -453,9 +452,7 @@ function AssemblyCard({ index, assembly, members, loose, partsById, seams, price
           <div className="panel-title mb-2">{t.cost.title}</div>
           <AssemblyCostPanel priced={pricedAssembly} qty={qty} isAdmin money={money} />
         </div>
-      ) : (
-        pricedAssembly === null && <Notice tone="info">{t.cost.notPriced}</Notice>
-      )}
+      ) : null}
     </section>
   );
 }
