@@ -714,7 +714,7 @@ export const admin: AdminContent = {
     eyebrow: "Cenniki",
     title: "Wersje cennika",
     subtitle:
-      "Wiersze wersji są niezmienne, gdy wersja jest aktywna lub użyta w wycenie. Sklonuj wersję, edytuj kopię, aktywuj.",
+      "Aktywny cennik edytujesz bezpośrednio (wysłane wyceny zachowują swoje ceny, otwarte przeliczają się przy otwarciu). Wersje użyte w wycenach są niezmienne — sklonuj wersję, edytuj kopię, aktywuj.",
     versions: {
       columns: {
         label: "Etykieta",
@@ -1005,7 +1005,7 @@ export const admin: AdminContent = {
     errors: {
       forbidden: "Tylko administrator może zmieniać cenniki.",
       locked: "Ta wersja jest zablokowana do edycji.",
-      versionActive: "Aktywna wersja jest tylko do odczytu — sklonuj ją.",
+      versionActive: "Tej wersji nie można zmienić — sklonuj ją.",
       versionHasQuotes: "Wersja użyta w wycenach jest niezmienna — sklonuj ją.",
       notFound: "Nie znaleziono wiersza lub wersji.",
       validation: "Popraw zaznaczone komórki.",

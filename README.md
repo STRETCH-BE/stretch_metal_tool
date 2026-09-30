@@ -64,7 +64,7 @@ Required for a working app: the Supabase URL, a public key and the server key. E
 3. **Viewer** (`components/viewer`): SVG, pan/zoom/grid, tag entities (cut / bend up / bend down / weld / engrave / ignore), draw bend lines with snapping, mark weld seams (full or stitch), rolling, clean-up, unit calibration, annotated DXF export.
 4. **Pricing** (`lib/pricing`, pure and unit-tested): `priceQuote(input, rates, machines)` computes every operation from the geometry, the annotations and the rate snapshot pinned to the quote. Feasibility rules (press-brake force and length, hole-to-bend distance, roll limits, laser thickness limits → subcontract) come from the `machines` table, never from code. The server re-prices on every save and on send; the client only previews with the same functions.
 5. **Quote** (`/quotes/<id>`): parts × quantities, per-part operation breakdown, totals by operation type, internal cost/margin split (never on the PDF), amber flags need a confirmation or an override request, red flags block sending, a pending override blocks sending. PDF via `@react-pdf/renderer` in PL or EN, PLN or EUR.
-6. **Admin** (`/admin`): rate tables with version history (clone → edit → activate; used versions are immutable), machines, machine-hour calculator, users, override queue, audit log.
+6. **Admin** (`/admin`): rate tables with version history (the active list is edited in place; retired versions used by quotes are immutable, clone → edit → activate for bigger changes), machines, machine-hour calculator, users, override queue, audit log.
 
 ## Project structure
 

@@ -62,7 +62,7 @@ export const admin: AdminContent = {
     eyebrow: "Rate tables",
     title: "Rate versions",
     subtitle:
-      "Rows of a version are immutable once it is active or used by a quote. Clone a version, edit the copy, activate it.",
+      "The active price list is edited directly (sent quotes keep their prices, open ones re-price on open). Retired versions used by quotes are immutable — clone a version, edit the copy, activate it.",
     versions: {
       columns: {
         label: "Label",
@@ -353,7 +353,7 @@ export const admin: AdminContent = {
     errors: {
       forbidden: "Only an admin can change rate tables.",
       locked: "This version is locked for editing.",
-      versionActive: "The active version is read-only — clone it.",
+      versionActive: "This version cannot be changed — clone it.",
       versionHasQuotes: "A version used by quotes is immutable — clone it.",
       notFound: "Row or version not found.",
       validation: "Fix the highlighted cells.",

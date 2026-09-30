@@ -131,7 +131,7 @@ the data-access layer. The seed writes those JSON columns in the
 
 ## Rate versions — how the placeholder rates become real ones
 
-Rate tables are immutable per version and quotes pin the version they were
+Rate tables are versioned and quotes pin the version they were priced with; the ACTIVE version and the current cost basis may be edited in place (migration 20260930120000: drafts re-price on open, sent quotes keep their snapshot), while a retired version
 priced with (`quotes.rate_version_id`), so an old quote always re-prices the
 same. The seed creates version `v1 — placeholder rates [CONFIRM]` (fixed id
 `00000000-0000-4000-8000-000000000001`) with `placeholder = true` on every
