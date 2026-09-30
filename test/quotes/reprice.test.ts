@@ -201,6 +201,21 @@ describe("repriceQuote", () => {
     warn.mockRestore();
   });
 
+  it("fails instead of pricing members as loose parts when the job-rates loader fails and the quote has an assembly", async () => {
+    const { loadJobRates } = await import("@/lib/rates/load");
+    vi.mocked(loadJobRates).mockImplementationOnce(async () => {
+      throw new Error("weld_speeds: canceling statement due to statement timeout");
+    });
+    const db = seed({
+      items: [makeItemRow({ assembly_id: ASSEMBLY_ID, qty_per_assembly: 1, qty: 1 })],
+      assemblies: [makeAssemblyRow({ qty: 1 })],
+      seams: [makeSeamRow()],
+    });
+    await expect(repriceQuote(QUOTE_ID)).rejects.toThrow(/statement timeout/);
+    expect(db.tables.quotes[0].priced_at).toBeNull();
+    expect(db.writes.some((w) => w.op === "update" && w.table === "quotes" && "pricing" in w.patch)).toBe(false);
+  });
+
   it("keeps the part id on every persisted flag", async () => {
     const db = seed();
     await repriceQuote(QUOTE_ID);

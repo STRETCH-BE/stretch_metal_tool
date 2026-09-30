@@ -175,7 +175,8 @@ describe("assembly mode", () => {
     expect(plain).not.toContain(MEMBER_NAME_1);
     expect(plain).not.toContain(MEMBER_NAME_2);
     expect(norm(plain)).not.toContain(norm("PARTS OF ASSEMBLY"));
-    expect(plain).not.toContain(MATERIAL_NOTE);
+    // a member's DC01-for-S235 note is printed under the assembly row itself (design §2)
+    expect(plain).toContain(MATERIAL_NOTE);
 
     const withParts = await textOf(bundle, { showAssemblyParts: true });
     // eyebrows are uppercase and letter-spaced: pdfjs returns them with a space between glyphs
@@ -187,25 +188,43 @@ describe("assembly mode", () => {
     expect(count(withParts, "Heat store box rev 3")).toBe(1);
   }, 30000);
 
-  it("VAT 23 %: net, the VAT row and the gross total in the quote currency", async () => {
+  it("VAT 23 %: net, the VAT row and the gross total in the quote currency, derived from the printed net", async () => {
     const bundle = makeAssemblyBundle();
     const model = buildPdfViewModel(bundle, { locale: "en", content: en, now: NOW });
     const net = bundle.pricing!.subtotalPrice;
+    const round2 = (v: number) => Number(v.toFixed(2));
+    const netQ = round2(net);
+    const vatQ = round2(netQ * 0.23);
+    const grossQ = round2(netQ + vatQ);
     expect(model.totals.net).toBe(eur(net));
-    expect(model.totals.vat).toEqual({ rateLabel: "VAT 23 %", amount: eur(net * 0.23), gross: eur(net * 1.23) });
+    expect(model.totals.vat).toEqual({ rateLabel: "VAT 23 %", amount: eur(vatQ), gross: eur(grossQ) });
     expect(model.totals.netNotice).toBeNull();
 
     const text = await textOf(bundle);
     expect(text).toContain("VAT 23 %");
     expect(text).toContain(en.pdf.totals.vat.gross.toUpperCase());
-    expect(norm(text)).toContain(norm(eur(net * 1.23)));
+    expect(norm(text)).toContain(norm(eur(grossQ)));
     expect(text).not.toContain(en.pdf.totals.netNotice);
 
     // PLN quote: the same block converted at the stored fx rate
     const pln = buildPdfViewModel(makeAssemblyBundle({ quote: { currency: "PLN", fx_rate: 4.3 } }), { locale: "pl", content: pl, now: NOW });
-    expect(pln.totals.vat?.gross).toBe(formatMoney(net * 1.23 * 4.3, "PLN", "pl"));
+    const netPln = round2(net * 4.3);
+    const vatPln = round2(netPln * 0.23);
+    expect(pln.totals.vat?.gross).toBe(formatMoney(round2(netPln + vatPln), "PLN", "pl"));
     expect(pln.totals.vat?.rateLabel).toBe("VAT 23 %");
   }, 30000);
+
+  it("printed net + printed VAT = printed gross, also for a sub-cent net, in EUR and PLN", () => {
+    const parseEn = (s: string) => Number(s.replace(/[^\d.]/g, ""));
+    const parsePl = (s: string) => Number(s.replace(/[^\d,]/g, "").replace(",", "."));
+    for (const price of [290.03, 290.12, 123.456, 77.777, 300]) {
+      const enModel = buildPdfViewModel(makeAssemblyBundle({ assemblyUnitPrice: price }), { locale: "en", content: en, now: NOW });
+      expect(enModel.totals.vat).not.toBeNull();
+      expect(parseEn(enModel.totals.net) + parseEn(enModel.totals.vat!.amount)).toBeCloseTo(parseEn(enModel.totals.vat!.gross), 6);
+      const plModel = buildPdfViewModel(makeAssemblyBundle({ assemblyUnitPrice: price, quote: { currency: "PLN", fx_rate: 4.3 } }), { locale: "pl", content: pl, now: NOW });
+      expect(parsePl(plModel.totals.net) + parsePl(plModel.totals.vat!.amount)).toBeCloseTo(parsePl(plModel.totals.vat!.gross), 6);
+    }
+  });
 
   it("0 % VAT prints the note of the mode (reverse charge / export) and no gross; mode none keeps the net notice", async () => {
     const reverse = makeAssemblyBundle({ vat: (net) => vatResult("reverse_charge", 0, net), customer: { country: "DE", vat_id: "DE123456789" } });

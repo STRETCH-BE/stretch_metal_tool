@@ -238,6 +238,12 @@ export async function deleteVatRate(country: string): Promise<SettingsActionResu
   const { supabase, failure } = client();
   if (failure) return failure;
 
+  // The home country's row is the fallback of every taxed VAT mode (lib/pricing/vat.ts): never deletable.
+  const company = await supabase.from("company_settings").select("country").eq("id", 1).maybeSingle();
+  if (company.error) return dbFailure(company.error);
+  const home = normalizeCountryCode((company.data as { country?: string | null } | null)?.country ?? "PL");
+  if (code === home) return { ok: false, error: "validation", field: "country", message: "home" };
+
   const before = await supabase.from("vat_rates").select("*").eq("country", code).maybeSingle();
   if (before.error) return dbFailure(before.error);
   if (!before.data) return { ok: false, error: "notFound" };

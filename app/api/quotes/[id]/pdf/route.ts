@@ -32,9 +32,11 @@ import { NextResponse } from "next/server";
 import { getContent } from "@/content";
 import { ALL_ROLES, assertRole } from "@/lib/auth";
 import { renderQuotePdf } from "@/lib/pdf/render";
+import { QuoteAccessError } from "@/lib/quotes/access";
 import { getQuoteBundle } from "@/lib/quotes/queries";
+import { repriceQuote } from "@/lib/quotes/reprice";
 import { exportBlockReasons } from "@/lib/quotes/send-guard";
-import { quotePdfFileName, resolveQuoteLocale } from "@/lib/quotes/shared";
+import { isPricingStale, isQuoteEditable, quotePdfFileName, resolveQuoteLocale } from "@/lib/quotes/shared";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,8 +51,21 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { session, error } = await assertRole(ALL_ROLES);
   if (error) return error;
   const { id } = await context.params;
-  const bundle = await getQuoteBundle(id);
+  let bundle = await getQuoteBundle(id);
   if (!bundle) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  // A draft whose stored pricing is stale (engine, rates, header, or the
+  // customer edited since — VAT follows the customer) is re-priced first,
+  // like the send action does; a reader without edit rights gets the stored
+  // snapshot.
+  if (isQuoteEditable(bundle.quote.status) && isPricingStale(bundle.quote, bundle.pricing, bundle.customer?.updated_at ?? null)) {
+    try {
+      await repriceQuote(id);
+      bundle = (await getQuoteBundle(id)) ?? bundle;
+    } catch (repriceError) {
+      if (!(repriceError instanceof QuoteAccessError)) console.warn(`[pdf] re-price before export failed for quote ${id}`, repriceError);
+    }
+  }
 
   const url = new URL(request.url);
   const locale = resolveQuoteLocale(url.searchParams.get("locale"), bundle.customer?.preferred_locale ?? null);

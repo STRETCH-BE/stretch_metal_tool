@@ -179,6 +179,8 @@ export type StalePricingQuote = {
   currency: "PLN" | "EUR";
   fx_rate: number | string;
   subtotal_price: number | string;
+  /** When the snapshot was written; a customer edited after it changes the VAT inputs. */
+  priced_at?: string | null;
 };
 
 /** What isPricingStale reads from the stored snapshot; engineVersion is absent on snapshots stored before the engine was versioned. */
@@ -196,8 +198,15 @@ export type StalePricingSnapshot = Pick<PricedQuote, "rateVersionId" | "inputMar
  * quote only through the engine version and its inputs (the first pricing
  * run pins it).
  */
-export function isPricingStale(quote: StalePricingQuote, pricing: StalePricingSnapshot | null): boolean {
+export function isPricingStale(quote: StalePricingQuote, pricing: StalePricingSnapshot | null, customerUpdatedAt: string | null = null): boolean {
   if (pricing === null) return false;
+  // The VAT mode, rate and gross come from the customer's type, country and
+  // VAT id at pricing time; a customer saved after that is a new input.
+  if (customerUpdatedAt && quote.priced_at) {
+    const edited = Date.parse(customerUpdatedAt);
+    const priced = Date.parse(quote.priced_at);
+    if (Number.isFinite(edited) && Number.isFinite(priced) && edited > priced) return true;
+  }
   if ((pricing.engineVersion ?? 0) !== PRICING_ENGINE_VERSION) return true;
   if (quote.rate_version_id !== null && pricing.rateVersionId !== quote.rate_version_id) return true;
   const margin = Number(quote.margin_pct);

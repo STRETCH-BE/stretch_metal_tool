@@ -207,14 +207,26 @@ describe("settings actions", () => {
     it("deletes a VAT rate with the row as `before` and after = null; notFound when it is gone", async () => {
       getCurrentUser.mockResolvedValue(ADMIN);
       const row = { country: "FI", rate_pct: 25.5 };
-      const client = fakeClient({ vat_rates: { single: { data: row }, list: { data: null } } });
+      const client = fakeClient({ vat_rates: { single: { data: row }, list: { data: null } }, company_settings: { single: { data: { country: "PL" } } } });
       createAdminClient.mockReturnValue(client);
       expect(await deleteVatRate("fi")).toEqual({ ok: true });
       expect(callsTo(client.calls, "vat_rates", "delete")).toHaveLength(1);
       expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "settings.vat", entityId: "FI", before: row, after: null }));
 
-      createAdminClient.mockReturnValue(fakeClient({ vat_rates: { single: { data: null } } }));
+      createAdminClient.mockReturnValue(fakeClient({ vat_rates: { single: { data: null } }, company_settings: { single: { data: { country: "PL" } } } }));
       expect(await deleteVatRate("FI")).toEqual({ ok: false, error: "notFound" });
+    });
+
+    it("never deletes the home country's VAT row — the fallback of every taxed mode (lib/pricing/vat.ts)", async () => {
+      getCurrentUser.mockResolvedValue(ADMIN);
+      const client = fakeClient({ company_settings: { single: { data: { country: "PL" } } }, vat_rates: { single: { data: { country: "PL", rate_pct: 23 } } } });
+      createAdminClient.mockReturnValue(client);
+      expect(await deleteVatRate("pl")).toEqual({ ok: false, error: "validation", field: "country", message: "home" });
+      expect(callsTo(client.calls, "vat_rates", "delete")).toHaveLength(0);
+      // no company row yet → PL is the home country
+      const bare = fakeClient({ company_settings: { single: { data: null } }, vat_rates: { single: { data: { country: "PL", rate_pct: 23 } } } });
+      createAdminClient.mockReturnValue(bare);
+      expect(await deleteVatRate("PL")).toMatchObject({ ok: false, error: "validation" });
     });
 
     it("writes placeholder = false on a packaging upsert and audits settings.packaging", async () => {

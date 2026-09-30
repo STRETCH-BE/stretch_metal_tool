@@ -743,10 +743,21 @@ function seamJson(row: Partial<AssemblySeamRow>): Json {
   });
 }
 
+/**
+ * A seam may reference only a part that is a member of its assembly: the
+ * foreign key alone (checked as table owner, outside RLS) would accept any
+ * part id, even one of a quote the caller cannot see.
+ */
+async function isMemberPart(supabase: QuoteEditor["supabase"], assemblyId: string, partId: string): Promise<boolean> {
+  const { data } = await supabase.from("quote_items").select("id").eq("assembly_id", assemblyId).eq("part_id", partId).limit(1);
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function insertSeam(editor: QuoteEditor, assembly: AssemblyRow, input: SeamInput, pairedSeamId: string | null): Promise<SeamActionResult> {
   const parsed = seamInputSchema.safeParse(input);
   if (!parsed.success) return failure(firstErrorCode(parsed.error));
   const { session, supabase } = editor;
+  if (parsed.data.partId && !(await isMemberPart(supabase, assembly.id, parsed.data.partId))) return failure("notFound");
   const position = await nextSeamPosition(supabase, assembly.id);
   const columns = seamInputToColumns(parsed.data);
   const row = { ...columns, points: toJson(columns.points), assembly_id: assembly.id, position, paired_seam_id: pairedSeamId };
@@ -818,6 +829,7 @@ export async function updateSeam(seamId: string, input: Partial<SeamInput>): Pro
   for (const [key, value] of Object.entries(patch.data)) if (value !== undefined) merged[key] = value;
   const full = seamInputSchema.safeParse(merged);
   if (!full.success) return failure(firstErrorCode(full.error));
+  if (full.data.partId && full.data.partId !== seam.part_id && !(await isMemberPart(supabase, assembly.id, full.data.partId))) return failure("notFound");
   const columns = seamInputToColumns(full.data);
   const update = { ...columns, points: toJson(columns.points) };
   const { error } = await supabase.from("assembly_seams").update(update).eq("id", seamId);
@@ -942,6 +954,16 @@ export async function duplicateAsNewVersion(quoteId: string): Promise<QuoteActio
       welding_only: quote.welding_only,
       notes: quote.notes,
       created_by: session.user.id,
+      // Assembly-mode header columns; a database without the migration returns
+      // no price_scale on the source row, and then must not be sent the columns.
+      ...(quote.price_scale === undefined
+        ? {}
+        : {
+            customer_reference: quote.customer_reference ?? null,
+            contact_person: quote.contact_person ?? null,
+            shipping: quote.shipping ?? null,
+            price_scale: quote.price_scale ?? [],
+          }),
     })
     .select("id")
     .single();
@@ -981,9 +1003,47 @@ export async function duplicateAsNewVersion(quoteId: string): Promise<QuoteActio
     }
     partMap.set(part.id, copy.id);
   }
+
+  // Assemblies (old id → new id) before the items that point at them.
+  const { data: assemblyRows } = await supabase.from("assemblies").select("*").eq("quote_id", quoteId).order("position");
+  const assemblyMap = new Map<string, string>();
+  for (const assembly of (assemblyRows ?? []) as AssemblyRow[]) {
+    const { data: copy, error } = await supabase
+      .from("assemblies")
+      .insert({
+        quote_id: newId,
+        position: assembly.position,
+        name: assembly.name,
+        drawing_ref: assembly.drawing_ref,
+        qty: assembly.qty,
+        material_code: assembly.material_code,
+        thickness_mm: assembly.thickness_mm,
+        notes: assembly.notes,
+      })
+      .select("id")
+      .single();
+    if (error || !copy) {
+      console.error("[quotes] duplicate assembly failed", error);
+      return fail("generic");
+    }
+    assemblyMap.set(assembly.id, copy.id);
+  }
+
   for (const item of (items ?? []) as QuoteItemRow[]) {
     const partId = partMap.get(item.part_id);
     if (!partId) continue;
+    // Member columns exist only once the assembly-mode migration is applied
+    // (the source row then carries qty_per_assembly).
+    const memberColumns =
+      item.qty_per_assembly === undefined
+        ? {}
+        : {
+            assembly_id: item.assembly_id ? (assemblyMap.get(item.assembly_id) ?? null) : null,
+            qty_per_assembly: item.qty_per_assembly,
+            material_override: item.material_override,
+            material_note: item.material_note,
+            forming: item.forming,
+          };
     const { error } = await supabase.from("quote_items").insert({
       quote_id: newId,
       part_id: partId,
@@ -992,10 +1052,60 @@ export async function duplicateAsNewVersion(quoteId: string): Promise<QuoteActio
       extras: item.extras,
       scrap_pct: item.scrap_pct,
       notes: item.notes,
+      ...memberColumns,
     });
     if (error) {
       console.error("[quotes] duplicate item failed", error);
       return fail("generic");
+    }
+  }
+
+  // Seams: part ids through the part map, the pairing through a second pass
+  // once every new seam id is known.
+  if (assemblyMap.size > 0) {
+    const { data: seamRows } = await supabase.from("assembly_seams").select("*").in("assembly_id", [...assemblyMap.keys()]).order("position");
+    const seams = (seamRows ?? []) as AssemblySeamRow[];
+    const seamMap = new Map<string, string>();
+    for (const seam of seams) {
+      const assemblyId = assemblyMap.get(seam.assembly_id);
+      if (!assemblyId) continue;
+      const { data: copy, error } = await supabase
+        .from("assembly_seams")
+        .insert({
+          assembly_id: assemblyId,
+          position: seam.position,
+          label: seam.label,
+          part_id: seam.part_id ? (partMap.get(seam.part_id) ?? null) : null,
+          entity_ids: seam.entity_ids,
+          points: seam.points,
+          length_mm: seam.length_mm,
+          process: seam.process,
+          thickness_mm: seam.thickness_mm,
+          seam_type: seam.seam_type,
+          stitch_bead_mm: seam.stitch_bead_mm,
+          stitch_pitch_mm: seam.stitch_pitch_mm,
+          tack_count: seam.tack_count,
+          sides: seam.sides,
+          paired_seam_id: null,
+        })
+        .select("id")
+        .single();
+      if (error || !copy) {
+        console.error("[quotes] duplicate seam failed", error);
+        return fail("generic");
+      }
+      seamMap.set(seam.id, copy.id);
+    }
+    for (const seam of seams) {
+      if (!seam.paired_seam_id) continue;
+      const copyId = seamMap.get(seam.id);
+      const pairedId = seamMap.get(seam.paired_seam_id);
+      if (!copyId || !pairedId) continue;
+      const { error } = await supabase.from("assembly_seams").update({ paired_seam_id: pairedId }).eq("id", copyId);
+      if (error) {
+        console.error("[quotes] duplicate seam pairing failed", error);
+        return fail("generic");
+      }
     }
   }
 

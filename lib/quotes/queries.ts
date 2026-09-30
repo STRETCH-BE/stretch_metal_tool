@@ -262,14 +262,25 @@ export async function listQuoteVersions(client: QuoteReadClient, number: string)
 }
 
 /** Customers for the header/new-quote selects (id, name, country, class, e-mail, locale, type, contact person). */
-export type CustomerOption = Pick<CustomerRow, "id" | "name" | "country" | "customer_class" | "email" | "preferred_locale" | "customer_type" | "contact_person">;
+/** customer_type is null on a database that lags the assembly-mode migration (the send guard then asks for it). */
+export type CustomerOption = Pick<CustomerRow, "id" | "name" | "country" | "customer_class" | "email" | "preferred_locale" | "contact_person"> & { customer_type: CustomerRow["customer_type"] | null };
 
 export async function listCustomerOptions(): Promise<CustomerOption[]> {
   const supabase = await createClient();
-  return rows<CustomerOption>(
-    supabase.from("customers").select("id, name, country, customer_class, email, preferred_locale, customer_type, contact_person").order("name").limit(500),
-    "listCustomerOptions"
-  );
+  // select("*") rather than naming customer_type / contact_person: a database
+  // that lags the assembly-mode migration has no such columns and PostgREST
+  // would refuse the whole query (42703); the picker then reads them as null.
+  const all = await rows<CustomerRow>(supabase.from("customers").select("*").order("name").limit(500), "listCustomerOptions");
+  return all.map((c) => ({
+    id: c.id,
+    name: c.name,
+    country: c.country,
+    customer_class: c.customer_class,
+    email: c.email,
+    preferred_locale: c.preferred_locale,
+    customer_type: c.customer_type ?? null,
+    contact_person: c.contact_person ?? null,
+  }));
 }
 
 /** Who may read a quote's audit excerpt: an admin or the owning sales user. */

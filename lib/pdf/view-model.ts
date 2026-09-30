@@ -63,6 +63,7 @@ import type { Content } from "@/content";
 import type { AssemblyRow, PartRow, QuoteItemRow } from "@/lib/db/types";
 import { entityPath, viewBoxFor } from "@/lib/geometry/svg";
 import type { PartGeometry } from "@/lib/geometry/types";
+import type { CurrencyCode } from "@/lib/db/types";
 import { formatDate, formatDateTime, formatMoney, formatNumber, interpolate, toQuoteCurrency } from "@/lib/format";
 import { priceFromCost, type OperationLine, type OperationType, type PricedAssembly, type PricedItem, type VatResult } from "@/lib/pricing/types";
 import { parseGeometry } from "@/lib/quotes/schema";
@@ -277,6 +278,8 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
     const totalEur = priced ? (priced.batchPrice ?? (unitPriceEur !== null ? unitPriceEur * qty : null)) : null;
     if (totalEur !== null) partsSubtotalEur += totalEur;
     const partsCount = (members.get(assembly.id) ?? []).reduce((sum, m) => sum + (Number(m.qty_per_assembly) || 1), 0);
+    // Member names stay out of the customer document (members are appendix-only), so the notes alone.
+    const memberNotes = [...new Set((members.get(assembly.id) ?? []).map((m) => trimmed(m.material_note)).filter((n): n is string => n !== null))];
     const ref = trimmed(assembly.drawing_ref);
     const subline = [t.assemblies.kind, ref ? interpolate(t.assemblies.drawingRef, { ref }) : null, interpolate(t.assemblies.partsCount, { count: formatNumber(partsCount, locale) })]
       .filter((s): s is string => s !== null)
@@ -294,7 +297,9 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
       thumbnail: null,
       operations: priced ? summarise(priced.operations) : [],
       weldingMoved: false,
-      materialNote: null,
+      // A member's DC01-for-S235 note belongs on the quote itself (design §2),
+      // not only in the optional appendix: one line per noted member.
+      materialNote: memberNotes.length > 0 ? interpolate(t.parts.materialNote, { note: memberNotes.join(" · ") }) : null,
     });
   }
 
@@ -389,7 +394,7 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
   const packagingEur = (pricing?.quoteLines ?? []).filter((l) => l.type === "packaging").reduce((sum, l) => sum + l.unitCost, 0);
   const shippingEur = pricing?.shipping ? pricing.shipping.unitCost : null;
   const netEur = pricing ? pricing.subtotalPrice : partsSubtotalEur + (weldingSubtotalEur ?? 0);
-  const { vat, netNotice } = vatBlock(pricing?.vat ?? null, money, t, locale);
+  const { vat, netNotice } = vatBlock(pricing?.vat ?? null, netEur, currency, fx, t, locale);
 
   const numberLabel = quoteNumberLabel(quote);
   const sender = options.preparedBy ?? null;
@@ -492,19 +497,32 @@ export function buildPdfViewModel(bundle: QuoteBundle, options: PdfViewModelOpti
  * gross total (plus the OSS note under b2c_oss); 0 % → the note of the
  * mode; no VAT result / mode none / an unexpected 0 % → the net notice.
  */
+const round2 = (value: number) => Number(value.toFixed(2));
+
+/**
+ * The printed VAT block is derived from the PRINTED net (quote currency,
+ * rounded to the cent), so net + VAT = gross holds on paper; rounding the
+ * three engine numbers independently is off by a cent in a quarter of the
+ * quotes.
+ */
 function vatBlock(
   vat: VatResult | null,
-  money: (eur: number) => string,
+  netEur: number,
+  currency: CurrencyCode,
+  fx: number,
   t: Content["pdf"],
   locale: Locale
 ): { vat: PdfVatBlock | null; netNotice: string | null } {
   if (!vat || vat.mode === "none") return { vat: null, netNotice: t.totals.netNotice };
   if (vat.ratePct > 0) {
+    const netQ = round2(toQuoteCurrency(netEur, currency, fx));
+    const vatQ = round2((netQ * vat.ratePct) / 100);
+    const grossQ = round2(netQ + vatQ);
     return {
       vat: {
         rateLabel: interpolate(t.totals.vat.rate, { rate: formatNumber(vat.ratePct, locale) }),
-        amount: money(vat.vatAmount),
-        gross: money(vat.grossTotal),
+        amount: formatMoney(vatQ, currency, locale),
+        gross: formatMoney(grossQ, currency, locale),
       },
       netNotice: vat.mode === "b2c_oss" ? t.totals.vat.ossNote : null,
     };

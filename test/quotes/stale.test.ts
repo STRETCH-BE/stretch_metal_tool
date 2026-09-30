@@ -27,6 +27,15 @@ describe("isPricingStale", () => {
     expect(isPricingStale(bundle.quote, bundle.pricing)).toBe(false);
   });
 
+  it("is true when the customer was saved after the pricing run (its type, country or VAT id drive the VAT block)", () => {
+    const bundle = makeBundle({ quote: { priced_at: "2026-09-25T10:00:00Z" } });
+    expect(isPricingStale(bundle.quote, bundle.pricing, "2026-09-25T09:59:00Z")).toBe(false);
+    expect(isPricingStale(bundle.quote, bundle.pricing, "2026-09-25T10:01:00Z")).toBe(true);
+    expect(isPricingStale(bundle.quote, bundle.pricing, null)).toBe(false);
+    // never priced → the customer edit is not a staleness signal (nothing to be stale)
+    expect(isPricingStale({ ...bundle.quote, priced_at: null }, bundle.pricing, "2026-09-25T10:01:00Z")).toBe(false);
+  });
+
   it("is true once the quote is pinned to another version (re-pinned after activation)", () => {
     const bundle = makeBundle({ quote: { rate_version_id: "4eecc220-06e5-4807-99ae-b045c51716ab" } });
     expect(isPricingStale(bundle.quote, bundle.pricing)).toBe(true);

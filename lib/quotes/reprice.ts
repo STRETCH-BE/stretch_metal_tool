@@ -72,6 +72,7 @@ import type { JobRates, PricedQuote, RateSnapshot } from "@/lib/pricing/types";
 import { QuoteAccessError } from "./access";
 import { buildQuoteInput, emptyPersistence, hasPriceableContent, memberQtyUpdates, pricedToPersistence } from "./mapper";
 import { loadQuoteBundle } from "./queries";
+import { parseForming } from "./schema";
 import { isQuoteEditable, isQuoteEditor, isUuid } from "./shared";
 
 export type RepriceOptions = {
@@ -110,7 +111,15 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
     if (error) throw new Error(`repriceQuote/pin: ${error.message}`);
   }
 
-  const [rates, machines, jobRates] = await Promise.all([loadRateSnapshot(reader, versionId), loadMachinePark(reader), loadJobRatesTolerant(reader)]);
+  // A quote with assemblies, forming, shipping or a price scale cannot be
+  // priced without the job rates (its members would be priced as loose
+  // parts); one with none of them can, and prices as before the migration.
+  const needsJobRates =
+    bundle.assemblies.length > 0 ||
+    bundle.items.some((item) => parseForming(item.forming).length > 0) ||
+    (bundle.quote.shipping ?? null) !== null ||
+    (bundle.quote.price_scale ?? []).length > 0;
+  const [rates, machines, jobRates] = await Promise.all([loadRateSnapshot(reader, versionId), loadMachinePark(reader), loadJobRatesTolerant(reader, needsJobRates)]);
 
   // Market mode: the margin is measured against a cost version, pinned on
   // the quote next to the price version the first time (same rule as
@@ -187,10 +196,15 @@ export async function repriceQuote(quoteId: string, opts: RepriceOptions = {}): 
 }
 
 /** The job rates, or null when they cannot be loaded (logged): the loose-part model prices without them. */
-async function loadJobRatesTolerant(reader: RatesClient): Promise<JobRates | null> {
+async function loadJobRatesTolerant(reader: RatesClient, required: boolean): Promise<JobRates | null> {
   try {
     return await loadJobRates(reader);
   } catch (error) {
+    // A missing table already resolves to the seeded defaults inside
+    // loadJobRates; what lands here is a real failure. Tolerated only when
+    // nothing in the quote depends on the job rates — otherwise the wrong
+    // (loose-part) prices would be persisted as if they were right.
+    if (required) throw error;
     console.warn("[quotes] job rates unavailable — pricing without them", error instanceof Error ? error.message : error);
     return null;
   }

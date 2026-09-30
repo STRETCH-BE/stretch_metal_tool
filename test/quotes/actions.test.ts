@@ -143,6 +143,57 @@ describe("duplicateAsNewVersion", () => {
     expect(state.redirect).toHaveBeenCalledWith(`/quotes/${created!.id}`);
   });
 
+  it("copies assemblies, member columns, seams with their pairing and the assembly-mode header fields, and prices ONE assembly", async () => {
+    const SEAM_ID_2 = "5ea30000-0000-4000-8000-000000000002";
+    const db = seed({
+      quote: {
+        customer_reference: "N260580",
+        contact_person: "Tuomas Peronvuo",
+        price_scale: [20, 50],
+        shipping: { countryCode: "FI", grossKg: 12, costEur: 45, source: "manual", carrier: null, extraLeadDays: 0 },
+      },
+      items: [
+        makeItemRow({
+          assembly_id: ASSEMBLY_ID,
+          qty_per_assembly: 1,
+          qty: 1,
+          forming: [{ id: "op1", kind: "roll", insideRadiusMm: 90, angleDeg: 180, widthMm: 247, resolution: { kind: "step_bend", hits: 19 } }],
+        }),
+        makeItemRow({ id: ITEM_ID_2, part_id: PART_ID_2, position: 1, assembly_id: ASSEMBLY_ID, qty_per_assembly: 2, qty: 2, material_override: true, material_note: "DC01 zamiast S235" }),
+      ],
+      parts: [makePartRow(), makePartRow({ id: PART_ID_2, name: "P2" })],
+      assemblies: [makeAssemblyRow({ qty: 1 })],
+      seams: [makeSeamRow({ part_id: PART_ID }), makeSeamRow({ id: SEAM_ID_2, part_id: PART_ID_2, position: 1, paired_seam_id: SEAM_ID })],
+    });
+    await expect(duplicateAsNewVersion(QUOTE_ID)).rejects.toThrow(/NEXT_REDIRECT:\/quotes\//);
+    const created = db.tables.quotes.find((q) => q.version === 2)!;
+    expect(created).toMatchObject({ customer_reference: "N260580", contact_person: "Tuomas Peronvuo", price_scale: [20, 50] });
+    expect(created.shipping).toMatchObject({ countryCode: "FI", costEur: 45 });
+
+    const assemblies = db.tables.assemblies.filter((a) => a.quote_id === created.id);
+    expect(assemblies).toHaveLength(1);
+    expect(assemblies[0].id).not.toBe(ASSEMBLY_ID);
+    expect(assemblies[0]).toMatchObject({ name: makeAssemblyRow().name, qty: 1 });
+
+    const newParts = db.tables.parts.filter((p) => p.quote_id === created.id);
+    const items = db.tables.quote_items.filter((i) => i.quote_id === created.id);
+    expect(items).toHaveLength(2);
+    expect(items.every((i) => i.assembly_id === assemblies[0].id)).toBe(true);
+    expect(items.find((i) => i.qty_per_assembly === 2)).toMatchObject({ material_override: true, material_note: "DC01 zamiast S235" });
+    expect(items.find((i) => i.qty_per_assembly === 1)!.forming).toEqual([expect.objectContaining({ kind: "roll", resolution: { kind: "step_bend", hits: 19 } })]);
+
+    const seams = db.tables.assembly_seams.filter((s) => s.assembly_id === assemblies[0].id);
+    expect(seams).toHaveLength(2);
+    expect(seams.every((s) => s.id !== SEAM_ID && s.id !== SEAM_ID_2)).toBe(true);
+    expect(seams.every((s) => s.part_id !== null && newParts.some((p) => p.id === s.part_id))).toBe(true);
+    const paired = seams.find((s) => s.paired_seam_id !== null)!;
+    expect(paired).toBeDefined();
+    expect(seams.some((s) => s.id === paired.paired_seam_id && s.paired_seam_id === null)).toBe(true);
+
+    // the new version is priced as one assembly, not as loose members
+    expect((created.pricing as { assemblies: unknown[] }).assemblies).toHaveLength(1);
+  });
+
   it("viewers may not duplicate", async () => {
     seed();
     state.session = { user: { id: "v" }, profile: { id: "v", role: "viewer" } };
@@ -535,6 +586,17 @@ describe("seams", () => {
     expect(db.tables.assembly_seams).toHaveLength(2);
     expect(state.logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "seam.add", entityId: result.seamId }));
     expect(await addSeam("a55e3b1e-0000-4000-8000-00000000dead", seam)).toEqual({ ok: false, error: "notFound" });
+  });
+
+  it("addSeam / updateSeam refuse a partId that is not a member of the assembly (a part of another quote)", async () => {
+    const db = seedAssembly({ seams: [makeSeamRow({ part_id: PART_ID })] });
+    const foreign = "99999999-9999-4999-8999-999999999999";
+    expect(await addSeam(ASSEMBLY_ID, { ...seam, partId: foreign })).toEqual({ ok: false, error: "notFound" });
+    expect(db.tables.assembly_seams).toHaveLength(1);
+    expect(await updateSeam(SEAM_ID, { partId: foreign })).toEqual({ ok: false, error: "notFound" });
+    expect(db.tables.assembly_seams[0].part_id).toBe(PART_ID);
+    // a member of the same assembly is fine
+    expect(await updateSeam(SEAM_ID, { partId: PART_ID_2 })).toEqual({ ok: true });
   });
 
   it("addSeamFromPart: the same edge twice → the existing seam (one row); the neighbour's edge → paired and not counted; another process → new", async () => {
