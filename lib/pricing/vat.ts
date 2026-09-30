@@ -89,11 +89,17 @@ export function computeVat(
 
   const net = input.netTotalEur;
   const home = normaliseCountry(rates.homeCountry) ?? "PL";
-  const homeRate = rateFor(rates, home) ?? 0;
+  const homeRow = rateFor(rates, home);
+  const homeRate = homeRow ?? 0;
   const flags: Flag[] = [];
+  // The home rate is the fallback of every taxed mode; without its row the
+  // quote would silently print 0 % — red, not overridable, until the admin
+  // restores the row in vat_rates.
+  const homeFlags: Flag[] =
+    homeRow === null ? [{ code: "vat.no_rate", severity: "red", partId: null, itemId: null, params: { countryCode: home }, overridable: false }] : [];
 
   if (country === null) return { vat: result("none", 0, null, net), flags };
-  if (country === home) return { vat: result("pl_domestic", homeRate, home, net), flags };
+  if (country === home) return { vat: result("pl_domestic", homeRate, home, net), flags: [...flags, ...homeFlags] };
 
   const eu = EU_COUNTRY_CODES.has(country);
   if (vatId) return { vat: result(eu ? "reverse_charge" : "export", 0, null, net), flags };
@@ -101,8 +107,9 @@ export function computeVat(
   if (input.customerType === "b2c" && eu && rates.ossActive) {
     const destination = rateFor(rates, country);
     if (destination !== null) return { vat: result("b2c_oss", destination, country, net), flags };
-    // Destination not in vat_rates: the home rate applies (see the header).
-    return { vat: result("b2c_domestic", homeRate, home, net), flags };
+    // Destination not in vat_rates: the home rate applies, amber until the row exists (design §3.4).
+    flags.push({ code: "vat.no_rate", severity: "amber", partId: null, itemId: null, params: { countryCode: country, fallbackPct: homeRate }, overridable: true });
+    return { vat: result("b2c_domestic", homeRate, home, net), flags: [...flags, ...homeFlags] };
   }
 
   if (input.customerType === "b2b") {
@@ -115,5 +122,5 @@ export function computeVat(
       overridable: true,
     });
   }
-  return { vat: result("b2c_domestic", homeRate, home, net), flags };
+  return { vat: result("b2c_domestic", homeRate, home, net), flags: [...flags, ...homeFlags] };
 }

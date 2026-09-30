@@ -173,6 +173,7 @@ Messages live in `content/flags.ts` and interpolate `params`.
 | `market.finish_implied` | green | market mode: a coating that includes edge breaking (powder, zinc) dropped a deburring option on the same line — nothing charged for it | `code`, `by`, `index` |
 | `market.margin_below_default` | red | market mode: 1 − cost ÷ price is below the version's `default_margin_pct` (0 in the benchmark versions → only a negative margin) | `marginPct`, `minPct`, `price`, `cost` |
 | `market.no_cost_version` | amber | market mode priced without a cost version — no margin could be computed | — |
+| `vat.no_rate` | red | no `vat_rates` row for the company's home country — every taxed VAT mode would print 0 %; restore the row in Admin → Settings → VAT | `countryCode` |
 | `rates.placeholder` | green | any used rate row is still a `[CONFIRM]` placeholder (assembly mode: the job-rate lines carry `JobRates.placeholder`, so unconfirmed settings tables count too) | `count` |
 
 ## Market mode (`market.ts`, `market-rules.ts`, `eligibility.ts`)

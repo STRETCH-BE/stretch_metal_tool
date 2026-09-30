@@ -473,6 +473,10 @@ export const flags: FlagsContent = {
       label: "Brak stawki wysyłki",
       message: "Brak stawki wysyłki dla {countryCode} przy {grossKg} kg — wpisz koszt wysyłki ręcznie.",
     },
+    "vat.no_rate": {
+      label: "Brak stawki VAT",
+      message: "Brak stawki VAT dla kraju {countryCode} w ustawieniach — uzupełnij tabelę stawek VAT, zanim oferta zostanie wysłana.",
+    },
     "rates.placeholder": {
       label: "Stawki tymczasowe",
       message: "{count} użytych stawek to wartości zastępcze [CONFIRM] — potwierdź je w cennikach przed wysyłką.",

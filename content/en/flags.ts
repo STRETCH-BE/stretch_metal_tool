@@ -416,6 +416,10 @@ export const flags: FlagsContent = {
       label: "No shipping rate",
       message: "No shipping rate for {countryCode} at {grossKg} kg — enter the shipping cost by hand.",
     },
+    "vat.no_rate": {
+      label: "No VAT rate",
+      message: "No VAT rate for {countryCode} in the settings — fill in the VAT rate table before the quote is sent.",
+    },
     "rates.placeholder": {
       label: "Placeholder rates",
       message: "{count} of the rates used are [CONFIRM] placeholders — confirm them in the rate tables before sending.",

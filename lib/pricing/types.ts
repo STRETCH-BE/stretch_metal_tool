@@ -729,6 +729,8 @@ export type FlagCode =
   | "material.substituted"
   | "customer.vat_id_missing"
   | "shipping.missing"
+  /** No vat_rates row for the company's home country — the taxed modes would print 0 %. */
+  | "vat.no_rate"
   | "rates.placeholder";
 
 export type Flag = {

@@ -41,10 +41,25 @@ describe("computeVat matrix", () => {
     expect(on.flags).toEqual([]);
   });
 
-  it("OSS on but the destination has no vat_rates row (IT) → the PL rate, b2c_domestic, no flag", () => {
-    const r = vat("b2c", "IT", null, true)!;
-    expect(r.vat).toMatchObject({ mode: "b2c_domestic", ratePct: 23, countryCode: "PL" });
-    expect(r.flags).toEqual([]);
+  it("OSS on but the destination has no vat_rates row (IT) → the PL rate, b2c_domestic, amber vat.no_rate (design §3.4)", () => {
+    const rates = { ...JOB_RATE_DEFAULTS, ossActive: true };
+    const r = computeVat({ customerType: "b2c", customerCountry: "IT", customerVatId: null, netTotalEur: 1000 }, rates)!;
+    expect(r.vat).toMatchObject({ mode: "b2c_domestic", ratePct: 23, countryCode: "PL", grossTotal: 1230 });
+    expect(r.flags).toEqual([expect.objectContaining({ code: "vat.no_rate", severity: "amber", overridable: true, params: { countryCode: "IT", fallbackPct: 23 } })]);
+  });
+
+  it("no vat_rates row for the home country → the taxed modes are red vat.no_rate (never a silent 0 %)", () => {
+    const rates = { ...JOB_RATE_DEFAULTS, vatRates: { FI: 25.5, DE: 19 } };
+    const pl = computeVat({ customerType: "b2b", customerCountry: "PL", customerVatId: "PL5732911703", netTotalEur: 1000 }, rates)!;
+    expect(pl.vat).toMatchObject({ mode: "pl_domestic", ratePct: 0 });
+    expect(pl.flags).toEqual([expect.objectContaining({ code: "vat.no_rate", severity: "red", overridable: false, params: { countryCode: "PL" } })]);
+    const abroad = computeVat({ customerType: "b2c", customerCountry: "FI", customerVatId: null, netTotalEur: 1000 }, rates)!;
+    expect(abroad.vat.mode).toBe("b2c_domestic");
+    expect(abroad.flags.some((f) => f.code === "vat.no_rate" && f.severity === "red")).toBe(true);
+    // a VAT id abroad never needs the home row
+    const rc = computeVat({ customerType: "b2b", customerCountry: "DE", customerVatId: "DE123", netTotalEur: 1000 }, rates)!;
+    expect(rc.vat.mode).toBe("reverse_charge");
+    expect(rc.flags).toEqual([]);
   });
 
   it("DE b2b without a VAT id → 23 % (b2c_domestic) + amber customer.vat_id_missing (overridable); OSS does not change a B2B customer", () => {

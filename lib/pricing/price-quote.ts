@@ -70,10 +70,10 @@
  *   JobRates.placeholder.
  */
 
-import { accumulateAssemblyCosts, partitionItems, priceAssemblies } from "./assembly";
+import { accumulateAssemblyCosts, effectiveMemberPart, partitionItems, priceAssemblies } from "./assembly";
 import { PricingError } from "./errors";
 import { evaluateQuoteFlags } from "./feasibility";
-import { formingHint, formingSuspected } from "./forming";
+import { assessForming, formingHint, formingSuspected, type FormingAssessment } from "./forming";
 import { OPERATION_LABELS } from "./labels";
 import { priceMarketQuote } from "./market";
 import { buildItemOperations } from "./operations";
@@ -88,6 +88,8 @@ import {
   priceFromCost,
   type Flag,
   type JobRates,
+  type PricingAssembly,
+  type PricingItem,
   type MachinePark,
   type OperationLine,
   type OperationType,
@@ -263,11 +265,85 @@ function looseFormingSuspected(part: Parameters<typeof formingSuspected>[0], for
   return formingSuspected(part, forming) && formingHint(part) !== "roll_annotation";
 }
 
+/** A forming line of a loose item (kept apart from the mode's own lines in the totals). */
+function isLooseFormingLine(line: OperationLine): boolean {
+  return line.details.looseForming === true;
+}
+
+/**
+ * Forming operations of a LOOSE item (design §3: operations live on the
+ * item; an unresolved infeasible one makes it unpriceable). Step bending
+ * and in-house rolling are labour at the assembly labour rate, priced
+ * cost-plus at the header margin like every non-benchmarked line;
+ * subcontracting is the supplier's cost × (1 + subcontract margin), a
+ * pass-through. The same label keys as the assembly lines.
+ */
+function looseFormingLines(item: PricedItem, assessment: FormingAssessment, jobRates: JobRates, marginPct: number): { lines: OperationLine[]; unitCost: number; unitPrice: number } {
+  const a = jobRates.assembly;
+  const perMin = a.labourRateEurH / 60;
+  const factor = marginPct < 100 ? 1 / (1 - marginPct / 100) : 1;
+  const lines: OperationLine[] = [];
+  let unitCost = 0;
+  let unitPrice = 0;
+  const base = { setupShare: 0, auto: true, notes: null } as const;
+  for (const charge of assessment.charges) {
+    if (charge.kind === "step_bend") {
+      const cost = charge.minutes * perMin;
+      lines.push({
+        ...base,
+        id: `${item.itemId}:step-bend:${charge.opId}`,
+        type: "bend",
+        label: OPERATION_LABELS.stepBend,
+        driverQty: charge.hits,
+        driverUnit: "bend",
+        rateRef: { table: "manual", key: "assembly_rates/step_bend_seconds_per_hit", values: { stepBendSecondsPerHit: a.stepBendSecondsPerHit, labourRateEurH: a.labourRateEurH, placeholder: jobRates.placeholder } },
+        unitCost: cost,
+        details: { looseForming: true, opId: charge.opId, hits: charge.hits, radiusMm: charge.radiusMm, angleDeg: charge.angleDeg, secondsPerHit: a.stepBendSecondsPerHit, minutes: charge.minutes, priceEur: cost * factor },
+      });
+      unitCost += cost;
+      unitPrice += cost * factor;
+    } else if (charge.kind === "roll") {
+      const cost = charge.minutes * perMin;
+      lines.push({
+        ...base,
+        id: `${item.itemId}:roll-forming:${charge.opId}`,
+        type: "roll",
+        label: OPERATION_LABELS.rollForming,
+        driverQty: charge.metres,
+        driverUnit: "m",
+        rateRef: { table: "manual", key: "assembly_rates/roll_min_per_m", values: { rollMinPerM: a.rollMinPerM, labourRateEurH: a.labourRateEurH, placeholder: jobRates.placeholder } },
+        unitCost: cost,
+        details: { looseForming: true, opId: charge.opId, widthMm: charge.widthMm, rollMinPerM: a.rollMinPerM, minutes: charge.minutes, priceEur: cost * factor },
+      });
+      unitCost += cost;
+      unitPrice += cost * factor;
+    } else if (charge.kind === "subcontract") {
+      lines.push({
+        ...base,
+        id: `${item.itemId}:subcontract:${charge.opId}`,
+        type: charge.operation === "roll" ? "roll" : "bend",
+        label: OPERATION_LABELS.subcontractForming,
+        driverQty: 1,
+        driverUnit: "part",
+        rateRef: { table: "manual", key: "company_settings/subcontract_margin_pct", values: { supplier: charge.supplier, costEur: charge.costEur, marginPct: charge.marginPct, placeholder: false } },
+        unitCost: charge.pricedEur,
+        details: { looseForming: true, opId: charge.opId, operation: charge.operation, supplier: charge.supplier, costEur: charge.costEur, marginPct: charge.marginPct, pricedEur: charge.pricedEur, extraLeadDays: charge.extraLeadDays, subcontract: true, priceEur: charge.pricedEur },
+      });
+      unitCost += charge.pricedEur;
+      unitPrice += charge.pricedEur;
+    }
+    // "bend": a feasible in-house bend operation — the part's bend lines already price it.
+  }
+  return { lines, unitCost, unitPrice };
+}
+
 function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: MachinePark, options: JobQuoteOptions): PricedQuote {
   const { jobRates } = options;
   const market = rates.general.pricingMode === "market";
   const partsById = new Map(input.parts.map((p) => [p.id, p] as const));
-  const { loose, assemblies } = partitionItems(input);
+  const { loose, assemblies, membersByAssembly } = partitionItems(input);
+  const memberSource = new Map<string, { item: PricingItem; assembly: PricingAssembly }>();
+  for (const assembly of assemblies) for (const member of membersByAssembly.get(assembly.id) ?? []) memberSource.set(member.id, { item: member, assembly });
 
   // 1. Loose lines by the mode's own pricer (members excluded, no scale, no legacy packaging).
   const looseInput: QuoteInput = { ...input, items: loose, assemblies: [], priceScale: [] };
@@ -275,12 +351,33 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
     ? priceMarketQuote(looseInput, rates, machines, { costRates: options.costRates, priceCost: priceCostQuote, skipPackaging: true })
     : priceCostQuote(looseInput, rates, machines);
 
+  // 1b. Forming on loose items: the suspected-forming guard, then the item's own
+  //     operations (flags, labour / subcontract lines, unpriceable while unresolved).
+  let looseFormingCost = 0;
   const looseItems: PricedItem[] = base.items.map((item) => {
     const source = loose.find((i) => i.id === item.itemId);
     const part = partsById.get(item.partId);
-    if (!source || !part || !looseFormingSuspected(part, source.forming)) return item;
-    const flag: Flag = { code: "forming.suspected", severity: "red", partId: part.id, itemId: item.itemId, params: { hint: formingHint(part) ?? "" }, overridable: false };
-    return { ...item, flags: [...item.flags, flag] };
+    if (!source || !part) return item;
+    let out = item;
+    if (looseFormingSuspected(part, source.forming)) {
+      const flag: Flag = { code: "forming.suspected", severity: "red", partId: part.id, itemId: item.itemId, params: { hint: formingHint(part) ?? "" }, overridable: false };
+      out = { ...out, flags: [...out.flags, flag] };
+    }
+    if ((source.forming?.length ?? 0) === 0) return out;
+    const assessment = assessForming(source.forming, { thicknessMm: part.thicknessMm, materialCode: part.materialCode, machines, partId: part.id, itemId: item.itemId, rates, jobRates });
+    const forming = looseFormingLines(out, assessment, jobRates, input.marginPct);
+    const unitCost = out.unitCost + forming.unitCost;
+    const unitPrice = assessment.unresolved || out.unitPrice === null ? null : out.unitPrice + forming.unitPrice;
+    looseFormingCost += forming.unitCost * out.qty;
+    return {
+      ...out,
+      operations: [...out.operations, ...forming.lines],
+      unitCost,
+      unitPrice,
+      batchCost: unitCost * out.qty,
+      batchPrice: unitPrice === null ? null : unitPrice * out.qty,
+      flags: [...out.flags, ...assessment.flags],
+    };
   });
 
   // 2. Assemblies (nests already charged by the loose lines are not charged again).
@@ -299,10 +396,16 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
   }
   for (const item of assembled.items) {
     const part = partsById.get(item.partId);
-    if (part) packed.push(packedPart(part, item, rates));
+    const source = memberSource.get(item.itemId);
+    // A member inherits the assembly's material / thickness for its mass too.
+    if (part) packed.push(packedPart(source ? effectiveMemberPart(part, source.item, source.assembly) : part, item, rates));
   }
   const packaging = packagingForParts(packed, jobRates.packaging, jobRates.placeholder);
-  const quoteLines: OperationLine[] = [...base.quoteLines.filter((l) => l.type !== "packaging"), ...(packaging.line ? [packaging.line] : [])];
+  // Market quote-level lines other than packaging (finish minimums) are
+  // selling-price top-ups: kept in quoteLines and subtotalPrice, already in
+  // the market totals — never cost, never pass-throughs.
+  const topUps: OperationLine[] = base.quoteLines.filter((l) => l.type !== "packaging");
+  const quoteLines: OperationLine[] = [...topUps, ...(packaging.line ? [packaging.line] : [])];
   const shipping = shippingLine(input.shipping ?? null, jobRates.shipping, packaging.envelope.grossKg, {
     customerCountry: input.customerCountry ?? null,
     homeCountry: jobRates.homeCountry,
@@ -316,8 +419,17 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
   if (market) {
     for (const [type, bucket] of Object.entries(base.totalsByType) as [OperationType, { cost: number; price: number }][]) totalsByType[type] = { ...bucket };
   } else {
-    for (const item of looseItems) accumulate(totalsByType, item.operations, item.qty, marginPct);
+    for (const item of looseItems) accumulate(totalsByType, item.operations.filter((l) => !isLooseFormingLine(l)), item.qty, marginPct);
     if (welding) accumulate(totalsByType, welding.operations, 1, marginPct);
+  }
+  // Loose forming lines carry their own price (cost-plus labour, pass-through subcontract).
+  for (const item of looseItems) {
+    for (const l of item.operations.filter(isLooseFormingLine)) {
+      const bucket = totalsByType[l.type] ?? { cost: 0, price: 0 };
+      bucket.cost += l.unitCost * item.qty;
+      bucket.price += Number(l.details.priceEur ?? l.unitCost) * item.qty;
+      totalsByType[l.type] = bucket;
+    }
   }
   for (const assembly of assembled.assemblies) {
     const costs: Partial<Record<OperationType, number>> = {};
@@ -330,7 +442,8 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
       totalsByType[type] = bucket;
     }
   }
-  const passThrough: OperationLine[] = [...quoteLines, ...(shipping.line ? [shipping.line] : [])];
+  // Pass-throughs (cost = price): the packaging and shipping lines this pricer created.
+  const passThrough: OperationLine[] = [...(packaging.line ? [packaging.line] : []), ...(shipping.line ? [shipping.line] : [])];
   for (const l of passThrough) {
     const bucket = totalsByType[l.type] ?? { cost: 0, price: 0 };
     bucket.cost += l.unitCost;
@@ -338,13 +451,14 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
     totalsByType[l.type] = bucket;
   }
 
-  const looseCost = market ? base.subtotalCost : looseItems.reduce((s, i) => s + i.batchCost, 0) + (welding?.cost ?? 0);
+  const looseCost = market ? base.subtotalCost + looseFormingCost : looseItems.reduce((s, i) => s + i.batchCost, 0) + (welding?.cost ?? 0);
   const loosePrice = looseItems.reduce((s, i) => s + (i.batchPrice ?? 0), 0) + (welding?.price ?? 0);
   const assemblyCost = assembled.assemblies.reduce((s, a) => s + a.batchCost, 0);
   const assemblyPrice = assembled.assemblies.reduce((s, a) => s + (a.batchPrice ?? 0), 0);
   const passThroughEur = passThrough.reduce((s, l) => s + l.unitCost, 0);
+  const topUpEur = topUps.reduce((s, l) => s + l.unitCost, 0);
   const subtotalCost = looseCost + assemblyCost + passThroughEur;
-  const subtotalPrice = loosePrice + assemblyPrice + passThroughEur;
+  const subtotalPrice = loosePrice + assemblyPrice + passThroughEur + topUpEur;
 
   const realisedMarginPct = subtotalPrice > 0 ? (1 - subtotalCost / subtotalPrice) * 100 : 0;
   const reportedMarginPct = market ? (options.costRates ? realisedMarginPct : 0) : input.marginPct;
@@ -354,7 +468,8 @@ function priceJobQuote(input: QuoteInput, rates: RateSnapshot, machines: Machine
   const allLines: OperationLine[] = [
     ...items.flatMap((i) => i.operations),
     ...assembled.assemblies.flatMap((a) => a.operations),
-    ...passThrough,
+    ...quoteLines,
+    ...(shipping.line ? [shipping.line] : []),
     ...(welding?.operations ?? []),
   ];
   const placeholders = allLines.filter((op) => op.rateRef.values.placeholder === true).length;

@@ -65,6 +65,7 @@ const FLAG_CODES: FlagCode[] = [
   "material.substituted",
   "customer.vat_id_missing",
   "shipping.missing",
+  "vat.no_rate",
   "rates.placeholder",
   "sheet.bend_deduction_unverified",
   "sheet.masking_not_priced",

@@ -729,6 +729,7 @@ const FLAG_CODES = {
   "material.substituted": true,
   "customer.vat_id_missing": true,
   "shipping.missing": true,
+  "vat.no_rate": true,
   "rates.placeholder": true,
   "sheet.bend_deduction_unverified": true,
   "sheet.masking_not_priced": true,
